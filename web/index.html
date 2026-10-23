@@ -28,7 +28,7 @@ const $=s=>document.querySelector(s), root=$("#windows"), welcome=$("#welcome"),
 const icons={home:"⌂",launcher:"▦",notes:"▤",hands:"✋",settings:"⚙",clock:"◷",calc:"⌗",files:"▱",gallery:"▧",spaces:"▣"};
 const titles={home:"Início",launcher:"Aplicativos",notes:"Notas",hands:"Rastreamento das mãos",settings:"Ajustes",clock:"Relógio",calc:"Calculadora",files:"Arquivos",gallery:"Galeria",spaces:"Janelas"};
 const store=(k,v)=>localStorage.setItem("vros."+k,JSON.stringify(v));
-const load=(k,d)=>{try{return JSON.parse(localStorage.getItem("vros."+k))??"null")??d}catch{return d}};
+const load=(k,d)=>{try{return JSON.parse(localStorage.getItem("vros."+k)??"null")??d}catch{return d}};
 const state={wins:[],z:20,hand:false,stream:null,tracker:null,frame:0,lastTime:0,pinch:[false,false],cursor:[null,null],activeHand:null,gestureTarget:null,gestureWindow:null,gestureMode:null,handFrames:0,handFps:0,handSensitivity:load("sensitivity",1),mirrored:load("mirrored",true),accent:load("accent","#a4c8ff"),seconds:0,running:false,started:0,files:load("files",[]),gallery:load("gallery",[])};
 document.documentElement.style.setProperty("--accent",state.accent);
 function toast(msg){const t=$("#toast");t.textContent=msg;t.style.display="block";clearTimeout(toast.timer);toast.timer=setTimeout(()=>t.style.display="none",3400)}
