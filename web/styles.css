@@ -77,8 +77,8 @@ body.started #welcome{display:none}
 .window-controls{display:flex;align-items:center;gap:5px;order:0}
 .window-controls button{height:32px;width:32px;min-width:32px;border:1px solid rgba(255,255,255,.085);border-radius:10px;background:rgba(255,255,255,.07);display:grid;place-items:center;transition:background .13s}
 .window-controls button svg{width:14px;height:14px}
-.window-controls button[data-action="close"]{background:rgba(231,102,111,.13);color:#f8a7a8}
-.window-controls button[data-action="close"]:hover,.window-controls button[data-action="close"]:active{background:rgba(231,102,111,.4)}
+.window-controls button[data-win="close"]{background:rgba(231,102,111,.13);color:#f8a7a8}
+.window-controls button[data-win="close"]:hover,.window-controls button[data-win="close"]:active{background:rgba(231,102,111,.4)}
 .window-controls button:hover{background:rgba(255,255,255,.18)}
 .window-title{order:1;flex:1;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;font-weight:630;color:#eef3fa}
 .window-pin{order:2;border:0;border-radius:10px;background:transparent;display:grid;place-items:center;width:31px;height:31px;cursor:pointer}
@@ -167,3 +167,15 @@ body.debug-hands #landmarkCanvas{display:block}
 }
 @media(max-width:530px){.brand small{display:none}.track-state{max-width:32vw}.dock-item{min-width:49px}.photos{grid-template-columns:repeat(3,1fr)}}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{transition:none!important;animation:none!important}}
+
+/* Safari cannot supply real AR hand-occlusion/depth. Avoid heavily blurring the
+   camera underneath windows while gestures are active; brighten interaction targets. */
+body.hand-control-active .spatial-window{-webkit-backdrop-filter:blur(6px) saturate(1.05);backdrop-filter:blur(6px) saturate(1.05)}
+body.hand-control-active .spatial-window.hand-near{background:rgba(13,21,30,.47);-webkit-backdrop-filter:blur(1px);backdrop-filter:blur(1px);border-color:rgba(193,220,254,.5)}
+body.hand-control-active .spatial-window.hand-near .window-head{background:rgba(12,20,29,.40)}
+.hand-hover{box-shadow:0 0 0 4px rgba(177,219,255,.15)!important}
+@media (orientation:landscape) and (max-height:500px){
+  .window-controls{gap:4px}.window-controls button{height:36px;width:36px;min-width:36px}
+  .window-head{height:44px;min-height:44px;flex-basis:44px}
+  .window-pin{height:36px;width:36px}
+}
