@@ -1,4 +1,4 @@
-const KEY='vros-spatial-shell-v2.2';
+const KEY='vros-spatial-shell-v2.3';
 const FILES=['./','./index.html','./styles.css','./app.js','./icon.svg','./manifest.webmanifest'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(KEY).then(cache=>cache.addAll(FILES)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key.startsWith('vros-spatial-shell-')&&key!==KEY).map(key=>caches.delete(key)))).then(()=>self.clients.claim())));
