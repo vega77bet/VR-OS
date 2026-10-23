@@ -1,4 +1,4 @@
-# VR OS Spatial 2 (Web)
+# VR OS Spatial 2.3 (Web)
 
 Versão experimental para navegador, preparada para **iPhone na horizontal**.
 A interface é um ambiente de janelas 3D angularmente ancoradas por **orientação do telefone** (DeviceOrientation), com câmera traseira ocupando a tela inteira. É **passthrough experimental**, não ARKit.
@@ -37,3 +37,17 @@ Os testes usam câmera sintética e cobrem paisagem/retrato/desktop, criação/f
 ## Privacidade
 
 A imagem da câmera é analisada localmente no navegador para visualização e gestos. A biblioteca MediaPipe é carregada de CDN. Não há backend para upload automático de fotos, arquivos ou transmissão da câmera.
+
+## Correções de estabilidade (2.3)
+
+- Animação do giroscópio agora converge ao valor do sensor mesmo sem novos eventos, sem parar prematuramente.
+- Trocar câmera preserva a sessão de gestos e tenta reativar o mesmo modelo após a troca; fallback se falhar.
+- Estado minimizado restaurado; IDs estáveis; arraste limitado a uma região recuperável na tela.
+- Layout considera a escala e a barra superior no iPhone na horizontal, evitando controles cortados.
+- Alvos dos botões de janela ampliados; cor do botão Fechar corrigida.
+- Janela mais transparente onde a mão aponta, diminuindo o problema visual de oclusão (não é profundidade física).
+- Indicadores de mãos mais estáveis e erros ocasionais de GPU tolerados.
+- IndexedDB com timeout e tratamento de aba bloqueada; sem travar indefinidamente a interface.
+- Cache da PWA atualizado para impedir carregamento de arquivos antigos.
+
+**Importante:** testes automatizados são feitos com Chromium e câmera sintética. iPhone Safari e a lente ultra-angular reais ainda exigem validação no aparelho.
