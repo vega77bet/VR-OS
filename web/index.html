@@ -44,14 +44,14 @@
 #hand1.pinch,#hand2.pinch{width:22px;height:22px}
 @media(max-width:620px){.window .titlebar{min-height:60px}.window .traffic button{width:36px;height:36px}}
 </style>
-<div id="worldBadge">◉ Passagem de câmera · modo experimental</div>
+<div id="worldBadge">◉ Câmera traseira · lente não confirmada</div>
 <script type="module">
 const $=s=>document.querySelector(s), root=$("#windows"), welcome=$("#welcome"), status=$("#trackingStatus");
 const icons={home:"⌂",launcher:"▦",notes:"▤",hands:"✋",settings:"⚙",clock:"◷",calc:"⌗",files:"▱",gallery:"▧",spaces:"▣"};
 const titles={home:"Início",launcher:"Aplicativos",notes:"Notas",hands:"Rastreamento das mãos",settings:"Ajustes",clock:"Relógio",calc:"Calculadora",files:"Arquivos",gallery:"Galeria",spaces:"Janelas"};
 const store=(k,v)=>localStorage.setItem("vros."+k,JSON.stringify(v));
 const load=(k,d)=>{try{return JSON.parse(localStorage.getItem("vros."+k)??"null")??d}catch{return d}};
-const state={reality:false,worldStream:null,orientationBase:null,orientationCurrent:null,viewX:0,viewY:0,hasMotion:false,wins:[],z:20,hand:false,stream:null,tracker:null,frame:0,lastTime:0,pinch:[false,false],cursor:[null,null],activeHand:null,gestureTarget:null,gestureWindow:null,gestureMode:null,handFrames:0,handFps:0,handSensitivity:load("sensitivity",1),showHand:false,showSkeleton:load("showSkeleton",false),mirrored:load("mirrored",false),accent:load("accent","#a4c8ff"),seconds:0,running:false,started:0,files:load("files",[]),gallery:load("gallery",[])};
+const state={reality:false,worldStream:null,orientationBase:null,orientationCurrent:null,viewX:0,viewY:0,hasMotion:false,wins:[],z:20,hand:false,stream:null,tracker:null,frame:0,lastTime:0,pinch:[false,false],cursor:[null,null],activeHand:null,gestureTarget:null,gestureWindow:null,gestureMode:null,handFrames:0,handFps:0,handSensitivity:load("sensitivity",1),showHand:false,cameraPreference:load("cameraPreference","ultrawide"),cameraDevices:[],activeCameraLabel:"",showSkeleton:load("showSkeleton",false),mirrored:load("mirrored",false),accent:load("accent","#a4c8ff"),seconds:0,running:false,started:0,files:load("files",[]),gallery:load("gallery",[])};
 document.documentElement.style.setProperty("--accent",state.accent);
 const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
 function angularDelta(a,b){return ((a-b+540)%360)-180}
@@ -73,6 +73,59 @@ $("#recenterButton").onclick=()=>{
  state.viewX=0;state.viewY=0;$("#windows").style.transform="translate3d(0,0,0)";
  toast("Janelas recentralizadas");
 };
+function getRearCandidates(devices){
+ const rear=devices.filter(d=>/back|rear|traseir|ambiente|environment/i.test(d.label));
+ return rear.length?rear:devices.filter(d=>d.kind==="videoinput");
+}
+function findUltraWide(devices){
+ return devices.find(d=>/ultra.?wide|ultra.?angular|0[,.]5\s?x|0\.5\s?x/i.test(d.label));
+}
+async function discoverCameras(){
+ try{
+  const devices=await navigator.mediaDevices.enumerateDevices();
+  state.cameraDevices=getRearCandidates(devices.filter(d=>d.kind==="videoinput"));
+  return state.cameraDevices;
+ }catch(err){console.warn("Camera enumeration",err);state.cameraDevices=[];return []}
+}
+async function switchCamera(preference,quiet=false){
+ if(!state.reality && !state.worldStream)return false;
+ const video=$("#worldVideo");
+ const old=state.worldStream;
+ let candidate=null;
+ if(preference.startsWith("device:"))candidate=state.cameraDevices.find(d=>d.deviceId===preference.slice(7));
+ else if(preference==="ultrawide")candidate=findUltraWide(state.cameraDevices);
+ if(preference==="ultrawide"&&!candidate){
+  state.cameraPreference=preference;store("cameraPreference",preference);
+  state.activeCameraLabel=old?.getVideoTracks()?.[0]?.label||"Câmera traseira automática";
+  $("#worldBadge").textContent="◉ Câmera ativa · 0,5x não identificada";
+  if(!quiet)toast("O Safari não identificou uma lente 0,5x. Mantive a câmera atual.");
+  return false;
+ }
+ try{
+  // Stop the existing track first: iOS may refuse a second simultaneous camera.
+  old?.getTracks().forEach(t=>t.stop());
+  const constraints=candidate
+   ? {deviceId:{exact:candidate.deviceId},width:{ideal:960},height:{ideal:720},frameRate:{ideal:30}}
+   : {facingMode:{ideal:"environment"},width:{ideal:960},height:{ideal:720},frameRate:{ideal:30}};
+  const stream=await navigator.mediaDevices.getUserMedia({audio:false,video:constraints});
+  video.srcObject=stream;await video.play();
+  state.worldStream=stream;
+  state.cameraPreference=preference;store("cameraPreference",preference);
+  state.activeCameraLabel=stream.getVideoTracks()[0]?.label||candidate?.label||"Câmera não identificada";
+  $("#worldBadge").textContent="◉ "+(candidate?.label||"Câmera traseira")+" · experimental";
+  if(!quiet)toast("Câmera selecionada: "+state.activeCameraLabel);
+  return true;
+ }catch(err){
+  console.warn("Camera switch",err);
+  try{
+   const fallback=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:"environment"}}});
+   video.srcObject=fallback;await video.play();state.worldStream=fallback;
+   state.activeCameraLabel=fallback.getVideoTracks()[0]?.label||"Câmera traseira";
+  }catch(fallbackError){console.error("Camera fallback",fallbackError);state.activeCameraLabel="Câmera indisponível"}
+  if(!quiet)toast("Não foi possível trocar a lente; tentando câmera traseira automática.");
+  return false;
+ }
+}
 async function startReality(){
  const msg=$("#realityMessage"),btn=$("#startReality");
  btn.disabled=true;btn.textContent="Abrindo câmera...";
@@ -85,6 +138,10 @@ async function startReality(){
   const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},width:{ideal:960},height:{ideal:720},frameRate:{ideal:30}},audio:false});
   state.worldStream=stream;
   const video=$("#worldVideo");video.srcObject=stream;await video.play();
+  await discoverCameras();
+  state.activeCameraLabel=stream.getVideoTracks()[0]?.label||"Câmera traseira automática";
+  if(state.cameraPreference==="ultrawide"||state.cameraPreference.startsWith("device:"))await switchCamera(state.cameraPreference,true);
+  else $("#worldBadge").textContent="◉ "+state.activeCameraLabel+" · experimental";
   state.reality=true;document.body.classList.add("reality");
   const permission=await orientationPermission;
   $("#trackingStatus").textContent=permission==="denied"?"● Câmera · sem sensores":"● Câmera ativa";
@@ -106,7 +163,7 @@ case "home":return '<h2>VR OS Spatial</h2><p class="muted">A câmera é seu ambi
 case "launcher":return '<h2>Aplicativos</h2><div class="tilegrid">'+Object.keys(titles).filter(k=>k!=="launcher").map(k=>'<button class="tile" data-open="'+k+'"><span class="glyph">'+icons[k]+'</span>'+titles[k]+'</button>').join("")+'</div>';
 case "notes":return '<h2>Suas notas</h2><textarea class="input" id="noteText" placeholder="Comece a escrever...">'+escapeHTML(load("notes",""))+'</textarea><p class="hint">Salvo automaticamente neste navegador.</p>';
 case "hands":return '<h2>Controle por gestos</h2><p class="hint">Mostre suas mãos para a câmera traseira, no ambiente à frente do iPhone. Indicador move o cursor; pinça entre indicador e polegar clica ou arrasta; duas pinças juntas redimensionam a janela. O modelo roda no seu dispositivo. A mão completa pode aparecer à frente da janela. A oclusão é estimada pelos 21 pontos, não por um sensor de profundidade.</p><div class="row"><button class="btn primary" id="handToggle">'+(state.hand?"Desativar câmera":"Ativar rastreamento")+'</button><span id="handInfo" class="badge">'+(state.hand?"Ativo":"Desligado")+'</span></div><div class="setting"><label for="sensitivity">Sensibilidade</label><input id="sensitivity" type="range" min=".5" max="1.7" step=".1" value="'+state.handSensitivity+'"></div><div class="setting"><label for="showHand">Recorte da mão (experimental, pode falhar)</label><input type="checkbox" id="showHand" '+(state.showHand?"checked":"")+'></div><div class="setting"><label for="showSkeleton">Visualizar 21 pontos da mão</label><input type="checkbox" id="showSkeleton" '+(state.showSkeleton?"checked":"")+'></div><div class="setting"><label for="mirror">Espelhar movimento</label><input type="checkbox" id="mirror" '+(state.mirrored?"checked":"")+'></div><p class="hint">Requer HTTPS, câmera e conexão inicial para carregar o modelo. A ancoragem por sensores é aproximada, não é ARKit. Se não funcionar, use toque ou mouse.</p>';
-case "settings":return '<h2>Personalização</h2><div class="setting"><span>Cor de destaque</span><input type="color" id="accent" value="'+state.accent+'"></div><div class="setting"><span>Fundo espacial</span><select id="wallpaper"><option value="space">Espacial</option><option value="night">Noite</option><option value="deep">Profundo</option></select></div><div class="setting"><span>Transparência</span><input id="opacity" type="range" min=".55" max=".96" step=".01" value="'+load("opacity",.74)+'"></div><div class="setting"><span>Redefinir posições</span><button class="btn" id="resetWindows">Organizar</button></div><p class="hint">Suas preferências e notas ficam armazenadas neste navegador.</p>';
+case "settings":return '<h2>Personalização</h2><div class="setting"><span>Câmera traseira</span><select id="cameraChoice"><option value="ultrawide" '+(state.cameraPreference==="ultrawide"?"selected":"")+'>0,5x (tentar ultra-angular)</option><option value="auto" '+(state.cameraPreference==="auto"?"selected":"")+'>Automática</option></select></div><p id="cameraInfo" class="hint">Lente em uso: '+escapeHTML(state.activeCameraLabel||"Ainda não identificada")+'</p><div class="row"><button id="refreshCameras" class="btn">Procurar câmeras</button></div><div class="setting"><span>Cor de destaque</span><div class="setting"><span>Cor de destaque</span><input type="color" id="accent" value="'+state.accent+'"></div><div class="setting"><span>Fundo espacial</span><select id="wallpaper"><option value="space">Espacial</option><option value="night">Noite</option><option value="deep">Profundo</option></select></div><div class="setting"><span>Transparência</span><input id="opacity" type="range" min=".55" max=".96" step=".01" value="'+load("opacity",.74)+'"></div><div class="setting"><span>Redefinir posições</span><button class="btn" id="resetWindows">Organizar</button></div><p class="hint">Suas preferências e notas ficam armazenadas neste navegador.</p>';
 case "clock":return '<h2>Relógio</h2><div class="clock" id="liveClock">--:--:--</div><p id="today" class="muted"></p><hr style="border:0;border-top:1px solid var(--stroke);margin:20px 0"><h2>Cronômetro</h2><div class="clock" id="stopwatch">00:00.0</div><div class="row"><button class="btn primary" id="startStop">Iniciar</button><button class="btn" id="resetStop">Zerar</button></div>';
 case "calc":return '<h2>Calculadora</h2><input class="input" id="calcScreen" value="0" readonly style="text-align:right;font-size:29px;margin-bottom:12px"><div class="calc">'+["C","(",")","÷","7","8","9","×","4","5","6","−","1","2","3","+","0",".","⌫","="].map(s=>'<button data-key="'+s+'">'+s+'</button>').join("")+'</div>';
 case "files":return '<h2>Arquivos</h2><button class="btn primary" id="importFiles">Importar arquivos</button><button class="btn" id="newFile">Criar texto</button><div id="fileList"></div><p class="hint">Arquivos pequenos ficam salvos localmente; arquivos grandes não são armazenados.</p>';
@@ -147,7 +204,22 @@ const el=w.el, q=s=>el.querySelector(s);
 el.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>openApp(b.dataset.open));
 if(w.kind==="notes")q("#noteText").oninput=e=>store("notes",e.target.value);
 if(w.kind==="hands"){q("#handToggle").onclick=()=>state.hand?stopHands():startHands();q("#sensitivity").oninput=e=>{state.handSensitivity=+e.target.value;store("sensitivity",state.handSensitivity)};q("#mirror").onchange=e=>{state.mirrored=e.target.checked;store("mirrored",state.mirrored)};q("#showHand").onchange=e=>{state.showHand=e.target.checked;store("showHand",state.showHand)};q("#showSkeleton").onchange=e=>{state.showSkeleton=e.target.checked;store("showSkeleton",state.showSkeleton)}}
-if(w.kind==="settings"){q("#accent").oninput=e=>{state.accent=e.target.value;document.documentElement.style.setProperty("--accent",state.accent);store("accent",state.accent)};q("#opacity").oninput=e=>{document.documentElement.style.setProperty("--glass","rgba(25,31,44,"+e.target.value+")");store("opacity",+e.target.value)};q("#wallpaper").onchange=e=>{const colors={space:"#090d16",night:"#050609",deep:"#071b22"};$("#space").style.background=colors[e.target.value]};q("#resetWindows").onclick=()=>{state.wins.forEach((v,i)=>{v.el.style.left=Math.max(10,innerWidth/2-260+(i%4)*35)+"px";v.el.style.top=Math.max(70,innerHeight/2-200+(i%4)*30)+"px"});saveLayout();toast("Janelas organizadas")}}
+if(w.kind==="settings"){
+ const choice=q("#cameraChoice");
+ function fillCameraOptions(){
+  choice.querySelectorAll("option[data-camera]").forEach(o=>o.remove());
+  state.cameraDevices.forEach((d,i)=>{
+   const opt=document.createElement("option");opt.value="device:"+d.deviceId;
+   opt.dataset.camera="1";opt.textContent=d.label||("Câmera "+(i+1));
+   if(state.cameraPreference===opt.value)opt.selected=true;
+   choice.appendChild(opt);
+  });
+  q("#cameraInfo").textContent="Câmera em uso: "+(state.activeCameraLabel||"Não identificada")+". 0,5x depende das lentes que o Safari expõe.";
+ }
+ fillCameraOptions();
+ choice.onchange=async e=>{await switchCamera(e.target.value,false);fillCameraOptions()};
+ q("#refreshCameras").onclick=async()=>{await discoverCameras();fillCameraOptions();toast(state.cameraDevices.length+" câmera(s) disponível(is)")};
+ q("#accent").oninput=e=>{state.accent=e.target.value;document.documentElement.style.setProperty("--accent",state.accent);store("accent",state.accent)};q("#opacity").oninput=e=>{document.documentElement.style.setProperty("--glass","rgba(25,31,44,"+e.target.value+")");store("opacity",+e.target.value)};q("#wallpaper").onchange=e=>{const colors={space:"#090d16",night:"#050609",deep:"#071b22"};$("#space").style.background=colors[e.target.value]};q("#resetWindows").onclick=()=>{state.wins.forEach((v,i)=>{v.el.style.left=Math.max(10,innerWidth/2-260+(i%4)*35)+"px";v.el.style.top=Math.max(70,innerHeight/2-200+(i%4)*30)+"px"});saveLayout();toast("Janelas organizadas")}}
 if(w.kind==="clock"){const refresh=()=>{if(!el.isConnected)return;const now=new Date();q("#liveClock").textContent=now.toLocaleTimeString("pt-BR");q("#today").textContent=now.toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"});const ms=state.seconds+(state.running?Date.now()-state.started:0);q("#stopwatch").textContent=String(Math.floor(ms/60000)).padStart(2,"0")+":"+String(Math.floor(ms/1000)%60).padStart(2,"0")+"."+(Math.floor(ms/100)%10);q("#startStop").textContent=state.running?"Pausar":"Iniciar"};refresh();const timer=setInterval(()=>{if(!el.isConnected){clearInterval(timer);return}refresh()},100);q("#startStop").onclick=()=>{if(state.running){state.seconds+=Date.now()-state.started;state.running=false}else{state.started=Date.now();state.running=true}refresh()};q("#resetStop").onclick=()=>{state.running=false;state.seconds=0;refresh()}}
 if(w.kind==="calc"){let expr="";q(".calc").onclick=e=>{const b=e.target.closest("[data-key]");if(!b)return;const k=b.dataset.key;if(k==="C")expr="";else if(k==="⌫")expr=expr.slice(0,-1);else if(k==="="){try{const safe=expr.replace(/×/g,"*").replace(/÷/g,"/").replace(/−/g,"-");if(!/^[0-9+*/().\-\s]+$/.test(safe))throw Error();const result=Function('"use strict";return ('+safe+')')();expr=Number.isFinite(result)?String(+result.toFixed(8)):"Erro"}catch{expr="Erro"}}else{if(expr==="Erro")expr="";expr+=k}q("#calcScreen").value=expr||"0"}}
 if(w.kind==="files"){const render=()=>{q("#fileList").innerHTML=state.files.map((f,i)=>'<div class="list-item"><span>'+escapeHTML(f.name)+'</span><span><button class="btn" data-download="'+i+'">Baixar</button> <button class="btn" data-delete="'+i+'">×</button></span></div>').join("")};render();q("#importFiles").onclick=()=>chooseFiles(false,render);q("#newFile").onclick=()=>{const name=prompt("Nome do arquivo:", "nota.txt");if(!name)return;const text=prompt("Conteúdo do arquivo:","")??"";state.files.push({name,text});store("files",state.files);render()};q("#fileList").onclick=e=>{const d=e.target.closest("[data-download]"),del=e.target.closest("[data-delete]");if(d){const f=state.files[+d.dataset.download];downloadText(f.name,f.text)}if(del){state.files.splice(+del.dataset.delete,1);store("files",state.files);render()}}}
