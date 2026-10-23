@@ -34,7 +34,7 @@ const icons={home:"⌂",launcher:"▦",notes:"▤",hands:"✋",settings:"⚙",cl
 const titles={home:"Início",launcher:"Aplicativos",notes:"Notas",hands:"Rastreamento das mãos",settings:"Ajustes",clock:"Relógio",calc:"Calculadora",files:"Arquivos",gallery:"Galeria",spaces:"Janelas"};
 const store=(k,v)=>localStorage.setItem("vros."+k,JSON.stringify(v));
 const load=(k,d)=>{try{return JSON.parse(localStorage.getItem("vros."+k)??"null")??d}catch{return d}};
-const state={reality:false,worldStream:null,orientationBase:null,orientationCurrent:null,viewX:0,viewY:0,hasMotion:false,wins:[],z:20,hand:false,stream:null,tracker:null,frame:0,lastTime:0,pinch:[false,false],cursor:[null,null],activeHand:null,gestureTarget:null,gestureWindow:null,gestureMode:null,handFrames:0,handFps:0,handSensitivity:load("sensitivity",1),showHand:load("showHand",true),mirrored:load("mirrored",false),accent:load("accent","#a4c8ff"),seconds:0,running:false,started:0,files:load("files",[]),gallery:load("gallery",[])};
+const state={reality:false,worldStream:null,orientationBase:null,orientationCurrent:null,viewX:0,viewY:0,hasMotion:false,wins:[],z:20,hand:false,stream:null,tracker:null,frame:0,lastTime:0,pinch:[false,false],cursor:[null,null],activeHand:null,gestureTarget:null,gestureWindow:null,gestureMode:null,handFrames:0,handFps:0,handSensitivity:load("sensitivity",1),showHand:load("showHand",true),showSkeleton:load("showSkeleton",false),mirrored:load("mirrored",false),accent:load("accent","#a4c8ff"),seconds:0,running:false,started:0,files:load("files",[]),gallery:load("gallery",[])};
 document.documentElement.style.setProperty("--accent",state.accent);
 const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
 function angularDelta(a,b){return ((a-b+540)%360)-180}
@@ -88,7 +88,7 @@ switch(kind){
 case "home":return '<h2>VR OS Spatial</h2><p class="muted">A câmera é seu ambiente. Janelas são projetadas à sua frente; o movimento por sensores é aproximado no navegador.</p><div class="tilegrid">'+["launcher","hands","notes","spaces"].map(k=>'<button class="tile" data-open="'+k+'"><span class="glyph">'+icons[k]+'</span>'+titles[k]+'</button>').join("")+'</div>';
 case "launcher":return '<h2>Aplicativos</h2><div class="tilegrid">'+Object.keys(titles).filter(k=>k!=="launcher").map(k=>'<button class="tile" data-open="'+k+'"><span class="glyph">'+icons[k]+'</span>'+titles[k]+'</button>').join("")+'</div>';
 case "notes":return '<h2>Suas notas</h2><textarea class="input" id="noteText" placeholder="Comece a escrever...">'+escapeHTML(load("notes",""))+'</textarea><p class="hint">Salvo automaticamente neste navegador.</p>';
-case "hands":return '<h2>Controle por gestos</h2><p class="hint">Mostre suas mãos para a câmera traseira, no ambiente à frente do iPhone. Indicador move o cursor; pinça entre indicador e polegar clica ou arrasta. O modelo roda no seu dispositivo. A silhueta na frente dos painéis é aproximada por pontos da mão, não é profundidade real.</p><div class="row"><button class="btn primary" id="handToggle">'+(state.hand?"Desativar câmera":"Ativar rastreamento")+'</button><span id="handInfo" class="badge">'+(state.hand?"Ativo":"Desligado")+'</span></div><div class="setting"><label for="sensitivity">Sensibilidade</label><input id="sensitivity" type="range" min=".5" max="1.7" step=".1" value="'+state.handSensitivity+'"></div><div class="setting"><label for="showHand">Mão na frente das janelas (experimental)</label><input type="checkbox" id="showHand" '+(state.showHand?"checked":"")+'></div><div class="setting"><label for="mirror">Espelhar movimento</label><input type="checkbox" id="mirror" '+(state.mirrored?"checked":"")+'></div><p class="hint">Requer HTTPS, câmera e conexão inicial para carregar o modelo. A ancoragem por sensores é aproximada, não é ARKit. Se não funcionar, use toque ou mouse.</p>';
+case "hands":return '<h2>Controle por gestos</h2><p class="hint">Mostre suas mãos para a câmera traseira, no ambiente à frente do iPhone. Indicador move o cursor; pinça entre indicador e polegar clica ou arrasta. O modelo roda no seu dispositivo. A mão completa pode aparecer à frente da janela. A oclusão é estimada pelos 21 pontos, não por um sensor de profundidade.</p><div class="row"><button class="btn primary" id="handToggle">'+(state.hand?"Desativar câmera":"Ativar rastreamento")+'</button><span id="handInfo" class="badge">'+(state.hand?"Ativo":"Desligado")+'</span></div><div class="setting"><label for="sensitivity">Sensibilidade</label><input id="sensitivity" type="range" min=".5" max="1.7" step=".1" value="'+state.handSensitivity+'"></div><div class="setting"><label for="showHand">Mostrar mãos à frente das janelas</label><input type="checkbox" id="showHand" '+(state.showHand?"checked":"")+'></div><div class="setting"><label for="showSkeleton">Visualizar 21 pontos da mão</label><input type="checkbox" id="showSkeleton" '+(state.showSkeleton?"checked":"")+'></div><div class="setting"><label for="mirror">Espelhar movimento</label><input type="checkbox" id="mirror" '+(state.mirrored?"checked":"")+'></div><p class="hint">Requer HTTPS, câmera e conexão inicial para carregar o modelo. A ancoragem por sensores é aproximada, não é ARKit. Se não funcionar, use toque ou mouse.</p>';
 case "settings":return '<h2>Personalização</h2><div class="setting"><span>Cor de destaque</span><input type="color" id="accent" value="'+state.accent+'"></div><div class="setting"><span>Fundo espacial</span><select id="wallpaper"><option value="space">Espacial</option><option value="night">Noite</option><option value="deep">Profundo</option></select></div><div class="setting"><span>Transparência</span><input id="opacity" type="range" min=".55" max=".96" step=".01" value="'+load("opacity",.74)+'"></div><div class="setting"><span>Redefinir posições</span><button class="btn" id="resetWindows">Organizar</button></div><p class="hint">Suas preferências e notas ficam armazenadas neste navegador.</p>';
 case "clock":return '<h2>Relógio</h2><div class="clock" id="liveClock">--:--:--</div><p id="today" class="muted"></p><hr style="border:0;border-top:1px solid var(--stroke);margin:20px 0"><h2>Cronômetro</h2><div class="clock" id="stopwatch">00:00.0</div><div class="row"><button class="btn primary" id="startStop">Iniciar</button><button class="btn" id="resetStop">Zerar</button></div>';
 case "calc":return '<h2>Calculadora</h2><input class="input" id="calcScreen" value="0" readonly style="text-align:right;font-size:29px;margin-bottom:12px"><div class="calc">'+["C","(",")","÷","7","8","9","×","4","5","6","−","1","2","3","+","0",".","⌫","="].map(s=>'<button data-key="'+s+'">'+s+'</button>').join("")+'</div>';
@@ -120,7 +120,7 @@ function installApp(w){
 const el=w.el, q=s=>el.querySelector(s);
 el.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>openApp(b.dataset.open));
 if(w.kind==="notes")q("#noteText").oninput=e=>store("notes",e.target.value);
-if(w.kind==="hands"){q("#handToggle").onclick=()=>state.hand?stopHands():startHands();q("#sensitivity").oninput=e=>{state.handSensitivity=+e.target.value;store("sensitivity",state.handSensitivity)};q("#mirror").onchange=e=>{state.mirrored=e.target.checked;store("mirrored",state.mirrored)};q("#showHand").onchange=e=>{state.showHand=e.target.checked;store("showHand",state.showHand)}}
+if(w.kind==="hands"){q("#handToggle").onclick=()=>state.hand?stopHands():startHands();q("#sensitivity").oninput=e=>{state.handSensitivity=+e.target.value;store("sensitivity",state.handSensitivity)};q("#mirror").onchange=e=>{state.mirrored=e.target.checked;store("mirrored",state.mirrored)};q("#showHand").onchange=e=>{state.showHand=e.target.checked;store("showHand",state.showHand)};q("#showSkeleton").onchange=e=>{state.showSkeleton=e.target.checked;store("showSkeleton",state.showSkeleton)}}
 if(w.kind==="settings"){q("#accent").oninput=e=>{state.accent=e.target.value;document.documentElement.style.setProperty("--accent",state.accent);store("accent",state.accent)};q("#opacity").oninput=e=>{document.documentElement.style.setProperty("--glass","rgba(25,31,44,"+e.target.value+")");store("opacity",+e.target.value)};q("#wallpaper").onchange=e=>{const colors={space:"#090d16",night:"#050609",deep:"#071b22"};$("#space").style.background=colors[e.target.value]};q("#resetWindows").onclick=()=>{state.wins.forEach((v,i)=>{v.el.style.left=Math.max(10,innerWidth/2-260+(i%4)*35)+"px";v.el.style.top=Math.max(70,innerHeight/2-200+(i%4)*30)+"px"});saveLayout();toast("Janelas organizadas")}}
 if(w.kind==="clock"){const refresh=()=>{if(!el.isConnected)return;const now=new Date();q("#liveClock").textContent=now.toLocaleTimeString("pt-BR");q("#today").textContent=now.toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"});const ms=state.seconds+(state.running?Date.now()-state.started:0);q("#stopwatch").textContent=String(Math.floor(ms/60000)).padStart(2,"0")+":"+String(Math.floor(ms/1000)%60).padStart(2,"0")+"."+(Math.floor(ms/100)%10);q("#startStop").textContent=state.running?"Pausar":"Iniciar"};refresh();const timer=setInterval(()=>{if(!el.isConnected){clearInterval(timer);return}refresh()},100);q("#startStop").onclick=()=>{if(state.running){state.seconds+=Date.now()-state.started;state.running=false}else{state.started=Date.now();state.running=true}refresh()};q("#resetStop").onclick=()=>{state.running=false;state.seconds=0;refresh()}}
 if(w.kind==="calc"){let expr="";q(".calc").onclick=e=>{const b=e.target.closest("[data-key]");if(!b)return;const k=b.dataset.key;if(k==="C")expr="";else if(k==="⌫")expr=expr.slice(0,-1);else if(k==="="){try{const safe=expr.replace(/×/g,"*").replace(/÷/g,"/").replace(/−/g,"-");if(!/^[0-9+*/().\-\s]+$/.test(safe))throw Error();const result=Function('"use strict";return ('+safe+')')();expr=Number.isFinite(result)?String(+result.toFixed(8)):"Erro"}catch{expr="Erro"}}else{if(expr==="Erro")expr="";expr+=k}q("#calcScreen").value=expr||"0"}}
@@ -173,29 +173,69 @@ function stopHands(){
  state.pinch=[false,false];state.gestureTarget=null;state.gestureWindow=null;updateHandButton();
 }
 const HAND_CONNECTIONS=[[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
-const HAND_OUTLINE=[0,1,2,3,4,3,2,5,6,7,8,7,6,9,10,11,12,11,10,13,14,15,16,15,14,17,18,19,20,19,18,17,0];
+const handMask=document.createElement("canvas"),handMaskContext=handMask.getContext("2d");
 function drawHands(lists,video){
  const canvas=$("#handOverlay"),ctx=canvas.getContext("2d");
- if(!ctx)return;
- const ratio=Math.min(devicePixelRatio||1,2),w=innerWidth,h=innerHeight;
- if(canvas.width!==Math.round(w*ratio)||canvas.height!==Math.round(h*ratio)){canvas.width=Math.round(w*ratio);canvas.height=Math.round(h*ratio)}
- ctx.setTransform(ratio,0,0,ratio,0,0);ctx.clearRect(0,0,w,h);
- const vw=video.videoWidth||640,vh=video.videoHeight||480,scale=Math.max(w/vw,h/vh),rw=vw*scale,rh=vh*scale,ox=(w-rw)/2,oy=(h-rh)/2;
- const point=p=>({x:ox+p.x*rw,y:oy+p.y*rh});
- for(const hand of lists){
-  if(!hand)continue;
-  const pts=hand.map(point);
-  // Approximate silhouette from landmarks, not actual depth/segmentation.
-  if(state.showHand){
-   const path=new Path2D();const outline=HAND_OUTLINE.map(i=>pts[i]);
-   path.moveTo(outline[0].x,outline[0].y);
-   for(let j=1;j<outline.length;j++)path.lineTo(outline[j].x,outline[j].y);
-   path.closePath();
-   ctx.save();ctx.clip(path);ctx.drawImage(video,ox,oy,rw,rh);ctx.restore();
-  }
-  ctx.lineWidth=2;ctx.strokeStyle="rgba(185,221,255,.7)";ctx.fillStyle="rgba(208,232,255,.88)";
-  for(const [a,b] of HAND_CONNECTIONS){ctx.beginPath();ctx.moveTo(pts[a].x,pts[a].y);ctx.lineTo(pts[b].x,pts[b].y);ctx.stroke()}
-  for(const p of pts){ctx.beginPath();ctx.arc(p.x,p.y,2.5,0,Math.PI*2);ctx.fill()}
+ if(!ctx || !handMaskContext)return;
+ const w=innerWidth,h=innerHeight;
+ // Process at native CSS pixel resolution to keep iPhone hand tracking responsive.
+ if(canvas.width!==Math.round(w)||canvas.height!==Math.round(h)){
+   canvas.width=handMask.width=Math.round(w);
+   canvas.height=handMask.height=Math.round(h);
+ }
+ ctx.setTransform(1,0,0,1,0,0);ctx.clearRect(0,0,w,h);
+ const sw=video.videoWidth||640,sh=video.videoHeight||480;
+ const scale=Math.max(w/sw,h/sh),rw=sw*scale,rh=sh*scale,ox=(w-rw)/2,oy=(h-rh)/2;
+ const point=p=>({x:ox+(state.mirrored?1-p.x:p.x)*rw,y:oy+p.y*rh});
+ const hands=lists.filter(h=>h&&h.length>=21).map(h=>h.map(point));
+ if(state.showHand && hands.length){
+   // Approximate a union of palm and five thick fingers, then use the camera
+   // image inside the silhouette. This is occlusion, not measured 3D depth.
+   handMaskContext.clearRect(0,0,w,h);
+   handMaskContext.fillStyle="#fff";
+   handMaskContext.strokeStyle="#fff";
+   handMaskContext.lineJoin="round";
+   handMaskContext.lineCap="round";
+   for(const p of hands){
+     const palmWidth=Math.hypot(p[5].x-p[17].x,p[5].y-p[17].y);
+     const radius=Math.max(9,Math.min(58,palmWidth*.17));
+     handMaskContext.beginPath();
+     for(const [i,k] of [0,1,5,9,13,17].entries()){
+       if(i===0)handMaskContext.moveTo(p[k].x,p[k].y);
+       else handMaskContext.lineTo(p[k].x,p[k].y);
+     }
+     handMaskContext.closePath();
+     handMaskContext.fill();
+     const fingers=[[1,2,3,4],[5,6,7,8],[9,10,11,12],[13,14,15,16],[17,18,19,20]];
+     for(let j=0;j<fingers.length;j++){
+       const ids=fingers[j];
+       handMaskContext.lineWidth=radius*(j===0?1.65:j===4?1.05:1.24);
+       handMaskContext.beginPath();
+       handMaskContext.moveTo(p[ids[0]].x,p[ids[0]].y);
+       for(let i=1;i<ids.length;i++)handMaskContext.lineTo(p[ids[i]].x,p[ids[i]].y);
+       handMaskContext.stroke();
+     }
+     // Wrist area connects the foreground cutout naturally to the arm.
+     const towardX=p[0].x-(p[9].x-p[0].x)*.75;
+     const towardY=p[0].y-(p[9].y-p[0].y)*.75;
+     handMaskContext.lineWidth=radius*2.2;
+     handMaskContext.beginPath();handMaskContext.moveTo(p[0].x,p[0].y);
+     handMaskContext.lineTo(towardX,towardY);handMaskContext.stroke();
+   }
+   ctx.drawImage(video,ox,oy,rw,rh);
+   ctx.globalCompositeOperation="destination-in";
+   ctx.drawImage(handMask,0,0);
+   ctx.globalCompositeOperation="source-over";
+ }
+ if(state.showSkeleton){
+   for(const p of hands){
+     ctx.lineWidth=1.5;ctx.strokeStyle="rgba(173,220,255,.7)";
+     ctx.fillStyle="rgba(212,235,255,.8)";
+     for(const [a,b] of HAND_CONNECTIONS){
+       ctx.beginPath();ctx.moveTo(p[a].x,p[a].y);ctx.lineTo(p[b].x,p[b].y);ctx.stroke();
+     }
+     for(const dot of p){ctx.beginPath();ctx.arc(dot.x,dot.y,2.3,0,Math.PI*2);ctx.fill();}
+   }
  }
 }
 function trackHands(){
