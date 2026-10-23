@@ -35,7 +35,7 @@ function closeWindow(id){state.windows=state.windows.filter(w=>w.id!==id);for(co
 function recenter(){state.windows.forEach((w,i)=>w.dir=ray(innerWidth/4+(i%3-1)*45,innerHeight*.43));state.dock=ray(innerWidth/4,innerHeight*.85);state.target=null;state.hoverSince=0}
 function buildDock(){for(const eye of eyes){const d=document.createElement('div');d.className='worldDock';d.innerHTML='<span class="dockAction" data-action="open:home">Início</span><span class="dockAction" data-action="open:clock">Relógio</span><span class="dockAction" data-action="open:notes">Notas</span><span class="dockAction" data-action="recenter">Recentrar</span>';eye.space.appendChild(d)}}
 function action(value){if(!value)return;if(value.startsWith('open:'))openWindow(value.slice(5));else if(value.startsWith('close:'))closeWindow(Number(value.slice(6)));else if(value==='recenter')recenter()}
-function sensor(e){if(!state.active||![e.alpha,e.beta,e.gamma].every(Number.isFinite))return;const q=orientationQ(e);state.pose=q;state.lastSensor=performance.now()}
+function sensor(e){if(!state.active||![e.alpha,e.beta,e.gamma].every(Number.isFinite))return;const q=orientationQ(e);state.pose=q;if(!state.lastSensor){recenter();}state.lastSensor=performance.now()}
 window.addEventListener('deviceorientation',sensor,{passive:true});
 function render(t){if(!state.active)return;const w=innerWidth/2,h=innerHeight;
 for(const eye of eyes){for(const win of state.windows){const panel=eye.space.querySelector('.panel[data-id="'+win.id+'"]');if(!panel)continue;const p=project(win.dir,eye.side,win.depth);panel.style.display=p?'block':'none';if(p){panel.style.left=p.x+'px';panel.style.top=p.y+'px';const scale=clamp(.86/p.z,.68,1.12);panel.style.transform='translate(-50%,-50%) scale('+scale+')'}}const dock=eye.space.querySelector('.worldDock');const p=state.dock&&project(state.dock,eye.side,2.5);dock.style.display=p?'flex':'none';if(p){dock.style.left=p.x+'px';dock.style.top=p.y+'px'}const clock=eye.space.querySelector('.time');if(clock)clock.textContent=new Date().toLocaleTimeString('pt-BR');}
@@ -51,10 +51,33 @@ async function begin(){
 const button=$('#begin');button.disabled=true;button.textContent='Iniciando...';$('#message').textContent='Solicitando câmera e sensores...';
 const sensorPermission=typeof DeviceOrientationEvent!=='undefined'&&typeof DeviceOrientationEvent.requestPermission==='function'?DeviceOrientationEvent.requestPermission().catch(()=> 'denied'):Promise.resolve('unavailable');
 try{if(!navigator.mediaDevices?.getUserMedia)throw Error('Câmera indisponível neste navegador');
-const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},audio:false});
-state.stream=stream;for(const eye of eyes){eye.video.srcObject=stream;await eye.video.play()}
-await sensorPermission;state.active=true;$('#setup').classList.add('hidden');$('#stereo').classList.remove('hidden');$('#turn').classList.remove('hidden');buildDock();openWindow('home');recenter();requestAnimationFrame(render);
+const request={video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},audio:false};
+let stream=await navigator.mediaDevices.getUserMedia(request);
+// When Safari exposes the 0.5x lens as a separate device, prefer it.
+// Otherwise try the widest zoom allowed by the existing rear-camera track.
+try{
+ const devices=(await navigator.mediaDevices.enumerateDevices()).filter(x=>x.kind==='videoinput');
+ const ultra=devices.find(x=>/ultra.?wide|ultra.?angular|0[.,]5\s*x/i.test(x.label));
+ if(ultra){
+  stream.getTracks().forEach(t=>t.stop());
+  try{stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{deviceId:{exact:ultra.deviceId},width:{ideal:1280},height:{ideal:720}}})}
+  catch{stream=await navigator.mediaDevices.getUserMedia(request)}
+ }else{
+  const track=stream.getVideoTracks()[0],caps=track.getCapabilities?.();
+  if(caps?.zoom&&Number.isFinite(caps.zoom.min))try{await track.applyConstraints({advanced:[{zoom:caps.zoom.min}]})}catch{}
+ }
+}catch(err){console.warn('Lente ampla indisponível:',err)}
+state.stream=stream;
+const playback=await Promise.allSettled(eyes.map(async eye=>{eye.video.srcObject=stream;await eye.video.play()}));
+if(playback.every(r=>r.status==='rejected'))throw Error('O Safari não conseguiu iniciar o vídeo nas lentes');
+const sensorAccess=await sensorPermission;
+state.active=true;
+$('#hint').textContent=sensorAccess==='denied'?'Sensores não autorizados: toque em Recentrar para reiniciar':'Olhe para selecionar · recentralize quando necessário';
+$('#setup').classList.add('hidden');$('#stereo').classList.remove('hidden');$('#turn').classList.remove('hidden');buildDock();openWindow('home');recenter();requestAnimationFrame(render);
 }catch(e){$('#message').textContent='Erro: '+(e.message||e);button.disabled=false;button.textContent='Tentar novamente';state.stream?.getTracks().forEach(t=>t.stop())}}
 $('#begin').onclick=begin;$('#recenter').onclick=recenter;$('#exit').onclick=()=>{state.active=false;state.stream?.getTracks().forEach(t=>t.stop());location.href='./index.html'};
 window.addEventListener('pagehide',()=>state.stream?.getTracks().forEach(t=>t.stop()));
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&state.active&&state.stream?.getVideoTracks().some(t=>t.readyState!=='live')){$('#hint').textContent='Câmera interrompida pelo Safari. Retorne e reinicie o modo VR.'}});
+window.addEventListener('orientationchange',()=>{if(state.active){state.lastSensor=0;state.target=null;state.hoverSince=0;setTimeout(recenter,200)}});
+
 </script></body></html>
