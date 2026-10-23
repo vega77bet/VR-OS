@@ -27,6 +27,23 @@
 <style>
 #space{background:#05080d;overflow:hidden}#worldVideo{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none}#worldShade{position:absolute;inset:0;background:linear-gradient(180deg,rgba(4,9,17,.26),transparent 24%,transparent 70%,rgba(3,7,12,.32));pointer-events:none}#worldHint{position:absolute;top:48%;left:50%;transform:translate(-50%,-50%);font-size:10px;letter-spacing:2px;color:#aab9c9;opacity:.6;text-align:center;width:90%;pointer-events:none}.orb{display:none}#worldStage{position:fixed;inset:0;perspective:1250px;pointer-events:none;transform-style:preserve-3d}#windows{position:absolute;inset:0;transform-style:preserve-3d}.window{transform-origin:center center;transform:perspective(1250px) rotateY(var(--ry,0deg)) rotateX(var(--rx,0deg)) translateZ(var(--depth,0px));background:rgba(19,25,35,.78);border:1px solid rgba(225,237,255,.27);box-shadow:0 18px 60px rgba(0,0,0,.32),inset 0 1px rgba(255,255,255,.14);border-radius:25px}.window.focused{border-color:rgba(211,232,255,.6);box-shadow:0 20px 75px rgba(0,0,0,.46),0 0 25px rgba(175,214,255,.09)}.window:after{content:"";position:absolute;bottom:0;left:20%;right:20%;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.32),transparent);pointer-events:none}.spatialDock{background:rgba(22,29,40,.75);border-radius:28px;box-shadow:0 10px 40px #0008,0 0 0 1px #fff1;transform:translateX(-50%) perspective(600px) rotateX(7deg)!important}#top .brand,#top .status{background:rgba(20,27,39,.63)}#welcome{z-index:5}body.reality #welcome{display:none}body.reality #worldHint{display:none}body.reality #worldVideo{display:block}body:not(.reality) #dock{opacity:.3;pointer-events:none}body:not(.reality) #windows{opacity:0;pointer-events:none}.window .titlebar{background:rgba(255,255,255,.035)}#worldBadge{position:fixed;left:50%;top:calc(80px + env(safe-area-inset-top));transform:translateX(-50%);z-index:101;pointer-events:none;color:white;font-size:11px;background:rgba(10,20,29,.5);padding:9px 13px;border:1px solid #ffffff24;border-radius:18px;display:none;white-space:nowrap}body.reality #worldBadge{display:block}#windows{transition:transform .12s linear}#dock{max-width:calc(100vw - 24px)}#recenterButton{pointer-events:auto;display:none;background:rgba(20,28,39,.72);border:1px solid #ffffff33;padding:9px 13px;border-radius:14px;font-size:12px}body.reality #recenterButton{display:block}#handOverlay{position:fixed;inset:0;width:100%;height:100%;z-index:210;pointer-events:none;display:none}body.handTracking #handOverlay{display:block}#worldStage{will-change:transform}#worldStage .spatialDock{pointer-events:auto;bottom:calc(17px + env(safe-area-inset-bottom));}body:not(.reality) #worldStage{pointer-events:none}#worldStage.no-motion{transform:none!important}#worldVideo:fullscreen{object-fit:cover}@media(max-width:620px){.window{height:min(49vh,480px);border-radius:25px}.window .content{font-size:14px}#welcome{top:46%}#worldBadge{top:calc(79px + env(safe-area-inset-top))}}
 </style>
+<style>
+/* Spatial interaction reliability: large targets, no clipping by tiny traffic dots. */
+.window .titlebar{min-height:64px;padding:11px 13px;gap:9px}
+.window .traffic{gap:6px;align-items:center;position:relative;z-index:2}
+.window .traffic button{width:34px;height:34px;border-radius:12px;display:grid;place-items:center;touch-action:manipulation;border:1px solid rgba(255,255,255,.16);transition:background .15s,transform .15s;font-size:18px;font-weight:600}
+.window .traffic button:active{transform:scale(.92)}
+.window .traffic .close{background:rgba(231,91,93,.17);color:#ff989b}
+.window .traffic .close:before{content:"×"}
+.window .traffic .min{background:rgba(236,183,85,.12);color:#ffdc91}
+.window .traffic .min:before{content:"−"}
+.window .traffic .max{background:rgba(94,190,145,.12);color:#a2e8bd}
+.window .traffic .max:before{content:"+"}
+.window .wtitle{padding-right:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#hand1,#hand2{z-index:220;width:12px;height:12px;border-width:1.5px;box-shadow:0 0 0 4px rgba(164,200,255,.12);transition:width .1s,height .1s}
+#hand1.pinch,#hand2.pinch{width:22px;height:22px}
+@media(max-width:620px){.window .titlebar{min-height:60px}.window .traffic button{width:36px;height:36px}}
+</style>
 <div id="worldBadge">◉ Passagem de câmera · modo experimental</div>
 <script type="module">
 const $=s=>document.querySelector(s), root=$("#windows"), welcome=$("#welcome"), status=$("#trackingStatus");
@@ -34,7 +51,7 @@ const icons={home:"⌂",launcher:"▦",notes:"▤",hands:"✋",settings:"⚙",cl
 const titles={home:"Início",launcher:"Aplicativos",notes:"Notas",hands:"Rastreamento das mãos",settings:"Ajustes",clock:"Relógio",calc:"Calculadora",files:"Arquivos",gallery:"Galeria",spaces:"Janelas"};
 const store=(k,v)=>localStorage.setItem("vros."+k,JSON.stringify(v));
 const load=(k,d)=>{try{return JSON.parse(localStorage.getItem("vros."+k)??"null")??d}catch{return d}};
-const state={reality:false,worldStream:null,orientationBase:null,orientationCurrent:null,viewX:0,viewY:0,hasMotion:false,wins:[],z:20,hand:false,stream:null,tracker:null,frame:0,lastTime:0,pinch:[false,false],cursor:[null,null],activeHand:null,gestureTarget:null,gestureWindow:null,gestureMode:null,handFrames:0,handFps:0,handSensitivity:load("sensitivity",1),showHand:load("showHand",true),showSkeleton:load("showSkeleton",false),mirrored:load("mirrored",false),accent:load("accent","#a4c8ff"),seconds:0,running:false,started:0,files:load("files",[]),gallery:load("gallery",[])};
+const state={reality:false,worldStream:null,orientationBase:null,orientationCurrent:null,viewX:0,viewY:0,hasMotion:false,wins:[],z:20,hand:false,stream:null,tracker:null,frame:0,lastTime:0,pinch:[false,false],cursor:[null,null],activeHand:null,gestureTarget:null,gestureWindow:null,gestureMode:null,handFrames:0,handFps:0,handSensitivity:load("sensitivity",1),showHand:false,showSkeleton:load("showSkeleton",false),mirrored:load("mirrored",false),accent:load("accent","#a4c8ff"),seconds:0,running:false,started:0,files:load("files",[]),gallery:load("gallery",[])};
 document.documentElement.style.setProperty("--accent",state.accent);
 const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
 function angularDelta(a,b){return ((a-b+540)%360)-180}
@@ -88,7 +105,7 @@ switch(kind){
 case "home":return '<h2>VR OS Spatial</h2><p class="muted">A câmera é seu ambiente. Janelas são projetadas à sua frente; o movimento por sensores é aproximado no navegador.</p><div class="tilegrid">'+["launcher","hands","notes","spaces"].map(k=>'<button class="tile" data-open="'+k+'"><span class="glyph">'+icons[k]+'</span>'+titles[k]+'</button>').join("")+'</div>';
 case "launcher":return '<h2>Aplicativos</h2><div class="tilegrid">'+Object.keys(titles).filter(k=>k!=="launcher").map(k=>'<button class="tile" data-open="'+k+'"><span class="glyph">'+icons[k]+'</span>'+titles[k]+'</button>').join("")+'</div>';
 case "notes":return '<h2>Suas notas</h2><textarea class="input" id="noteText" placeholder="Comece a escrever...">'+escapeHTML(load("notes",""))+'</textarea><p class="hint">Salvo automaticamente neste navegador.</p>';
-case "hands":return '<h2>Controle por gestos</h2><p class="hint">Mostre suas mãos para a câmera traseira, no ambiente à frente do iPhone. Indicador move o cursor; pinça entre indicador e polegar clica ou arrasta; duas pinças juntas redimensionam a janela. O modelo roda no seu dispositivo. A mão completa pode aparecer à frente da janela. A oclusão é estimada pelos 21 pontos, não por um sensor de profundidade.</p><div class="row"><button class="btn primary" id="handToggle">'+(state.hand?"Desativar câmera":"Ativar rastreamento")+'</button><span id="handInfo" class="badge">'+(state.hand?"Ativo":"Desligado")+'</span></div><div class="setting"><label for="sensitivity">Sensibilidade</label><input id="sensitivity" type="range" min=".5" max="1.7" step=".1" value="'+state.handSensitivity+'"></div><div class="setting"><label for="showHand">Mostrar mãos à frente das janelas</label><input type="checkbox" id="showHand" '+(state.showHand?"checked":"")+'></div><div class="setting"><label for="showSkeleton">Visualizar 21 pontos da mão</label><input type="checkbox" id="showSkeleton" '+(state.showSkeleton?"checked":"")+'></div><div class="setting"><label for="mirror">Espelhar movimento</label><input type="checkbox" id="mirror" '+(state.mirrored?"checked":"")+'></div><p class="hint">Requer HTTPS, câmera e conexão inicial para carregar o modelo. A ancoragem por sensores é aproximada, não é ARKit. Se não funcionar, use toque ou mouse.</p>';
+case "hands":return '<h2>Controle por gestos</h2><p class="hint">Mostre suas mãos para a câmera traseira, no ambiente à frente do iPhone. Indicador move o cursor; pinça entre indicador e polegar clica ou arrasta; duas pinças juntas redimensionam a janela. O modelo roda no seu dispositivo. A mão completa pode aparecer à frente da janela. A oclusão é estimada pelos 21 pontos, não por um sensor de profundidade.</p><div class="row"><button class="btn primary" id="handToggle">'+(state.hand?"Desativar câmera":"Ativar rastreamento")+'</button><span id="handInfo" class="badge">'+(state.hand?"Ativo":"Desligado")+'</span></div><div class="setting"><label for="sensitivity">Sensibilidade</label><input id="sensitivity" type="range" min=".5" max="1.7" step=".1" value="'+state.handSensitivity+'"></div><div class="setting"><label for="showHand">Recorte da mão (experimental, pode falhar)</label><input type="checkbox" id="showHand" '+(state.showHand?"checked":"")+'></div><div class="setting"><label for="showSkeleton">Visualizar 21 pontos da mão</label><input type="checkbox" id="showSkeleton" '+(state.showSkeleton?"checked":"")+'></div><div class="setting"><label for="mirror">Espelhar movimento</label><input type="checkbox" id="mirror" '+(state.mirrored?"checked":"")+'></div><p class="hint">Requer HTTPS, câmera e conexão inicial para carregar o modelo. A ancoragem por sensores é aproximada, não é ARKit. Se não funcionar, use toque ou mouse.</p>';
 case "settings":return '<h2>Personalização</h2><div class="setting"><span>Cor de destaque</span><input type="color" id="accent" value="'+state.accent+'"></div><div class="setting"><span>Fundo espacial</span><select id="wallpaper"><option value="space">Espacial</option><option value="night">Noite</option><option value="deep">Profundo</option></select></div><div class="setting"><span>Transparência</span><input id="opacity" type="range" min=".55" max=".96" step=".01" value="'+load("opacity",.74)+'"></div><div class="setting"><span>Redefinir posições</span><button class="btn" id="resetWindows">Organizar</button></div><p class="hint">Suas preferências e notas ficam armazenadas neste navegador.</p>';
 case "clock":return '<h2>Relógio</h2><div class="clock" id="liveClock">--:--:--</div><p id="today" class="muted"></p><hr style="border:0;border-top:1px solid var(--stroke);margin:20px 0"><h2>Cronômetro</h2><div class="clock" id="stopwatch">00:00.0</div><div class="row"><button class="btn primary" id="startStop">Iniciar</button><button class="btn" id="resetStop">Zerar</button></div>';
 case "calc":return '<h2>Calculadora</h2><input class="input" id="calcScreen" value="0" readonly style="text-align:right;font-size:29px;margin-bottom:12px"><div class="calc">'+["C","(",")","÷","7","8","9","×","4","5","6","−","1","2","3","+","0",".","⌫","="].map(s=>'<button data-key="'+s+'">'+s+'</button>').join("")+'</div>';
@@ -108,13 +125,22 @@ el.style.top=(opts.y??Math.max(112,(innerHeight-height)/2-42+(n%3)*17))+"px";
 el.style.width=(opts.width??width)+"px";el.style.height=(opts.height??height)+"px";el.style.setProperty("--ry",((n%3)-1)*-5+"deg");el.style.setProperty("--rx",((n%2)?-2:2)+"deg");el.style.setProperty("--depth",((n%3)-1)*-35+"px");
 el.innerHTML='<div class="titlebar"><div class="traffic"><button class="close" title="Fechar" aria-label="Fechar"></button><button class="min" title="Minimizar" aria-label="Minimizar"></button><button class="max" title="Maximizar" aria-label="Maximizar"></button></div><span class="wtitle">'+titles[kind]+'</span></div><div class="content">'+appMarkup(kind)+'</div>';
 root.appendChild(el);const w={id,kind,el,min:false,old:null};state.wins.push(w);focus(w);welcome.style.display="none";
-el.querySelector(".close").onclick=()=>closeWindow(w);
+el.querySelector(".close").addEventListener("click",e=>{e.stopPropagation();closeWindow(w)});
+el.querySelector(".close").addEventListener("pointerdown",e=>e.stopPropagation());
 el.querySelector(".min").onclick=()=>{w.min=!w.min;el.querySelector(".content").style.display=w.min?"none":"";el.style.height=w.min?"54px":(w.old?.height||"380px");saveLayout()};
 el.querySelector(".max").onclick=()=>{if(!w.old){w.old={left:el.style.left,top:el.style.top,width:el.style.width,height:el.style.height};Object.assign(el.style,{left:"12px",top:"75px",width:"calc(100vw - 24px)",height:"calc(100vh - 165px)"})}else{Object.assign(el.style,w.old);w.old=null}saveLayout()};
 el.addEventListener("pointerdown",()=>focus(w));installDrag(w);installApp(w);new ResizeObserver(()=>saveLayout()).observe(el);saveLayout();return w
 }
-function closeWindow(w){w.el.remove();state.wins=state.wins.filter(v=>v!==w);saveLayout();if(!state.wins.length)welcome.style.display=""}
-function focus(w){state.wins.forEach(v=>v.el.classList.remove("focused"));w.el.classList.add("focused");w.el.style.zIndex=++state.z}
+function closeWindow(w){
+ if(!w||!w.el?.isConnected)return;
+ if(state.gestureWindow===w.el){
+  state.gestureWindow=null;state.gestureTarget=null;state.gestureMode=null;state.resizeStart=null;
+ }
+ w.el.remove();state.wins=state.wins.filter(v=>v!==w);
+ saveLayout();if(!state.wins.length)welcome.style.display="";
+ toast(titles[w.kind]+" fechado");
+}
+function focus(w){if(!w||!w.el?.isConnected)return;state.wins.forEach(v=>v.el.classList.remove("focused"));w.el.classList.add("focused");w.el.style.zIndex=++state.z}
 function installDrag(w){let start=null;const bar=w.el.querySelector(".titlebar");bar.addEventListener("pointerdown",e=>{if(e.target.closest("button"))return;focus(w);start={x:e.clientX,y:e.clientY,left:w.el.offsetLeft,top:w.el.offsetTop};bar.setPointerCapture(e.pointerId);e.preventDefault()});bar.addEventListener("pointermove",e=>{if(!start)return;w.el.style.left=Math.max(0,Math.min(innerWidth-90,start.left+e.clientX-start.x))+"px";w.el.style.top=Math.max(0,Math.min(innerHeight-100,start.top+e.clientY-start.y))+"px"});const done=()=>{if(start)saveLayout();start=null};bar.addEventListener("pointerup",done);bar.addEventListener("pointercancel",done)}
 function installApp(w){
 const el=w.el, q=s=>el.querySelector(s);
@@ -172,6 +198,7 @@ function stopHands(){
  status.textContent=state.reality?"● Câmera ativa":"● Aguardando câmera";
  state.pinch=[false,false];state.gestureTarget=null;state.gestureWindow=null;updateHandButton();
 }
+// The experimental silhouette is off by default: it produced visible artifacts.
 const HAND_CONNECTIONS=[[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
 const handMask=document.createElement("canvas"),handMaskContext=handMask.getContext("2d");
 function drawHands(lists,video){
@@ -342,7 +369,11 @@ function handleGesture(point,pinching,wasPinching,secondPoint,secondPinching){
      const tapped=element.closest("button,[role=button],a,input,textarea,select")||element;
      const moved=Math.hypot(point.x-state.gestureStart.x,point.y-state.gestureStart.y);
      if(moved<55){
-       if(tapped.matches("input[type=range]")){
+       if(tapped.matches("button.close")){
+         const targetWindow=tapped.closest(".window");
+         const win=state.wins.find(w=>w.el===targetWindow);
+         if(win)closeWindow(win);
+       }else if(tapped.matches("input[type=range]")){
          const r=tapped.getBoundingClientRect(),value=clamp((point.x-r.left)/r.width,0,1);
          tapped.value=+tapped.min+(+tapped.max-+tapped.min)*value;
          tapped.dispatchEvent(new Event("input",{bubbles:true}));
