@@ -239,35 +239,119 @@ function drawHands(lists,video){
  }
 }
 function trackHands(){
-if(!state.hand)return;
-const v=$("#worldVideo"),now=performance.now();
-if(v.readyState>=2&&v.currentTime!==state.lastTime){
-state.lastTime=v.currentTime;
-try{const result=state.tracker.detectForVideo(v,now),hands=result.landmarks||[];
-state.handFrames++;if(!state.fpsAt)state.fpsAt=now;if(now-state.fpsAt>1000){state.handFps=Math.round(state.handFrames*1000/(now-state.fpsAt));state.handFrames=0;state.fpsAt=now}
-$("#trackingStatus").textContent=hands.length+" mão(s) · "+state.handFps+" FPS";drawHands(hands,v);
-for(let i=0;i<2;i++){const dot=$("#hand"+(i+1));if(!hands[i]){dot.style.display="none";state.pinch[i]=false;continue}const lm=hands[i],index=lm[8],thumb=lm[4],dist=Math.hypot(index.x-thumb.x,index.y-thumb.y);
-// Com object-fit: cover, o vídeo pode estar recortado. Mapeie landmarks para o recorte real.
-const sw=v.videoWidth||640,sh=v.videoHeight||480,scale=Math.max(innerWidth/sw,innerHeight/sh);
-const rw=sw*scale,rh=sh*scale,ox=(innerWidth-rw)/2,oy=(innerHeight-rh)/2;
-const x=(state.mirrored?1-index.x:index.x)*rw+ox,y=index.y*rh+oy;
-const old=state.cursor[i];const alpha=Math.min(.9,Math.max(.16,.43*state.handSensitivity));const point={x:old?old.x+(x-old.x)*alpha:x,y:old?old.y+(y-old.y)*alpha:y};state.cursor[i]=point;
-dot.style.display="block";dot.style.left=point.x+"px";dot.style.top=point.y+"px";
-const pinching=state.pinch[i]?dist<.085:dist<.052;dot.classList.toggle("pinch",pinching);
-if(i===0)handleGesture(point,pinching);state.pinch[i]=pinching;
+ if(!state.hand)return;
+ const video=$("#worldVideo"),now=performance.now();
+ if(video.readyState>=2&&video.currentTime!==state.lastTime){
+  state.lastTime=video.currentTime;
+  try{
+   const result=state.tracker.detectForVideo(video,now),hands=result.landmarks||[];
+   state.handFrames++;
+   if(!state.fpsAt)state.fpsAt=now;
+   if(now-state.fpsAt>1000){
+     state.handFps=Math.round(state.handFrames*1000/(now-state.fpsAt));
+     state.handFrames=0;state.fpsAt=now;
+   }
+   status.textContent=hands.length+" mão(s) · "+state.handFps+" FPS";
+   drawHands(hands,video);
+   const points=[null,null],nextPinches=[false,false];
+   const sw=video.videoWidth||640,sh=video.videoHeight||480;
+   const scale=Math.max(innerWidth/sw,innerHeight/sh);
+   const rw=sw*scale,rh=sh*scale,ox=(innerWidth-rw)/2,oy=(innerHeight-rh)/2;
+   for(let i=0;i<2;i++){
+     const dot=$("#hand"+(i+1));
+     const lm=hands[i];
+     if(!lm){dot.style.display="none";continue}
+     const index=lm[8],thumb=lm[4];
+     const distance=Math.hypot(index.x-thumb.x,index.y-thumb.y);
+     const x=ox+(state.mirrored?1-index.x:index.x)*rw,y=oy+index.y*rh;
+     const previous=state.cursor[i];
+     const alpha=clamp(.43*state.handSensitivity,.18,.9);
+     const point={x:previous?previous.x+(x-previous.x)*alpha:x,y:previous?previous.y+(y-previous.y)*alpha:y};
+     points[i]=point;state.cursor[i]=point;
+     const pinching=state.pinch[i]?distance<.09:distance<.055;
+     nextPinches[i]=pinching;
+     dot.classList.toggle("pinch",pinching);
+     dot.style.display="block";
+     dot.style.left=point.x+"px";dot.style.top=point.y+"px";
+   }
+   if(points[0]){
+     handleGesture(points[0],nextPinches[0],state.pinch[0],points[1],nextPinches[1]);
+   }else if(state.pinch[0]){
+     handleGesture(state.cursor[0]||{x:0,y:0},false,true,null,false);
+   }
+   state.pinch=nextPinches;
+  }catch(err){
+   console.error("Hand tracking:",err);
+   stopHands();
+   toast("Erro durante rastreamento: "+String(err?.message||err).slice(0,130));
+   return;
+  }
+ }
+ state.frame=requestAnimationFrame(trackHands);
 }
-if(!hands.length){state.gestureTarget=null;state.gestureWindow=null;}
-}catch(err){console.error("Hand tracking:",err);stopHands();toast("Erro durante rastreamento: "+String(err?.message||err).slice(0,130))}}
-state.frame=requestAnimationFrame(trackHands)
-}
-function handleGesture(point,pinch){
-const was=state.pinch[0];
-if(pinch&&!was){
-const el=document.elementFromPoint(point.x,point.y);state.gestureTarget=el;state.gestureWindow=el?.closest(".window");state.gestureStart={x:point.x,y:point.y,left:state.gestureWindow?.offsetLeft||0,top:state.gestureWindow?.offsetTop||0};state.gestureMode=el?.closest(".titlebar")?"drag":"click";
-if(state.gestureWindow)focus(state.wins.find(w=>w.el===state.gestureWindow));
-}
-if(pinch&&was&&state.gestureMode==="drag"&&state.gestureWindow){const a=state.gestureStart;state.gestureWindow.style.left=Math.max(0,a.left+point.x-a.x)+"px";state.gestureWindow.style.top=Math.max(0,a.top+point.y-a.y)+"px"}
-if(!pinch&&was){if(state.gestureMode==="click"&&state.gestureTarget){const el=state.gestureTarget;if(el.matches("button,input[type=checkbox]")||el.closest("button"))(el.closest("button")||el).click();else if(el.matches("input[type=range]")){const r=el.getBoundingClientRect();el.value=+el.min+(+el.max-+el.min)*Math.max(0,Math.min(1,(point.x-r.left)/r.width));el.dispatchEvent(new Event("input",{bubbles:true}))}}saveLayout();state.gestureTarget=null;state.gestureWindow=null}
+function handleGesture(point,pinching,wasPinching,secondPoint,secondPinching){
+ if(pinching&&!wasPinching){
+   const target=document.elementFromPoint(point.x,point.y);
+   state.gestureTarget=target;
+   state.gestureWindow=target?.closest(".window")||null;
+   state.resizeStart=null;
+   state.gestureStart={
+     x:point.x,y:point.y,
+     left:state.gestureWindow?.offsetLeft||0,
+     top:state.gestureWindow?.offsetTop||0
+   };
+   const interactive=target?.closest("button,input,textarea,select,a,[role=button]");
+   state.gestureMode=state.gestureWindow&&!interactive?"drag":"click";
+   if(state.gestureWindow){
+     const found=state.wins.find(w=>w.el===state.gestureWindow);
+     if(found)focus(found);
+   }
+ }
+ if(pinching&&state.gestureWindow){
+   if(secondPinching&&secondPoint){
+     const distance=Math.hypot(point.x-secondPoint.x,point.y-secondPoint.y);
+     if(!state.resizeStart){
+       const win=state.gestureWindow;
+       state.resizeStart={
+         distance:Math.max(distance,40),
+         width:win.offsetWidth,height:win.offsetHeight,
+         left:win.offsetLeft,top:win.offsetTop
+       };
+     }
+     state.gestureMode="resize";
+     const base=state.resizeStart;
+     const factor=clamp(distance/base.distance,.5,2.2);
+     const win=state.gestureWindow;
+     const width=clamp(base.width*factor,Math.min(270,innerWidth-28),innerWidth-24);
+     const height=clamp(base.height*factor,220,innerHeight*.64);
+     win.style.width=width+"px";
+     win.style.height=height+"px";
+     win.style.left=clamp(base.left-(width-base.width)/2,4,Math.max(4,innerWidth-width-4))+"px";
+     win.style.top=clamp(base.top-(height-base.height)/2,75,Math.max(75,innerHeight-height-70))+"px";
+   }else if(state.gestureMode==="drag"){
+     const start=state.gestureStart,win=state.gestureWindow;
+     win.style.left=clamp(start.left+point.x-start.x,2,Math.max(2,innerWidth-win.offsetWidth-2))+"px";
+     win.style.top=clamp(start.top+point.y-start.y,70,Math.max(70,innerHeight-win.offsetHeight-70))+"px";
+   }
+ }
+ if(!pinching&&wasPinching){
+   if(state.gestureMode==="click"&&state.gestureTarget){
+     const element=state.gestureTarget;
+     const tapped=element.closest("button,[role=button],a,input,textarea,select")||element;
+     const moved=Math.hypot(point.x-state.gestureStart.x,point.y-state.gestureStart.y);
+     if(moved<55){
+       if(tapped.matches("button,[role=button],input[type=checkbox],a"))tapped.click();
+       else if(tapped.matches("textarea,input,select"))tapped.focus();
+       else if(tapped.matches("input[type=range]")){
+         const r=tapped.getBoundingClientRect(),value=clamp((point.x-r.left)/r.width,0,1);
+         tapped.value=+tapped.min+(+tapped.max-+tapped.min)*value;
+         tapped.dispatchEvent(new Event("input",{bubbles:true}));
+       }
+     }
+   }
+   saveLayout();
+   state.gestureTarget=null;state.gestureWindow=null;state.gestureMode=null;state.resizeStart=null;
+ }
 }
 window.addEventListener("beforeunload",()=>{stopHands();state.worldStream?.getTracks().forEach(t=>t.stop())});
 /* The camera-first spatial workspace is started by the user. */
