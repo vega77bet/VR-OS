@@ -8,11 +8,11 @@
 </style>
 </head>
 <body>
-<div id="space"><div class="orb"></div></div>
+<div id="space"><video id="worldVideo" autoplay muted playsinline></video><div id="worldShade"></div><div id="worldHint">APONTE A CÂMERA PARA O AMBIENTE</div></div>
 <div id="top"><div class="brand glass"><b>◈</b> VR OS <span class="muted">WEB 1.0</span></div><div id="trackingStatus" class="status glass">● Sistema pronto</div></div>
-<div id="welcome"><h1>Seu espaço. Sem limites.</h1><p>Abra aplicativos, organize janelas e experimente controlar tudo com as mãos.</p></div>
-<div id="windows"></div>
-<div id="dock" class="glass">
+<div id="welcome"><h1>Seu ambiente é o sistema.</h1><p>Abra a câmera e posicione suas janelas no mundo ao redor.</p><button id="startReality" class="btn primary" style="pointer-events:auto;margin-top:22px;padding:15px 25px">Iniciar realidade mista</button><p id="realityMessage" class="hint" style="margin-top:15px"></p></div>
+<div id="worldStage"><div id="windows"></div></div>
+<div id="dock" class="glass spatialDock">
 <button class="dockbtn" data-open="home" title="Início">⌂<span>Início</span></button>
 <button class="dockbtn" data-open="launcher" title="Aplicativos">▦<span>Apps</span></button>
 <button class="dockbtn" data-open="notes" title="Notas">▤<span>Notas</span></button>
@@ -23,14 +23,30 @@
 <div id="hand1" class="hand-dot"></div><div id="hand2" class="hand-dot second"></div>
 <div id="toast" class="glass" role="status"></div>
 <input id="fileinput" type="file" multiple>
+<style>
+#space{background:#05080d;overflow:hidden}#worldVideo{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none;transform:scaleX(-1)}#worldShade{position:absolute;inset:0;background:linear-gradient(180deg,rgba(4,9,17,.26),transparent 24%,transparent 70%,rgba(3,7,12,.32));pointer-events:none}#worldHint{position:absolute;top:48%;left:50%;transform:translate(-50%,-50%);font-size:10px;letter-spacing:2px;color:#aab9c9;opacity:.6;text-align:center;width:90%;pointer-events:none}.orb{display:none}#worldStage{position:fixed;inset:0;perspective:1250px;pointer-events:none;transform-style:preserve-3d}#windows{position:absolute;inset:0;transform-style:preserve-3d}.window{transform-origin:center center;transform:perspective(1250px) rotateY(var(--ry,0deg)) rotateX(var(--rx,0deg)) translateZ(var(--depth,0px));background:rgba(19,25,35,.78);border:1px solid rgba(225,237,255,.27);box-shadow:0 18px 60px rgba(0,0,0,.32),inset 0 1px rgba(255,255,255,.14);border-radius:25px}.window.focused{border-color:rgba(211,232,255,.6);box-shadow:0 20px 75px rgba(0,0,0,.46),0 0 25px rgba(175,214,255,.09)}.window:after{content:"";position:absolute;bottom:0;left:20%;right:20%;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.32),transparent);pointer-events:none}.spatialDock{background:rgba(22,29,40,.75);border-radius:28px;box-shadow:0 10px 40px #0008,0 0 0 1px #fff1;transform:translateX(-50%) perspective(600px) rotateX(7deg)!important}#top .brand,#top .status{background:rgba(20,27,39,.63)}#welcome{z-index:5}body.reality #welcome{display:none}body.reality #worldHint{display:none}body.reality #worldVideo{display:block}body:not(.reality) #dock{opacity:.3;pointer-events:none}body:not(.reality) #windows{opacity:0;pointer-events:none}.window .titlebar{background:rgba(255,255,255,.035)}#worldBadge{position:fixed;left:50%;top:calc(80px + env(safe-area-inset-top));transform:translateX(-50%);z-index:101;pointer-events:none;color:white;font-size:11px;background:rgba(10,20,29,.5);padding:9px 13px;border:1px solid #ffffff24;border-radius:18px;display:none;white-space:nowrap}body.reality #worldBadge{display:block}#worldVideo:fullscreen{object-fit:cover}@media(max-width:620px){.window{top:23%!important;height:min(49vh,480px);border-radius:25px}.window .content{font-size:14px}#welcome{top:46%}#worldBadge{top:calc(79px + env(safe-area-inset-top))}}
+</style>
+<div id="worldBadge">◉ Câmera ativa · janelas espaciais</div>
 <script type="module">
 const $=s=>document.querySelector(s), root=$("#windows"), welcome=$("#welcome"), status=$("#trackingStatus");
 const icons={home:"⌂",launcher:"▦",notes:"▤",hands:"✋",settings:"⚙",clock:"◷",calc:"⌗",files:"▱",gallery:"▧",spaces:"▣"};
 const titles={home:"Início",launcher:"Aplicativos",notes:"Notas",hands:"Rastreamento das mãos",settings:"Ajustes",clock:"Relógio",calc:"Calculadora",files:"Arquivos",gallery:"Galeria",spaces:"Janelas"};
 const store=(k,v)=>localStorage.setItem("vros."+k,JSON.stringify(v));
 const load=(k,d)=>{try{return JSON.parse(localStorage.getItem("vros."+k)??"null")??d}catch{return d}};
-const state={wins:[],z:20,hand:false,stream:null,tracker:null,frame:0,lastTime:0,pinch:[false,false],cursor:[null,null],activeHand:null,gestureTarget:null,gestureWindow:null,gestureMode:null,handFrames:0,handFps:0,handSensitivity:load("sensitivity",1),mirrored:load("mirrored",true),accent:load("accent","#a4c8ff"),seconds:0,running:false,started:0,files:load("files",[]),gallery:load("gallery",[])};
+const state={reality:false,worldStream:null,wins:[],z:20,hand:false,stream:null,tracker:null,frame:0,lastTime:0,pinch:[false,false],cursor:[null,null],activeHand:null,gestureTarget:null,gestureWindow:null,gestureMode:null,handFrames:0,handFps:0,handSensitivity:load("sensitivity",1),mirrored:load("mirrored",true),accent:load("accent","#a4c8ff"),seconds:0,running:false,started:0,files:load("files",[]),gallery:load("gallery",[])};
 document.documentElement.style.setProperty("--accent",state.accent);
+async function startReality(){
+ const msg=$("#realityMessage"),btn=$("#startReality");btn.disabled=true;btn.textContent="Abrindo câmera...";
+ try{
+  if(!navigator.mediaDevices?.getUserMedia)throw new Error("Câmera indisponível. Abra pelo Safari usando HTTPS.");
+  const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},width:{ideal:1280},height:{ideal:720}},audio:false});
+  state.worldStream=stream;const video=$("#worldVideo");video.srcObject=stream;await video.play();
+  state.reality=true;document.body.classList.add("reality");$("#trackingStatus").textContent="● Realidade mista ativa";toast("Ambiente iniciado. Abra Apps para criar janelas.");
+  if(!state.wins.length)openApp("launcher");
+ }catch(e){msg.textContent=e.name==="NotAllowedError"?"Permita o acesso à câmera nas configurações do Safari.":(e.message||"Falha ao iniciar câmera.");btn.disabled=false;btn.textContent="Tentar novamente"}
+}
+$("#startReality").onclick=startReality;
+
 function toast(msg){const t=$("#toast");t.textContent=msg;t.style.display="block";clearTimeout(toast.timer);toast.timer=setTimeout(()=>t.style.display="none",3400)}
 function escapeHTML(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function appMarkup(kind){
@@ -47,14 +63,14 @@ case "gallery":return '<h2>Galeria</h2><button class="btn primary" id="importPho
 case "spaces":return '<h2>Janelas abertas</h2><div id="windowList"></div><button class="btn" id="closeAll">Fechar todas</button>';
 }}
 function saveLayout(){store("layout",state.wins.map(w=>({kind:w.kind,x:w.el.offsetLeft,y:w.el.offsetTop,width:w.el.offsetWidth,height:w.el.offsetHeight,min:w.min})))}
-function openApp(kind,opts={}){
+function openApp(kind,opts={}){if(!state.reality){toast("Primeiro inicie a realidade mista.");return;}
 if(!titles[kind])return;
 const id="w"+Math.random().toString(36).slice(2), el=document.createElement("section");
 el.className="window glass";el.dataset.id=id;el.setAttribute("aria-label",titles[kind]);
 const n=state.wins.length;
 el.style.left=(opts.x??Math.max(12,innerWidth/2-260+(n%5)*27))+"px";
 el.style.top=(opts.y??Math.max(65,innerHeight/2-220+(n%5)*23))+"px";
-el.style.width=(opts.width??520)+"px";el.style.height=(opts.height??380)+"px";
+el.style.width=(opts.width??520)+"px";el.style.height=(opts.height??380)+"px";el.style.setProperty("--ry",((n%3)-1)*-5+"deg");el.style.setProperty("--rx",((n%2)?-2:2)+"deg");el.style.setProperty("--depth",((n%3)-1)*-35+"px");
 el.innerHTML='<div class="titlebar"><div class="traffic"><button class="close" title="Fechar" aria-label="Fechar"></button><button class="min" title="Minimizar" aria-label="Minimizar"></button><button class="max" title="Maximizar" aria-label="Maximizar"></button></div><span class="wtitle">'+titles[kind]+'</span></div><div class="content">'+appMarkup(kind)+'</div>';
 root.appendChild(el);const w={id,kind,el,min:false,old:null};state.wins.push(w);focus(w);welcome.style.display="none";
 el.querySelector(".close").onclick=()=>closeWindow(w);
@@ -124,7 +140,7 @@ if(state.gestureWindow)focus(state.wins.find(w=>w.el===state.gestureWindow));
 if(pinch&&was&&state.gestureMode==="drag"&&state.gestureWindow){const a=state.gestureStart;state.gestureWindow.style.left=Math.max(0,a.left+point.x-a.x)+"px";state.gestureWindow.style.top=Math.max(0,a.top+point.y-a.y)+"px"}
 if(!pinch&&was){if(state.gestureMode==="click"&&state.gestureTarget){const el=state.gestureTarget;if(el.matches("button,input[type=checkbox]")||el.closest("button"))(el.closest("button")||el).click();else if(el.matches("input[type=range]")){const r=el.getBoundingClientRect();el.value=+el.min+(+el.max-+el.min)*Math.max(0,Math.min(1,(point.x-r.left)/r.width));el.dispatchEvent(new Event("input",{bubbles:true}))}}saveLayout();state.gestureTarget=null;state.gestureWindow=null}
 }
-window.addEventListener("beforeunload",()=>state.stream?.getTracks().forEach(t=>t.stop()));
-openApp("home");
+window.addEventListener("beforeunload",()=>{state.stream?.getTracks().forEach(t=>t.stop());state.worldStream?.getTracks().forEach(t=>t.stop())});
+/* The camera-first spatial workspace is started by the user. */
 </script>
 </body></html>
