@@ -1,0 +1,12 @@
+{
+  "name": "VR OS Spatial",
+  "short_name": "VR OS",
+  "description": "Ambiente espacial experimental com câmera e gestos no navegador.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "landscape",
+  "theme_color": "#080b10",
+  "background_color": "#080b10",
+  "icons": [{"src":"./icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]
+}
