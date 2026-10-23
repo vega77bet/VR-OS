@@ -13,6 +13,11 @@ const persistent = {
 };
 const defaults={accent:'#aacbf7',opacity:.76,camera:'ultrawide',gyro:true,scale:1,handsFps:15,showPoints:false,mirror:false,handSensitivity:.43,reduceMotion:false};
 const settings={...defaults,...persistent.get('settings',{})};
+settings.opacity=clamp(Number(settings.opacity)||defaults.opacity,.48,.96);
+settings.scale=clamp(Number(settings.scale)||1,.70,1.18);
+settings.handsFps=[10,15,20].includes(Number(settings.handsFps))?Number(settings.handsFps):15;
+settings.handSensitivity=clamp(Number(settings.handSensitivity)||defaults.handSensitivity,.15,.8);
+if(!/^#[0-9a-f]{6}$/i.test(settings.accent))settings.accent=defaults.accent;
 const apps={
   home:['Início','home'], apps:['Aplicativos','grid'], notes:['Notas','note'], clock:['Relógio','clock'],
   calc:['Calculadora','calc'], files:['Arquivos','folder'], gallery:['Galeria','photo'],music:['Música','music'],
@@ -22,6 +27,7 @@ const apps={
 const state={
   started:false,starting:false,video:$('#cameraVideo'),stream:null,cameras:[],lastError:'',logs:[],
   orientationAllowed:false,poseReady:false,pose:null,poseTarget:null,renderScheduled:false,sensorAge:0,
+  cameraSwitching:false,dbPromise:null,landmarkErrors:0,lastHandPresence:0,
   dockDir:null,windows:new Map(),z:12,windId:0,full:0,handModel:null,handRunning:false,
   handLoop:0,handLastVideo:-1,handLastTick:0,handFps:0,handCount:0,handLastFrame:0,
   pointers:[{position:null,pinch:false,frames:0},{position:null,pinch:false,frames:0}],gesture:null,hover:null,
@@ -35,6 +41,8 @@ function applySettings(){
   document.documentElement.style.setProperty('--panel-alpha',String(settings.opacity));
   document.documentElement.style.setProperty('--motion',settings.reduceMotion?'0':'1');
   document.body.classList.toggle('debug-hands',settings.showPoints);
+  document.body.classList.toggle('hand-control-active',state.handRunning);
+  document.body.classList.toggle('reduce-motion',settings.reduceMotion);
   for(const w of state.windows.values())applyWindowSize(w);
   scheduleRender();
 }
@@ -90,8 +98,10 @@ function render(){
   state.renderScheduled=false;
   if(state.poseReady&&state.poseTarget){
     const q=state.pose,newQ=qNlerp(q,state.poseTarget,settings.reduceMotion?1:.28);
-    const difference=1-Math.abs(dotQuat(newQ,state.pose));state.pose=newQ;
-    if(difference>.000001)scheduleRender();
+    state.pose=newQ;
+    // Compare against the TARGET: frame-to-frame change can be tiny even when the target is far away.
+    const remaining=1-Math.min(1,Math.abs(dotQuat(newQ,state.poseTarget)));
+    if(remaining>.0000003 && !document.hidden)scheduleRender();
   }
   const{width,height}=measure();
   for(const w of state.windows.values()){
@@ -112,14 +122,23 @@ function recenterAll(silent=false){
   state.dockDir=rayAt(width/2,height*(width>height?.9:.86));
   scheduleRender();saveLayout();if(!silent)toast('Espaço recentralizado');
 }
-function centerWindow(w){const{width,height}=measure();w.dir=rayAt(width/2,height*.48);focusWindow(w);scheduleRender();saveLayout()}
+function centerWindow(w){const{width,height}=measure();
+  // Center inside the visible area, not behind Safari's top controls.
+  const cy=clamp(height*.48,48+w.height*settings.scale*.5+4,height-35);
+  w.dir=rayAt(width/2,cy);focusWindow(w);scheduleRender();saveLayout()}
 function requireStarted(){if(!state.started){toast('Inicie a câmera primeiro');return false}return true}
 
-function defaultWindowSize(){const{width,height,landscape}=availableRect();return{
-  width:Math.round(clamp(width*(landscape?.53:.86),landscape?310:260,landscape?640:470)),
-  height:Math.round(clamp(height*(landscape?.68:.53),landscape?210:260,landscape?480:590))
+function defaultWindowSize(){const{width,height,landscape}=availableRect(),scale=settings.scale;return{
+  width:Math.round(clamp(width*(landscape?.53:.86),landscape?310:260,Math.min(landscape?640:470,(width-24)/scale))),
+  height:Math.round(clamp(height*(landscape?.64:.53),landscape?190:260,Math.min(landscape?480:590,(height-(landscape?118:128))/scale)))
 }}
-function applyWindowSize(w){const{width,height}=measure();const maxW=Math.max(230,width-16),maxH=Math.max(150,height-80);w.width=clamp(w.width,Math.min(240,maxW),maxW);w.height=clamp(w.height,Math.min(150,maxH),maxH);w.el.style.width=Math.round(w.width)+'px';w.el.style.height=Math.round(w.height)+'px';w.el.style.setProperty('--window-scale',settings.scale)}
+function applyWindowSize(w){
+  const{width,height}=measure(),scale=settings.scale;
+  const maxW=Math.max(200,(width-28)/scale),maxH=Math.max(145,(height-(width>height?110:116))/scale);
+  w.width=clamp(w.width,Math.min(200,maxW),maxW);w.height=clamp(w.height,Math.min(145,maxH),maxH);
+  w.el.style.width=Math.round(w.width)+'px';w.el.style.height=Math.round(w.height)+'px';
+  w.el.style.setProperty('--window-scale',settings.scale);
+}
 function saveLayout(){const{width,height}=measure();persistent.set('workspace',[...state.windows.values()].map(w=>{
   const p=projection(w.dir);return{kind:w.kind,x:clamp(p.x/width,-.5,1.5),y:clamp(p.y/height,-.5,1.5),width:w.width,height:w.height,minimized:w.minimized};
 }));}
@@ -136,22 +155,23 @@ function openWindow(kind,opts={}){
   // One window per app: avoids invisible duplicates and accidental stacking on iPhone.
   const existing=[...state.windows.values()].find(w=>w.kind===kind);
   if(existing){existing.minimized=false;existing.el.classList.remove('minimized');centerWindow(existing);return existing;}
-  const{id=++state.windId}=opts;const size=defaultWindowSize();const{width,height}=measure();
+  const id=++state.windId;const size=defaultWindowSize();const{width,height}=measure();
   const x=opts.x!==undefined?opts.x*width:width/2+(state.windows.size%3-1)*Math.min(85,width*.10);
-  const y=opts.y!==undefined?opts.y*height:height*.48;
-  const w={id,kind,dir:rayAt(x,y),width:opts.width||size.width,height:opts.height||size.height,minimized:false,maxOld:null,disposers:[],el:null};
+  const y=opts.y!==undefined?opts.y*height:Math.max(height*.48,48+(opts.height||size.height)*settings.scale*.5+4);
+  const w={id,kind,dir:rayAt(x,y),width:Number(opts.width)||size.width,height:Number(opts.height)||size.height,minimized:!!opts.minimized,maxOld:null,disposers:[],el:null};
   const el=document.createElement('section');el.className='spatial-window glass';el.dataset.windowId=String(id);el.setAttribute('role','region');el.setAttribute('aria-label',apps[kind][0]);el.innerHTML=windowMarkup(w);w.el=el;
-  $('#worldLayer').appendChild(el);state.windows.set(id,w);applyWindowSize(w);focusWindow(w);installWindowInput(w);mountApp(w);scheduleRender();saveLayout();return w;
+  $('#worldLayer').appendChild(el);state.windows.set(id,w);applyWindowSize(w);el.classList.toggle('minimized',w.minimized);focusWindow(w);installWindowInput(w);mountApp(w);scheduleRender();saveLayout();return w;
 }
 function focusWindow(w){if(!w||!state.windows.has(w.id))return;for(const item of state.windows.values())item.el.classList.toggle('focused',item===w);w.el.style.zIndex=++state.z;$$('.dock-item').forEach(btn=>btn.classList.toggle('active',btn.dataset.open===w.kind))}
 function closeWindow(w){
   if(!w||!state.windows.has(w.id))return;
   if(state.gesture?.w===w)state.gesture=null;
+  if(state.hover && w.el.contains(state.hover))clearHover();
   for(const fn of w.disposers)try{fn()}catch(error){log(error.message)}
   w.el.remove();state.windows.delete(w.id);saveLayout();scheduleRender();toast(apps[w.kind][0]+' fechado');
   if(state.windows.size===0)$$('.dock-item').forEach(btn=>btn.classList.remove('active'));
 }
-function minimizeWindow(w){w.minimized=!w.minimized;w.el.classList.toggle('minimized',w.minimized);saveLayout()}
+function minimizeWindow(w){if(!w||!state.windows.has(w.id))return;w.minimized=!w.minimized;w.el.classList.toggle('minimized',w.minimized);saveLayout();scheduleRender()}
 function maximizeWindow(w){const{width,height}=measure();if(w.maxOld){w.width=w.maxOld.width;w.height=w.maxOld.height;w.maxOld=null}else{w.maxOld={width:w.width,height:w.height};w.width=width*.82;w.height=height*.74}applyWindowSize(w);centerWindow(w)}
 function installWindowInput(w){
   const head=$('.window-head',w.el),grip=$('.resizer',w.el);
@@ -170,7 +190,11 @@ function installWindowInput(w){
   });
   head.addEventListener('pointermove',event=>{
     if(!drag||drag.id!==event.pointerId)return;
-    w.dir=rayAt(event.clientX+drag.dx,event.clientY+drag.dy);scheduleRender();
+    // Keep the window reachable while dragging; dragging outside the screen would
+    // previously leave an untouchable spatial window behind.
+    const safeX=clamp(event.clientX+drag.dx,30,innerWidth-30);
+    const safeY=clamp(event.clientY+drag.dy,55,innerHeight-28);
+    w.dir=rayAt(safeX,safeY);scheduleRender();
   });
   for(const type of ['pointerup','pointercancel','lostpointercapture'])head.addEventListener(type,()=>{if(drag){drag=null;saveLayout()}});
   let sizing=null;
@@ -240,7 +264,7 @@ async function startCamera(){
 }
 async function switchCamera(preference,{silent=false,remember=true}={}){
   if(!state.stream)return false;
-  if(state.handRunning)stopHands({quiet:true}); // stale frames must not enter a new stream
+  if(state.cameraSwitching)return false;
   const original=state.stream,oldTrack=cameraTrack();let candidate=null;
   if(preference.startsWith('device:'))candidate=state.cameras.find(d=>d.id===preference.slice(7));
   if(preference==='ultrawide')candidate=ultraCamera();
@@ -250,6 +274,9 @@ async function switchCamera(preference,{silent=false,remember=true}={}){
     refreshCameraInfo();return zoom!==null;
   }
   if(preference.startsWith('device:')&&!candidate){if(!silent)toast('Câmera não encontrada; mantendo a atual');return false}
+  const resumeHands=state.handRunning;
+  state.cameraSwitching=true;
+  if(resumeHands)stopHands({quiet:true}); // don't analyze frames while the stream changes
   try{
     // iOS often refuses two simultaneous camera tracks: release previous first.
     original.getTracks().forEach(t=>t.stop());
@@ -264,6 +291,11 @@ async function switchCamera(preference,{silent=false,remember=true}={}){
     try{const fallback=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});state.video.srcObject=fallback;await state.video.play();state.stream=fallback}
     catch(fallbackError){log('Câmera fallback: '+fallbackError.message);toast('Não foi possível reativar a câmera. Recarregue o VR OS.',5000);return false}
     refreshCameraInfo();if(!silent)toast('Não foi possível trocar lente; câmera traseira restaurada');return false;
+  }finally{
+    state.cameraSwitching=false;
+    if(resumeHands&&state.started&&state.stream?.active){
+      const ok=await startHands();if(!ok)log('Rastreamento não voltou após troca de lente');
+    }
   }
 }
 function refreshCameraInfo(){
@@ -293,6 +325,16 @@ async function startReality(){
   }finally{state.starting=false}
 }
 $('#start').addEventListener('click',startReality);
+function recoverInactiveCamera(){
+  if(!state.started||state.stream?.active)return;
+  state.started=false;state.stream=null;state.video.srcObject=null;
+  document.body.classList.remove('started');
+  stopHands({quiet:true});
+  const button=$('#start');button.disabled=false;button.innerHTML=glyph('camera')+' Retomar câmera e espaço';
+  $('#startError').textContent='O Safari interrompeu a câmera. Toque para continuar.';
+  setStatus('Câmera interrompida','warn');log('Câmera interrompida; aguarda retomada manual');
+}
+window.addEventListener('pageshow',recoverInactiveCamera);
 
 function makeTile(kind){return `<button type="button" class="app-tile" data-open="${kind}">${glyph(apps[kind][1])}<span>${apps[kind][0]}</span></button>`}
 function layoutActions(){return `<div class="row"><button class="button" data-app-action="recenter">${glyph('focus')} Recentrar</button><button class="button" data-open="apps">${glyph('grid')} Apps</button></div>`}
@@ -317,7 +359,7 @@ function appHTML(kind){
     <div class="setting-row"><span>Reduzir animações</span><input id="motionSetting" type="checkbox" ${settings.reduceMotion?'checked':''}></div>
     <div class="row" style="margin-top:14px"><button class="button" id="cameraScan">${glyph('camera')} Procurar lentes</button><button class="button" id="settingsReset">Restaurar ajustes</button><button class="button" id="fullscreenSetting">${glyph('expand')} Tela cheia</button></div>`;
   if(kind==='spaces')return `<div class="row between"><h2>Gerenciador de janelas</h2><button class="button small" id="windowsRecenter">${glyph('focus')} Recentrar</button></div><div id="windowItems"></div><div class="row"><button class="button danger" id="closeAll">${glyph('trash')} Fechar tudo</button><button class="button" data-open="apps">${glyph('plus')} Nova janela</button></div>`;
-  if(kind==='about')return `<h2>VR OS Spatial 2</h2><p>Um sistema espacial experimental que roda no navegador, criado em HTML, CSS e JavaScript.</p><div class="stack"><div class="setting-row"><span>Câmera</span><span id="aboutCamera">${htmlEscape(formatCameraLabel(cameraTrack()))}</span></div><div class="setting-row"><span>Orientação</span><span id="aboutSensor">${state.poseReady?'Detectada':'Indisponível/aguardando'}</span></div><div class="setting-row"><span>Rastreamento de mãos</span><span id="aboutHands">${state.handRunning?'Ativo':'Desligado'}</span></div><div class="setting-row"><span>Armazenamento</span><span>Local ao aparelho</span></div></div><div class="rule"></div><p class="micro">Limite técnico: o Safari não oferece ancoragem de posição ARKit a uma página web. A orientação muda a projeção das janelas, mas andar pela sala não gera deslocamento 3D real.</p><h3>Diagnóstico</h3><pre id="debugText" style="white-space:pre-wrap;font:10px/1.5 ui-monospace,monospace;color:var(--secondary)">${htmlEscape(state.logs.join('\n'))}</pre>`;
+  if(kind==='about')return `<h2>VR OS Spatial 2.3</h2><p>Um sistema espacial experimental que roda no navegador, criado em HTML, CSS e JavaScript.</p><div class="stack"><div class="setting-row"><span>Câmera</span><span id="aboutCamera">${htmlEscape(formatCameraLabel(cameraTrack()))}</span></div><div class="setting-row"><span>Orientação</span><span id="aboutSensor">${state.poseReady?'Detectada':'Indisponível/aguardando'}</span></div><div class="setting-row"><span>Rastreamento de mãos</span><span id="aboutHands">${state.handRunning?'Ativo':'Desligado'}</span></div><div class="setting-row"><span>Armazenamento</span><span>Local ao aparelho</span></div></div><div class="rule"></div><p class="micro">Limite técnico: o Safari não oferece ancoragem de posição ARKit a uma página web. A orientação muda a projeção das janelas, mas andar pela sala não gera deslocamento 3D real.</p><div class="row between"><h3>Diagnóstico</h3><button class="button small" id="copyDiagnostics" type="button">Copiar registro</button></div><pre id="debugText" style="white-space:pre-wrap;font:10px/1.5 ui-monospace,monospace;color:var(--secondary)">${htmlEscape(state.logs.join('\n'))}</pre>`;
   return `<h2>Aplicativo indisponível</h2>`;
 }
 function on(el,type,cb,w){if(!el)return;el.addEventListener(type,cb);w.disposers.push(()=>el.removeEventListener(type,cb))}
@@ -334,6 +376,10 @@ function mountApp(w){
   if(kind==='settings')mountSettings(w,find);
   if(kind==='spaces')mountSpaces(w,find);
   if(kind==='about'){
+    on(content,'click',async e=>{if(!e.target.closest('#copyDiagnostics'))return;
+      try{await navigator.clipboard.writeText(`VR OS 2.3\n${navigator.userAgent}\n${state.logs.join('\n')}`);toast('Diagnóstico copiado')}
+      catch{toast('Abra o diagnóstico e copie o texto manualmente')}
+    },w);
     const interval=setInterval(()=>{if(w.el.isConnected){find('aboutSensor').textContent=state.poseReady?'Orientação ativa':'Aguardando/indisponível';find('aboutHands').textContent=state.handRunning?'Ativo':'Desligado';find('debugText').textContent=state.logs.join('\n');}},1000);
     w.disposers.push(()=>clearInterval(interval));
   }
@@ -368,9 +414,15 @@ function mountClock(w,find){const refresh=()=>{const now=new Date();find('clockN
 function fileId(){return crypto.randomUUID?.()||('vr-'+Date.now()+'-'+Math.random().toString(36).slice(2))}
 function dbOpen(){return new Promise(resolve=>{
   if(!('indexedDB'in window)){resolve(null);return}
-  try{const request=indexedDB.open('VR-OS-Storage',2);request.onupgradeneeded=()=>{if(!request.result.objectStoreNames.contains('assets'))request.result.createObjectStore('assets',{keyPath:'id'})};request.onsuccess=()=>resolve(request.result);request.onerror=()=>resolve(null)}catch{resolve(null)}
+  let settled=false;const complete=db=>{if(settled)return;settled=true;clearTimeout(timer);resolve(db)};
+  const timer=setTimeout(()=>{log('Armazenamento local demorou para responder');complete(null)},2800);
+  try{const request=indexedDB.open('VR-OS-Storage',2);
+    request.onupgradeneeded=()=>{if(!request.result.objectStoreNames.contains('assets'))request.result.createObjectStore('assets',{keyPath:'id'})};
+    request.onsuccess=()=>{const db=request.result;if(settled){db.close();return}db.onversionchange=()=>{db.close();state.db=null;state.dbPromise=null};complete(db)};
+    request.onerror=()=>complete(null);request.onblocked=()=>log('IndexedDB bloqueado por outra aba');
+  }catch{complete(null)}
 })}
-async function fileDB(){if(state.db===null)state.db=await dbOpen();return state.db}
+async function fileDB(){if(state.db)return state.db;if(!state.dbPromise)state.dbPromise=dbOpen();state.db=await state.dbPromise;return state.db}
 async function filePut(file,category){const entry={id:fileId(),name:file.name||'Arquivo',type:file.type||'application/octet-stream',size:file.size||0,created:Date.now(),category,blob:file};const db=await fileDB();if(!db){state.memoryFiles.set(entry.id,entry);return entry}
   return new Promise((resolve,reject)=>{const transaction=db.transaction('assets','readwrite');transaction.objectStore('assets').put(entry);transaction.oncomplete=()=>resolve(entry);transaction.onerror=()=>reject(transaction.error)})}
 async function fileList(category){const db=await fileDB();let entries=[];if(!db)entries=[...state.memoryFiles.values()];else entries=await new Promise(resolve=>{const request=db.transaction('assets','readonly').objectStore('assets').getAll();request.onsuccess=()=>resolve(request.result||[]);request.onerror=()=>resolve([])});return entries.filter(e=>!category||e.category===category).sort((a,b)=>b.created-a.created)}
@@ -484,7 +536,7 @@ function mountHands(w,find){
 const MP='https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.1.1';
 const MODEL='https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
 async function startHands(){
-  if(state.handRunning)return true;if(!state.started||!state.stream){toast('Inicie a câmera do espaço primeiro');return false}
+  if(state.handRunning)return true;if(!state.started||!state.stream?.active){toast('Inicie a câmera do espaço primeiro');return false}
   const button=$('#handsToggle');if(button){button.disabled=true;button.textContent='Carregando modelo...'}
   let step='Biblioteca';
   try{
@@ -497,7 +549,8 @@ async function startHands(){
       catch(gpuError){log('GPU indisponível, tentando CPU');options.baseOptions.delegate='CPU';state.handModel=await HandLandmarker.createFromOptions(fileset,options)}
     }
     if(!state.stream?.active)throw Error('A câmera não está ativa.');
-    state.handRunning=true;state.handLastVideo=-1;state.handLastTick=0;state.handCount=0;
+    state.handRunning=true;state.handLastVideo=-1;state.handLastTick=0;state.handCount=0;state.landmarkErrors=0;
+    document.body.classList.add('hand-control-active');
     state.pointers=[{position:null,pinch:false,frames:0},{position:null,pinch:false,frames:0}];
     state.handLoop=requestAnimationFrame(handFrame);
     toast('Gestos ativados. Mostre as mãos à câmera traseira.');return true;
@@ -510,6 +563,7 @@ async function startHands(){
 }
 function stopHands({quiet=false}={}){
   state.handRunning=false;cancelAnimationFrame(state.handLoop);state.handLoop=0;state.gesture=null;
+  document.body.classList.remove('hand-control-active');$$('.spatial-window.hand-near').forEach(el=>el.classList.remove('hand-near'));
   for(let i=0;i<2;i++){const dot=$('#handCursor'+(i+1));dot.style.display='none'}
   if(state.hover){state.hover.classList.remove('hand-hover');state.hover=null}
   const canvas=$('#landmarkCanvas');canvas.getContext('2d')?.clearRect(0,0,canvas.width,canvas.height);
@@ -525,8 +579,9 @@ function videoPoint(handPoint,video){
 const distance2=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
 function renderHandDebug(hands,video){
   const canvas=$('#landmarkCanvas');if(!settings.showPoints){if(canvas.width)canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height);return}
-  const{width,height}=measure();if(canvas.width!==width||canvas.height!==height){canvas.width=width;canvas.height=height}
-  const ctx=canvas.getContext('2d');ctx.clearRect(0,0,width,height);ctx.strokeStyle='rgba(197,224,255,.73)';ctx.fillStyle='rgba(204,233,255,.88)';ctx.lineWidth=1.4;
+  const{width,height}=measure(),ratio=Math.min(2,devicePixelRatio||1);
+  if(canvas.width!==Math.round(width*ratio)||canvas.height!==Math.round(height*ratio)){canvas.width=Math.round(width*ratio);canvas.height=Math.round(height*ratio)}
+  const ctx=canvas.getContext('2d');ctx.setTransform(ratio,0,0,ratio,0,0);ctx.clearRect(0,0,width,height);ctx.strokeStyle='rgba(197,224,255,.73)';ctx.fillStyle='rgba(204,233,255,.88)';ctx.lineWidth=1.4;
   const segments=[[0,1,2,3,4],[0,5,6,7,8],[5,9,10,11,12],[9,13,14,15,16],[13,17,18,19,20],[0,17]];
   for(const hand of hands){const pts=hand.map(p=>videoPoint(p,video));for(const seg of segments){ctx.beginPath();seg.forEach((n,i)=>i?ctx.lineTo(pts[n].x,pts[n].y):ctx.moveTo(pts[n].x,pts[n].y));ctx.stroke()}
     for(const p of pts){ctx.beginPath();ctx.arc(p.x,p.y,2.4,0,Math.PI*2);ctx.fill()}}
@@ -539,12 +594,16 @@ function handFrame(now){
   state.handLastTick=now;state.handLastVideo=state.video.currentTime;
   try{
     const result=state.handModel.detectForVideo(state.video,now),hands=result.landmarks||[];
-    state.handCount=hands.length;
+    state.handCount=hands.length;state.landmarkErrors=0;
     if(state.handLastFrame)state.handFps=Math.round(1000/Math.max(1,now-state.handLastFrame));
     state.handLastFrame=now;
     renderHandDebug(hands,state.video);
     // Stable visual left-to-right assignment; the first pointer clicks, second resizes.
     let sorted=[...hands].sort((a,b)=>a[8].x-b[8].x);
+    if(sorted.length===1&&state.pointers[1].position){
+      const p=videoPoint(sorted[0][8],state.video);
+      if(!state.pointers[0].position||distance2(p,state.pointers[1].position)+28<distance2(p,state.pointers[0].position))sorted=[null,sorted[0]];
+    }
     if(sorted.length===2&&state.pointers[0].position&&state.pointers[1].position){
       const first=videoPoint(sorted[0][8],state.video),second=videoPoint(sorted[1][8],state.video);
       const direct=distance2(first,state.pointers[0].position)+distance2(second,state.pointers[1].position);
@@ -568,14 +627,24 @@ function handFrame(now){
       current.push({position,pinched});
     }
     if(current[0])dispatchHandGesture(current[0].position,current[0].pinched,current[1]);
-    else if(state.gesture)finishGesture(state.gesture,lastPointer(state.gesture));
+    else if(current[1])dispatchHandGesture(current[1].position,current[1].pinched,null);
+    else{clearHover();$$('.spatial-window.hand-near').forEach(el=>el.classList.remove('hand-near'));
+      if(state.gesture)finishGesture(state.gesture,lastPointer(state.gesture),{cancelled:true});}
     setStatus(`${state.handCount} mão(s) • ${state.handFps} FPS`);
-  }catch(error){log('Rastreamento: '+error.message);state.lastError=error.message;stopHands({quiet:true});toast('Gestos interrompidos: '+error.message.slice(0,110),5000)}
+  }catch(error){
+    state.landmarkErrors++;log('Rastreamento: '+error.message);state.lastError=error.message;
+    // Transient GPU context errors happen on Safari after backgrounding; stop only
+    // after a few consecutive failures, instead of killing gestures on one frame.
+    if(state.landmarkErrors>=3){stopHands({quiet:true});toast('Gestos interrompidos: '+error.message.slice(0,110),5000)}
+  }
 }
 function lastPointer(g){return state.pointers[0].position||g.origin}
 function clearHover(){if(state.hover){state.hover.classList.remove('hand-hover');state.hover=null}}
 function dispatchHandGesture(point,pinched,second){
   const hover=document.elementFromPoint(point.x,point.y);
+  const hoveringWindow=hover?.closest('.spatial-window');
+  $$('.spatial-window.hand-near').forEach(el=>{if(el!==hoveringWindow)el.classList.remove('hand-near')});
+  if(hoveringWindow)hoveringWindow.classList.add('hand-near');
   if(!state.gesture){
     const candidate=hover?.closest('button,input,textarea,select,a');
     if(candidate!==state.hover){clearHover();if(candidate){candidate.classList.add('hand-hover');state.hover=candidate}}
@@ -586,7 +655,7 @@ function dispatchHandGesture(point,pinched,second){
     if(w)focusWindow(w);
     const clickable=hover?.closest('button,input,textarea,select,a');
     const p=w?projection(w.dir):null;
-    state.gesture={w,target:clickable||hover,origin:point,startCenter:p?{x:p.x,y:p.y}:null,mode:w&&!clickable?'drag':'tap',didMove:false,startWidth:w?.width||0,startHeight:w?.height||0,pairDistance:null};
+    state.gesture={w,target:clickable||hover,origin:point,startCenter:p?{x:p.x,y:p.y}:null,mode:w&&hover?.closest('.window-head')&&!clickable?'drag':'tap',didMove:false,startWidth:w?.width||0,startHeight:w?.height||0,pairDistance:null};
   }
   const g=state.gesture;if(!g)return;
   if(pinched&&g.w){
@@ -604,8 +673,8 @@ function dispatchHandGesture(point,pinched,second){
   }
   if(!pinched)finishGesture(g,point);
 }
-function finishGesture(g,point){
-  if(g.mode==='tap'&&!g.didMove&&distance2(point,g.origin)<42){
+function finishGesture(g,point,{cancelled=false}={}){
+  if(!cancelled&&g.mode==='tap'&&!g.didMove&&distance2(point,g.origin)<42){
     // Click window chrome and internal controls; iOS requires real touch for file pickers.
     const target=g.target;
     if(target?.isConnected){if(target.matches('input[type=range]')){
@@ -619,7 +688,10 @@ function finishGesture(g,point){
 }
 
 // File and camera tracks are never requested in the background.
-document.addEventListener('visibilitychange',()=>{if(document.hidden)clearHover()});
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden){clearHover();if(state.gesture)finishGesture(state.gesture,lastPointer(state.gesture),{cancelled:true});}
+  else if(state.started){recoverInactiveCamera();state.handLastVideo=-1;state.handLastTick=0;scheduleRender()}
+});
 window.addEventListener('pagehide',()=>{
   if(state.handRunning)stopHands({quiet:true});
   state.handModel?.close?.();state.handModel=null;
@@ -634,5 +706,5 @@ if('serviceWorker' in navigator&&location.protocol==='https:')navigator.serviceW
 
 // Development smoke-test hooks are only exposed with ?debug=1.
 if(new URLSearchParams(location.search).get('debug')==='1'){
-  window.VROSDebug={state,apps,openWindow,closeWindow,recenterAll,rayAt,projection,orientationQuat,evaluateExpression,stopHands,startHands,dispatchHandGesture,finishGesture,centerWindow,focusWindow};
+  window.VROSDebug={state,apps,openWindow,closeWindow,recenterAll,rayAt,projection,orientationQuat,evaluateExpression,stopHands,startHands,switchCamera,dispatchHandGesture,finishGesture,centerWindow,focusWindow,minimizeWindow,videoPoint};
 }
