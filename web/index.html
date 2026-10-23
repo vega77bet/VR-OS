@@ -28,6 +28,9 @@
 #space{background:#05080d;overflow:hidden}#worldVideo{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none}#worldShade{position:absolute;inset:0;background:linear-gradient(180deg,rgba(4,9,17,.26),transparent 24%,transparent 70%,rgba(3,7,12,.32));pointer-events:none}#worldHint{position:absolute;top:48%;left:50%;transform:translate(-50%,-50%);font-size:10px;letter-spacing:2px;color:#aab9c9;opacity:.6;text-align:center;width:90%;pointer-events:none}.orb{display:none}#worldStage{position:fixed;inset:0;perspective:1250px;pointer-events:none;transform-style:preserve-3d}#windows{position:absolute;inset:0;transform-style:preserve-3d}.window{transform-origin:center center;transform:perspective(1250px) rotateY(var(--ry,0deg)) rotateX(var(--rx,0deg)) translateZ(var(--depth,0px));background:rgba(19,25,35,.78);border:1px solid rgba(225,237,255,.27);box-shadow:0 18px 60px rgba(0,0,0,.32),inset 0 1px rgba(255,255,255,.14);border-radius:25px}.window.focused{border-color:rgba(211,232,255,.6);box-shadow:0 20px 75px rgba(0,0,0,.46),0 0 25px rgba(175,214,255,.09)}.window:after{content:"";position:absolute;bottom:0;left:20%;right:20%;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.32),transparent);pointer-events:none}.spatialDock{background:rgba(22,29,40,.75);border-radius:28px;box-shadow:0 10px 40px #0008,0 0 0 1px #fff1;transform:translateX(-50%) perspective(600px) rotateX(7deg)!important}#top .brand,#top .status{background:rgba(20,27,39,.63)}#welcome{z-index:5}body.reality #welcome{display:none}body.reality #worldHint{display:none}body.reality #worldVideo{display:block}body:not(.reality) #dock{opacity:.3;pointer-events:none}body:not(.reality) #windows{opacity:0;pointer-events:none}.window .titlebar{background:rgba(255,255,255,.035)}#worldBadge{position:fixed;left:50%;top:calc(80px + env(safe-area-inset-top));transform:translateX(-50%);z-index:101;pointer-events:none;color:white;font-size:11px;background:rgba(10,20,29,.5);padding:9px 13px;border:1px solid #ffffff24;border-radius:18px;display:none;white-space:nowrap}body.reality #worldBadge{display:block}#windows{transition:transform .12s linear}#dock{max-width:calc(100vw - 24px)}#recenterButton{pointer-events:auto;display:none;background:rgba(20,28,39,.72);border:1px solid #ffffff33;padding:9px 13px;border-radius:14px;font-size:12px}body.reality #recenterButton{display:block}#handOverlay{position:fixed;inset:0;width:100%;height:100%;z-index:210;pointer-events:none;display:none}body.handTracking #handOverlay{display:block}#worldStage{will-change:transform}#worldStage .spatialDock{pointer-events:auto;bottom:calc(17px + env(safe-area-inset-bottom));}body:not(.reality) #worldStage{pointer-events:none}#worldStage.no-motion{transform:none!important}#worldVideo:fullscreen{object-fit:cover}@media(max-width:620px){.window{height:min(49vh,480px);border-radius:25px}.window .content{font-size:14px}#welcome{top:46%}#worldBadge{top:calc(79px + env(safe-area-inset-top))}}
 </style>
 <style>
+#cameraQuick{position:fixed;top:calc(66px + env(safe-area-inset-top));right:12px;z-index:105;background:rgba(20,28,39,.73);border:1px solid rgba(255,255,255,.17);border-radius:13px;padding:8px 9px;color:white;font-size:11px;max-width:165px;display:none}
+body.reality #cameraQuick{display:block}
+@media(max-width:620px){#cameraQuick{top:calc(114px + env(safe-area-inset-top));right:10px}}
 /* Spatial interaction reliability: large targets, no clipping by tiny traffic dots. */
 .window .titlebar{min-height:64px;padding:11px 13px;gap:9px}
 .window .traffic{gap:6px;align-items:center;position:relative;z-index:2}
@@ -44,6 +47,7 @@
 #hand1.pinch,#hand2.pinch{width:22px;height:22px}
 @media(max-width:620px){.window .titlebar{min-height:60px}.window .traffic button{width:36px;height:36px}}
 </style>
+<select id="cameraQuick" aria-label="Selecionar lente"><option value="ultrawide">0,5x · tentar</option><option value="auto">Automática</option></select>
 <div id="worldBadge">◉ Câmera traseira · lente não confirmada</div>
 <script type="module">
 const $=s=>document.querySelector(s), root=$("#windows"), welcome=$("#welcome"), status=$("#trackingStatus");
@@ -84,6 +88,15 @@ async function discoverCameras(){
  try{
   const devices=await navigator.mediaDevices.enumerateDevices();
   state.cameraDevices=getRearCandidates(devices.filter(d=>d.kind==="videoinput"));
+  const quick=$("#cameraQuick");
+  quick.querySelectorAll("option[data-camera]").forEach(o=>o.remove());
+  state.cameraDevices.forEach((d,i)=>{
+   const option=document.createElement("option");
+   option.value="device:"+d.deviceId;option.dataset.camera="1";
+   option.textContent=d.label||("Câmera "+(i+1));
+   quick.appendChild(option);
+  });
+  quick.value=state.cameraPreference;
   return state.cameraDevices;
  }catch(err){console.warn("Camera enumeration",err);state.cameraDevices=[];return []}
 }
@@ -111,6 +124,7 @@ async function switchCamera(preference,quiet=false){
   video.srcObject=stream;await video.play();
   state.worldStream=stream;
   state.cameraPreference=preference;store("cameraPreference",preference);
+  $("#cameraQuick").value=preference;
   state.activeCameraLabel=stream.getVideoTracks()[0]?.label||candidate?.label||"Câmera não identificada";
   $("#worldBadge").textContent="◉ "+(candidate?.label||"Câmera traseira")+" · experimental";
   if(!quiet)toast("Câmera selecionada: "+state.activeCameraLabel);
@@ -154,6 +168,7 @@ async function startReality(){
  }
 }
 $("#startReality").onclick=startReality;
+$("#cameraQuick").onchange=async e=>{const ok=await switchCamera(e.target.value);if(!ok)e.target.value="auto"};
 
 function toast(msg){const t=$("#toast");t.textContent=msg;t.style.display="block";clearTimeout(toast.timer);toast.timer=setTimeout(()=>t.style.display="none",3400)}
 function escapeHTML(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
