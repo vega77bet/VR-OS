@@ -21,11 +21,11 @@
 </div>
 </div>
 <div id="camera"><video id="video" autoplay muted playsinline></video><small id="cameraLabel">Câmera ativa</small></div>
-<div id="hand1" class="hand-dot"></div><div id="hand2" class="hand-dot second"></div>
+<canvas id="handOverlay" aria-hidden="true"></canvas><div id="hand1" class="hand-dot"></div><div id="hand2" class="hand-dot second"></div>
 <div id="toast" class="glass" role="status"></div>
 <input id="fileinput" type="file" multiple>
 <style>
-#space{background:#05080d;overflow:hidden}#worldVideo{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none}#worldShade{position:absolute;inset:0;background:linear-gradient(180deg,rgba(4,9,17,.26),transparent 24%,transparent 70%,rgba(3,7,12,.32));pointer-events:none}#worldHint{position:absolute;top:48%;left:50%;transform:translate(-50%,-50%);font-size:10px;letter-spacing:2px;color:#aab9c9;opacity:.6;text-align:center;width:90%;pointer-events:none}.orb{display:none}#worldStage{position:fixed;inset:0;perspective:1250px;pointer-events:none;transform-style:preserve-3d}#windows{position:absolute;inset:0;transform-style:preserve-3d}.window{transform-origin:center center;transform:perspective(1250px) rotateY(var(--ry,0deg)) rotateX(var(--rx,0deg)) translateZ(var(--depth,0px));background:rgba(19,25,35,.78);border:1px solid rgba(225,237,255,.27);box-shadow:0 18px 60px rgba(0,0,0,.32),inset 0 1px rgba(255,255,255,.14);border-radius:25px}.window.focused{border-color:rgba(211,232,255,.6);box-shadow:0 20px 75px rgba(0,0,0,.46),0 0 25px rgba(175,214,255,.09)}.window:after{content:"";position:absolute;bottom:0;left:20%;right:20%;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.32),transparent);pointer-events:none}.spatialDock{background:rgba(22,29,40,.75);border-radius:28px;box-shadow:0 10px 40px #0008,0 0 0 1px #fff1;transform:translateX(-50%) perspective(600px) rotateX(7deg)!important}#top .brand,#top .status{background:rgba(20,27,39,.63)}#welcome{z-index:5}body.reality #welcome{display:none}body.reality #worldHint{display:none}body.reality #worldVideo{display:block}body:not(.reality) #dock{opacity:.3;pointer-events:none}body:not(.reality) #windows{opacity:0;pointer-events:none}.window .titlebar{background:rgba(255,255,255,.035)}#worldBadge{position:fixed;left:50%;top:calc(80px + env(safe-area-inset-top));transform:translateX(-50%);z-index:101;pointer-events:none;color:white;font-size:11px;background:rgba(10,20,29,.5);padding:9px 13px;border:1px solid #ffffff24;border-radius:18px;display:none;white-space:nowrap}body.reality #worldBadge{display:block}#windows{transition:transform .12s linear}#dock{max-width:calc(100vw - 24px)}#recenterButton{pointer-events:auto;display:none;background:rgba(20,28,39,.72);border:1px solid #ffffff33;padding:9px 13px;border-radius:14px;font-size:12px}body.reality #recenterButton{display:block}#worldStage{will-change:transform}#worldStage .spatialDock{pointer-events:auto;bottom:calc(17px + env(safe-area-inset-bottom));}body:not(.reality) #worldStage{pointer-events:none}#worldStage.no-motion{transform:none!important}#worldVideo:fullscreen{object-fit:cover}@media(max-width:620px){.window{height:min(49vh,480px);border-radius:25px}.window .content{font-size:14px}#welcome{top:46%}#worldBadge{top:calc(79px + env(safe-area-inset-top))}}
+#space{background:#05080d;overflow:hidden}#worldVideo{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none}#worldShade{position:absolute;inset:0;background:linear-gradient(180deg,rgba(4,9,17,.26),transparent 24%,transparent 70%,rgba(3,7,12,.32));pointer-events:none}#worldHint{position:absolute;top:48%;left:50%;transform:translate(-50%,-50%);font-size:10px;letter-spacing:2px;color:#aab9c9;opacity:.6;text-align:center;width:90%;pointer-events:none}.orb{display:none}#worldStage{position:fixed;inset:0;perspective:1250px;pointer-events:none;transform-style:preserve-3d}#windows{position:absolute;inset:0;transform-style:preserve-3d}.window{transform-origin:center center;transform:perspective(1250px) rotateY(var(--ry,0deg)) rotateX(var(--rx,0deg)) translateZ(var(--depth,0px));background:rgba(19,25,35,.78);border:1px solid rgba(225,237,255,.27);box-shadow:0 18px 60px rgba(0,0,0,.32),inset 0 1px rgba(255,255,255,.14);border-radius:25px}.window.focused{border-color:rgba(211,232,255,.6);box-shadow:0 20px 75px rgba(0,0,0,.46),0 0 25px rgba(175,214,255,.09)}.window:after{content:"";position:absolute;bottom:0;left:20%;right:20%;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.32),transparent);pointer-events:none}.spatialDock{background:rgba(22,29,40,.75);border-radius:28px;box-shadow:0 10px 40px #0008,0 0 0 1px #fff1;transform:translateX(-50%) perspective(600px) rotateX(7deg)!important}#top .brand,#top .status{background:rgba(20,27,39,.63)}#welcome{z-index:5}body.reality #welcome{display:none}body.reality #worldHint{display:none}body.reality #worldVideo{display:block}body:not(.reality) #dock{opacity:.3;pointer-events:none}body:not(.reality) #windows{opacity:0;pointer-events:none}.window .titlebar{background:rgba(255,255,255,.035)}#worldBadge{position:fixed;left:50%;top:calc(80px + env(safe-area-inset-top));transform:translateX(-50%);z-index:101;pointer-events:none;color:white;font-size:11px;background:rgba(10,20,29,.5);padding:9px 13px;border:1px solid #ffffff24;border-radius:18px;display:none;white-space:nowrap}body.reality #worldBadge{display:block}#windows{transition:transform .12s linear}#dock{max-width:calc(100vw - 24px)}#recenterButton{pointer-events:auto;display:none;background:rgba(20,28,39,.72);border:1px solid #ffffff33;padding:9px 13px;border-radius:14px;font-size:12px}body.reality #recenterButton{display:block}#handOverlay{position:fixed;inset:0;width:100%;height:100%;z-index:210;pointer-events:none;display:none}body.handTracking #handOverlay{display:block}#worldStage{will-change:transform}#worldStage .spatialDock{pointer-events:auto;bottom:calc(17px + env(safe-area-inset-bottom));}body:not(.reality) #worldStage{pointer-events:none}#worldStage.no-motion{transform:none!important}#worldVideo:fullscreen{object-fit:cover}@media(max-width:620px){.window{height:min(49vh,480px);border-radius:25px}.window .content{font-size:14px}#welcome{top:46%}#worldBadge{top:calc(79px + env(safe-area-inset-top))}}
 </style>
 <div id="worldBadge">◉ Passagem de câmera · modo experimental</div>
 <script type="module">
@@ -34,7 +34,7 @@ const icons={home:"⌂",launcher:"▦",notes:"▤",hands:"✋",settings:"⚙",cl
 const titles={home:"Início",launcher:"Aplicativos",notes:"Notas",hands:"Rastreamento das mãos",settings:"Ajustes",clock:"Relógio",calc:"Calculadora",files:"Arquivos",gallery:"Galeria",spaces:"Janelas"};
 const store=(k,v)=>localStorage.setItem("vros."+k,JSON.stringify(v));
 const load=(k,d)=>{try{return JSON.parse(localStorage.getItem("vros."+k)??"null")??d}catch{return d}};
-const state={reality:false,worldStream:null,orientationBase:null,orientationCurrent:null,viewX:0,viewY:0,hasMotion:false,wins:[],z:20,hand:false,stream:null,tracker:null,frame:0,lastTime:0,pinch:[false,false],cursor:[null,null],activeHand:null,gestureTarget:null,gestureWindow:null,gestureMode:null,handFrames:0,handFps:0,handSensitivity:load("sensitivity",1),mirrored:load("mirrored",false),accent:load("accent","#a4c8ff"),seconds:0,running:false,started:0,files:load("files",[]),gallery:load("gallery",[])};
+const state={reality:false,worldStream:null,orientationBase:null,orientationCurrent:null,viewX:0,viewY:0,hasMotion:false,wins:[],z:20,hand:false,stream:null,tracker:null,frame:0,lastTime:0,pinch:[false,false],cursor:[null,null],activeHand:null,gestureTarget:null,gestureWindow:null,gestureMode:null,handFrames:0,handFps:0,handSensitivity:load("sensitivity",1),showHand:load("showHand",true),mirrored:load("mirrored",false),accent:load("accent","#a4c8ff"),seconds:0,running:false,started:0,files:load("files",[]),gallery:load("gallery",[])};
 document.documentElement.style.setProperty("--accent",state.accent);
 const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
 function angularDelta(a,b){return ((a-b+540)%360)-180}
@@ -88,7 +88,7 @@ switch(kind){
 case "home":return '<h2>VR OS Spatial</h2><p class="muted">A câmera é seu ambiente. Janelas são projetadas à sua frente; o movimento por sensores é aproximado no navegador.</p><div class="tilegrid">'+["launcher","hands","notes","spaces"].map(k=>'<button class="tile" data-open="'+k+'"><span class="glyph">'+icons[k]+'</span>'+titles[k]+'</button>').join("")+'</div>';
 case "launcher":return '<h2>Aplicativos</h2><div class="tilegrid">'+Object.keys(titles).filter(k=>k!=="launcher").map(k=>'<button class="tile" data-open="'+k+'"><span class="glyph">'+icons[k]+'</span>'+titles[k]+'</button>').join("")+'</div>';
 case "notes":return '<h2>Suas notas</h2><textarea class="input" id="noteText" placeholder="Comece a escrever...">'+escapeHTML(load("notes",""))+'</textarea><p class="hint">Salvo automaticamente neste navegador.</p>';
-case "hands":return '<h2>Controle por gestos</h2><p class="hint">Mostre suas mãos para a câmera traseira, no ambiente à frente do iPhone. Indicador move o cursor; pinça entre indicador e polegar clica ou arrasta. O modelo roda no seu dispositivo.</p><div class="row"><button class="btn primary" id="handToggle">'+(state.hand?"Desativar câmera":"Ativar rastreamento")+'</button><span id="handInfo" class="badge">'+(state.hand?"Ativo":"Desligado")+'</span></div><div class="setting"><label for="sensitivity">Sensibilidade</label><input id="sensitivity" type="range" min=".5" max="1.7" step=".1" value="'+state.handSensitivity+'"></div><div class="setting"><label for="mirror">Espelhar movimento</label><input type="checkbox" id="mirror" '+(state.mirrored?"checked":"")+'></div><p class="hint">Requer HTTPS, câmera e conexão inicial para carregar o modelo. A ancoragem por sensores é aproximada, não é ARKit. Se não funcionar, use toque ou mouse.</p>';
+case "hands":return '<h2>Controle por gestos</h2><p class="hint">Mostre suas mãos para a câmera traseira, no ambiente à frente do iPhone. Indicador move o cursor; pinça entre indicador e polegar clica ou arrasta. O modelo roda no seu dispositivo. A silhueta na frente dos painéis é aproximada por pontos da mão, não é profundidade real.</p><div class="row"><button class="btn primary" id="handToggle">'+(state.hand?"Desativar câmera":"Ativar rastreamento")+'</button><span id="handInfo" class="badge">'+(state.hand?"Ativo":"Desligado")+'</span></div><div class="setting"><label for="sensitivity">Sensibilidade</label><input id="sensitivity" type="range" min=".5" max="1.7" step=".1" value="'+state.handSensitivity+'"></div><div class="setting"><label for="showHand">Mão na frente das janelas (experimental)</label><input type="checkbox" id="showHand" '+(state.showHand?"checked":"")+'></div><div class="setting"><label for="mirror">Espelhar movimento</label><input type="checkbox" id="mirror" '+(state.mirrored?"checked":"")+'></div><p class="hint">Requer HTTPS, câmera e conexão inicial para carregar o modelo. A ancoragem por sensores é aproximada, não é ARKit. Se não funcionar, use toque ou mouse.</p>';
 case "settings":return '<h2>Personalização</h2><div class="setting"><span>Cor de destaque</span><input type="color" id="accent" value="'+state.accent+'"></div><div class="setting"><span>Fundo espacial</span><select id="wallpaper"><option value="space">Espacial</option><option value="night">Noite</option><option value="deep">Profundo</option></select></div><div class="setting"><span>Transparência</span><input id="opacity" type="range" min=".55" max=".96" step=".01" value="'+load("opacity",.74)+'"></div><div class="setting"><span>Redefinir posições</span><button class="btn" id="resetWindows">Organizar</button></div><p class="hint">Suas preferências e notas ficam armazenadas neste navegador.</p>';
 case "clock":return '<h2>Relógio</h2><div class="clock" id="liveClock">--:--:--</div><p id="today" class="muted"></p><hr style="border:0;border-top:1px solid var(--stroke);margin:20px 0"><h2>Cronômetro</h2><div class="clock" id="stopwatch">00:00.0</div><div class="row"><button class="btn primary" id="startStop">Iniciar</button><button class="btn" id="resetStop">Zerar</button></div>';
 case "calc":return '<h2>Calculadora</h2><input class="input" id="calcScreen" value="0" readonly style="text-align:right;font-size:29px;margin-bottom:12px"><div class="calc">'+["C","(",")","÷","7","8","9","×","4","5","6","−","1","2","3","+","0",".","⌫","="].map(s=>'<button data-key="'+s+'">'+s+'</button>').join("")+'</div>';
@@ -120,7 +120,7 @@ function installApp(w){
 const el=w.el, q=s=>el.querySelector(s);
 el.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>openApp(b.dataset.open));
 if(w.kind==="notes")q("#noteText").oninput=e=>store("notes",e.target.value);
-if(w.kind==="hands"){q("#handToggle").onclick=()=>state.hand?stopHands():startHands();q("#sensitivity").oninput=e=>{state.handSensitivity=+e.target.value;store("sensitivity",state.handSensitivity)};q("#mirror").onchange=e=>{state.mirrored=e.target.checked;store("mirrored",state.mirrored)}}
+if(w.kind==="hands"){q("#handToggle").onclick=()=>state.hand?stopHands():startHands();q("#sensitivity").oninput=e=>{state.handSensitivity=+e.target.value;store("sensitivity",state.handSensitivity)};q("#mirror").onchange=e=>{state.mirrored=e.target.checked;store("mirrored",state.mirrored)};q("#showHand").onchange=e=>{state.showHand=e.target.checked;store("showHand",state.showHand)}}
 if(w.kind==="settings"){q("#accent").oninput=e=>{state.accent=e.target.value;document.documentElement.style.setProperty("--accent",state.accent);store("accent",state.accent)};q("#opacity").oninput=e=>{document.documentElement.style.setProperty("--glass","rgba(25,31,44,"+e.target.value+")");store("opacity",+e.target.value)};q("#wallpaper").onchange=e=>{const colors={space:"#090d16",night:"#050609",deep:"#071b22"};$("#space").style.background=colors[e.target.value]};q("#resetWindows").onclick=()=>{state.wins.forEach((v,i)=>{v.el.style.left=Math.max(10,innerWidth/2-260+(i%4)*35)+"px";v.el.style.top=Math.max(70,innerHeight/2-200+(i%4)*30)+"px"});saveLayout();toast("Janelas organizadas")}}
 if(w.kind==="clock"){const refresh=()=>{if(!el.isConnected)return;const now=new Date();q("#liveClock").textContent=now.toLocaleTimeString("pt-BR");q("#today").textContent=now.toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"});const ms=state.seconds+(state.running?Date.now()-state.started:0);q("#stopwatch").textContent=String(Math.floor(ms/60000)).padStart(2,"0")+":"+String(Math.floor(ms/1000)%60).padStart(2,"0")+"."+(Math.floor(ms/100)%10);q("#startStop").textContent=state.running?"Pausar":"Iniciar"};refresh();const timer=setInterval(()=>{if(!el.isConnected){clearInterval(timer);return}refresh()},100);q("#startStop").onclick=()=>{if(state.running){state.seconds+=Date.now()-state.started;state.running=false}else{state.started=Date.now();state.running=true}refresh()};q("#resetStop").onclick=()=>{state.running=false;state.seconds=0;refresh()}}
 if(w.kind==="calc"){let expr="";q(".calc").onclick=e=>{const b=e.target.closest("[data-key]");if(!b)return;const k=b.dataset.key;if(k==="C")expr="";else if(k==="⌫")expr=expr.slice(0,-1);else if(k==="="){try{const safe=expr.replace(/×/g,"*").replace(/÷/g,"/").replace(/−/g,"-");if(!/^[0-9+*/().\-\s]+$/.test(safe))throw Error();const result=Function('"use strict";return ('+safe+')')();expr=Number.isFinite(result)?String(+result.toFixed(8)):"Erro"}catch{expr="Erro"}}else{if(expr==="Erro")expr="";expr+=k}q("#calcScreen").value=expr||"0"}}
@@ -147,7 +147,7 @@ let tracker;
 stage="Inicializando modelo de mãos";
 try{tracker=await HandLandmarker.createFromOptions(vision,{baseOptions:{modelAssetPath:"https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",delegate:"GPU"},runningMode:"VIDEO",numHands:2,minHandDetectionConfidence:.6,minTrackingConfidence:.55})}catch{tracker=await HandLandmarker.createFromOptions(vision,{baseOptions:{modelAssetPath:"https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",delegate:"CPU"},runningMode:"VIDEO",numHands:2})}
 if(!state.reality || !state.worldStream || $("#worldVideo").readyState<2)throw new Error("Inicie a câmera do ambiente primeiro.");
-state.tracker=tracker;state.hand=true;status.textContent="● Gestos ativos";
+state.tracker=tracker;state.hand=true;document.body.classList.add("handTracking");status.textContent="● Gestos ativos";
 updateHandButton();state.frame=requestAnimationFrame(trackHands);
 toast("Rastreamento ativado. Mostre a mão à câmera traseira.");
 }catch(err){
@@ -166,11 +166,37 @@ toast("Rastreamento ativado. Mostre a mão à câmera traseira.");
 }
 function updateHandButton(){document.querySelectorAll("#handToggle").forEach(b=>{b.disabled=false;b.textContent=state.hand?"Desativar câmera":"Ativar rastreamento"});document.querySelectorAll("#handInfo").forEach(b=>b.textContent=state.hand?"Ativo":"Desligado")}
 function stopHands(){
- state.hand=false;cancelAnimationFrame(state.frame);
+ state.hand=false;document.body.classList.remove("handTracking");cancelAnimationFrame(state.frame);
  state.tracker?.close();state.tracker=null;
- $("#hand1").style.display=$("#hand2").style.display="none";
+ $("#hand1").style.display=$("#hand2").style.display="none";const overlay=$("#handOverlay");overlay.getContext("2d")?.clearRect(0,0,overlay.width,overlay.height);
  status.textContent=state.reality?"● Câmera ativa":"● Aguardando câmera";
  state.pinch=[false,false];state.gestureTarget=null;state.gestureWindow=null;updateHandButton();
+}
+const HAND_CONNECTIONS=[[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
+const HAND_OUTLINE=[0,1,2,3,4,3,2,5,6,7,8,7,6,9,10,11,12,11,10,13,14,15,16,15,14,17,18,19,20,19,18,17,0];
+function drawHands(lists,video){
+ const canvas=$("#handOverlay"),ctx=canvas.getContext("2d");
+ if(!ctx)return;
+ const ratio=Math.min(devicePixelRatio||1,2),w=innerWidth,h=innerHeight;
+ if(canvas.width!==Math.round(w*ratio)||canvas.height!==Math.round(h*ratio)){canvas.width=Math.round(w*ratio);canvas.height=Math.round(h*ratio)}
+ ctx.setTransform(ratio,0,0,ratio,0,0);ctx.clearRect(0,0,w,h);
+ const vw=video.videoWidth||640,vh=video.videoHeight||480,scale=Math.max(w/vw,h/vh),rw=vw*scale,rh=vh*scale,ox=(w-rw)/2,oy=(h-rh)/2;
+ const point=p=>({x:ox+p.x*rw,y:oy+p.y*rh});
+ for(const hand of lists){
+  if(!hand)continue;
+  const pts=hand.map(point);
+  // Approximate silhouette from landmarks, not actual depth/segmentation.
+  if(state.showHand){
+   const path=new Path2D();const outline=HAND_OUTLINE.map(i=>pts[i]);
+   path.moveTo(outline[0].x,outline[0].y);
+   for(let j=1;j<outline.length;j++)path.lineTo(outline[j].x,outline[j].y);
+   path.closePath();
+   ctx.save();ctx.clip(path);ctx.drawImage(video,ox,oy,rw,rh);ctx.restore();
+  }
+  ctx.lineWidth=2;ctx.strokeStyle="rgba(185,221,255,.7)";ctx.fillStyle="rgba(208,232,255,.88)";
+  for(const [a,b] of HAND_CONNECTIONS){ctx.beginPath();ctx.moveTo(pts[a].x,pts[a].y);ctx.lineTo(pts[b].x,pts[b].y);ctx.stroke()}
+  for(const p of pts){ctx.beginPath();ctx.arc(p.x,p.y,2.5,0,Math.PI*2);ctx.fill()}
+ }
 }
 function trackHands(){
 if(!state.hand)return;
@@ -179,7 +205,7 @@ if(v.readyState>=2&&v.currentTime!==state.lastTime){
 state.lastTime=v.currentTime;
 try{const result=state.tracker.detectForVideo(v,now),hands=result.landmarks||[];
 state.handFrames++;if(!state.fpsAt)state.fpsAt=now;if(now-state.fpsAt>1000){state.handFps=Math.round(state.handFrames*1000/(now-state.fpsAt));state.handFrames=0;state.fpsAt=now}
-$("#trackingStatus").textContent=hands.length+" mão(s) · "+state.handFps+" FPS";
+$("#trackingStatus").textContent=hands.length+" mão(s) · "+state.handFps+" FPS";drawHands(hands,v);
 for(let i=0;i<2;i++){const dot=$("#hand"+(i+1));if(!hands[i]){dot.style.display="none";state.pinch[i]=false;continue}const lm=hands[i],index=lm[8],thumb=lm[4],dist=Math.hypot(index.x-thumb.x,index.y-thumb.y);
 // Com object-fit: cover, o vídeo pode estar recortado. Mapeie landmarks para o recorte real.
 const sw=v.videoWidth||640,sh=v.videoHeight||480,scale=Math.max(innerWidth/sw,innerHeight/sh);
@@ -190,7 +216,7 @@ dot.style.display="block";dot.style.left=point.x+"px";dot.style.top=point.y+"px"
 const pinching=state.pinch[i]?dist<.085:dist<.052;dot.classList.toggle("pinch",pinching);
 if(i===0)handleGesture(point,pinching);state.pinch[i]=pinching;
 }
-if(!hands.length)state.gestureTarget=null;
+if(!hands.length){state.gestureTarget=null;state.gestureWindow=null;}
 }catch(err){console.error("Hand tracking:",err);stopHands();toast("Erro durante rastreamento: "+String(err?.message||err).slice(0,130))}}
 state.frame=requestAnimationFrame(trackHands)
 }
