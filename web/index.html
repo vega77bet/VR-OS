@@ -88,7 +88,7 @@ switch(kind){
 case "home":return '<h2>VR OS Spatial</h2><p class="muted">A câmera é seu ambiente. Janelas são projetadas à sua frente; o movimento por sensores é aproximado no navegador.</p><div class="tilegrid">'+["launcher","hands","notes","spaces"].map(k=>'<button class="tile" data-open="'+k+'"><span class="glyph">'+icons[k]+'</span>'+titles[k]+'</button>').join("")+'</div>';
 case "launcher":return '<h2>Aplicativos</h2><div class="tilegrid">'+Object.keys(titles).filter(k=>k!=="launcher").map(k=>'<button class="tile" data-open="'+k+'"><span class="glyph">'+icons[k]+'</span>'+titles[k]+'</button>').join("")+'</div>';
 case "notes":return '<h2>Suas notas</h2><textarea class="input" id="noteText" placeholder="Comece a escrever...">'+escapeHTML(load("notes",""))+'</textarea><p class="hint">Salvo automaticamente neste navegador.</p>';
-case "hands":return '<h2>Controle por gestos</h2><p class="hint">Mostre suas mãos para a câmera traseira, no ambiente à frente do iPhone. Indicador move o cursor; pinça entre indicador e polegar clica ou arrasta. O modelo roda no seu dispositivo. A mão completa pode aparecer à frente da janela. A oclusão é estimada pelos 21 pontos, não por um sensor de profundidade.</p><div class="row"><button class="btn primary" id="handToggle">'+(state.hand?"Desativar câmera":"Ativar rastreamento")+'</button><span id="handInfo" class="badge">'+(state.hand?"Ativo":"Desligado")+'</span></div><div class="setting"><label for="sensitivity">Sensibilidade</label><input id="sensitivity" type="range" min=".5" max="1.7" step=".1" value="'+state.handSensitivity+'"></div><div class="setting"><label for="showHand">Mostrar mãos à frente das janelas</label><input type="checkbox" id="showHand" '+(state.showHand?"checked":"")+'></div><div class="setting"><label for="showSkeleton">Visualizar 21 pontos da mão</label><input type="checkbox" id="showSkeleton" '+(state.showSkeleton?"checked":"")+'></div><div class="setting"><label for="mirror">Espelhar movimento</label><input type="checkbox" id="mirror" '+(state.mirrored?"checked":"")+'></div><p class="hint">Requer HTTPS, câmera e conexão inicial para carregar o modelo. A ancoragem por sensores é aproximada, não é ARKit. Se não funcionar, use toque ou mouse.</p>';
+case "hands":return '<h2>Controle por gestos</h2><p class="hint">Mostre suas mãos para a câmera traseira, no ambiente à frente do iPhone. Indicador move o cursor; pinça entre indicador e polegar clica ou arrasta; duas pinças juntas redimensionam a janela. O modelo roda no seu dispositivo. A mão completa pode aparecer à frente da janela. A oclusão é estimada pelos 21 pontos, não por um sensor de profundidade.</p><div class="row"><button class="btn primary" id="handToggle">'+(state.hand?"Desativar câmera":"Ativar rastreamento")+'</button><span id="handInfo" class="badge">'+(state.hand?"Ativo":"Desligado")+'</span></div><div class="setting"><label for="sensitivity">Sensibilidade</label><input id="sensitivity" type="range" min=".5" max="1.7" step=".1" value="'+state.handSensitivity+'"></div><div class="setting"><label for="showHand">Mostrar mãos à frente das janelas</label><input type="checkbox" id="showHand" '+(state.showHand?"checked":"")+'></div><div class="setting"><label for="showSkeleton">Visualizar 21 pontos da mão</label><input type="checkbox" id="showSkeleton" '+(state.showSkeleton?"checked":"")+'></div><div class="setting"><label for="mirror">Espelhar movimento</label><input type="checkbox" id="mirror" '+(state.mirrored?"checked":"")+'></div><p class="hint">Requer HTTPS, câmera e conexão inicial para carregar o modelo. A ancoragem por sensores é aproximada, não é ARKit. Se não funcionar, use toque ou mouse.</p>';
 case "settings":return '<h2>Personalização</h2><div class="setting"><span>Cor de destaque</span><input type="color" id="accent" value="'+state.accent+'"></div><div class="setting"><span>Fundo espacial</span><select id="wallpaper"><option value="space">Espacial</option><option value="night">Noite</option><option value="deep">Profundo</option></select></div><div class="setting"><span>Transparência</span><input id="opacity" type="range" min=".55" max=".96" step=".01" value="'+load("opacity",.74)+'"></div><div class="setting"><span>Redefinir posições</span><button class="btn" id="resetWindows">Organizar</button></div><p class="hint">Suas preferências e notas ficam armazenadas neste navegador.</p>';
 case "clock":return '<h2>Relógio</h2><div class="clock" id="liveClock">--:--:--</div><p id="today" class="muted"></p><hr style="border:0;border-top:1px solid var(--stroke);margin:20px 0"><h2>Cronômetro</h2><div class="clock" id="stopwatch">00:00.0</div><div class="row"><button class="btn primary" id="startStop">Iniciar</button><button class="btn" id="resetStop">Zerar</button></div>';
 case "calc":return '<h2>Calculadora</h2><input class="input" id="calcScreen" value="0" readonly style="text-align:right;font-size:29px;margin-bottom:12px"><div class="calc">'+["C","(",")","÷","7","8","9","×","4","5","6","−","1","2","3","+","0",".","⌫","="].map(s=>'<button data-key="'+s+'">'+s+'</button>').join("")+'</div>';
@@ -186,7 +186,7 @@ function drawHands(lists,video){
  ctx.setTransform(1,0,0,1,0,0);ctx.clearRect(0,0,w,h);
  const sw=video.videoWidth||640,sh=video.videoHeight||480;
  const scale=Math.max(w/sw,h/sh),rw=sw*scale,rh=sh*scale,ox=(w-rw)/2,oy=(h-rh)/2;
- const point=p=>({x:ox+(state.mirrored?1-p.x:p.x)*rw,y:oy+p.y*rh});
+ const point=p=>({x:ox+p.x*rw,y:oy+p.y*rh});
  const hands=lists.filter(h=>h&&h.length>=21).map(h=>h.map(point));
  if(state.showHand && hands.length){
    // Approximate a union of palm and five thick fingers, then use the camera
@@ -279,6 +279,8 @@ function trackHands(){
    }else if(state.pinch[0]){
      handleGesture(state.cursor[0]||{x:0,y:0},false,true,null,false);
    }
+   if(nextPinches[0]&&nextPinches[1])status.textContent="↔ Pinça com duas mãos";
+   else if(nextPinches.some(Boolean))status.textContent="● Pinça detectada";
    state.pinch=nextPinches;
   }catch(err){
    console.error("Hand tracking:",err);
@@ -340,13 +342,12 @@ function handleGesture(point,pinching,wasPinching,secondPoint,secondPinching){
      const tapped=element.closest("button,[role=button],a,input,textarea,select")||element;
      const moved=Math.hypot(point.x-state.gestureStart.x,point.y-state.gestureStart.y);
      if(moved<55){
-       if(tapped.matches("button,[role=button],input[type=checkbox],a"))tapped.click();
-       else if(tapped.matches("textarea,input,select"))tapped.focus();
-       else if(tapped.matches("input[type=range]")){
+       if(tapped.matches("input[type=range]")){
          const r=tapped.getBoundingClientRect(),value=clamp((point.x-r.left)/r.width,0,1);
          tapped.value=+tapped.min+(+tapped.max-+tapped.min)*value;
          tapped.dispatchEvent(new Event("input",{bubbles:true}));
-       }
+       }else if(tapped.matches("button,[role=button],input[type=checkbox],a"))tapped.click();
+       else if(tapped.matches("textarea,input,select"))tapped.focus();
      }
    }
    saveLayout();
