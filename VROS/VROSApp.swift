@@ -46,6 +46,7 @@ struct VRHomeView: View {
     @StateObject private var runtime = VRRuntime()
     @StateObject private var updates = LiveUpdateManager()
     @State private var nextRemoteTemplateIndex = 0
+    @State private var spaceMode = false
     @State private var panels = [
         VRPanel(title: "Bem-vindo ao VR OS", icon: "square.stack.3d.up",
                 text: "Janelas fixas no ambiente com ARKit.\n"
@@ -90,7 +91,9 @@ struct VRHomeView: View {
         let w = size.width
         let h = size.height
         return ZStack {
-            if let frame = runtime.cameraImage {
+            if spaceMode {
+                SpaceSkyView(camera: runtime.camera, size: size)
+            } else if let frame = runtime.cameraImage {
                 Image(decorative: frame, scale: 1, orientation: .up)
                     .resizable()
                     .scaledToFill()
@@ -108,7 +111,9 @@ struct VRHomeView: View {
                 }
             }
 
-            Color.black.opacity(0.10).allowsHitTesting(false)
+            if !spaceMode {
+                Color.black.opacity(0.10).allowsHitTesting(false)
+            }
 
             ForEach(panels) { panel in
                 if let center = windowCenter(panel, size: size, right: right) {
@@ -177,7 +182,9 @@ struct VRHomeView: View {
             dockButton("plus.rectangle.on.rectangle", "Janela", slot: 0)
             dockButton("square.grid.2x2", "Apps", slot: 1)
             dockButton("arrow.down.circle", "Atualizar", slot: 2)
-            dockButton("scope", "Centro", slot: 3)
+            dockButton(spaceMode ? "camera.fill" : "moon.stars.fill",
+                       spaceMode ? "Câmera" : "Espaço", slot: 3)
+            dockButton("scope", "Centro", slot: 4)
         }
         .padding(7)
         .background(Color(white: updates.manifest.theme.dockGray).opacity(0.95),
@@ -196,7 +203,7 @@ struct VRHomeView: View {
                     .lineLimit(1).minimumScaleFactor(0.7)
             }
             .foregroundStyle(.white)
-            .frame(width: 78, height: 42)
+            .frame(width: 64, height: 42)
             .background(Color.white.opacity(0.09),
                         in: RoundedRectangle(cornerRadius: 11))
         }
@@ -367,9 +374,9 @@ struct VRHomeView: View {
 
     private func beganPinch(_ pointer: CGPoint, hand: TrackedHand, size: CGSize) {
         if pointer.y > size.height - 83 {
-            let dockWidth: CGFloat = 4 * 78 + 3 * 8 + 14
+            let dockWidth: CGFloat = 5 * 64 + 4 * 8 + 14
             let dockStart = (size.width - dockWidth) / 2
-            let slot = min(3, max(0, Int((pointer.x - dockStart) / 86)))
+            let slot = min(4, max(0, Int((pointer.x - dockStart) / 72)))
             activateDock(slot)
             return
         }
@@ -475,6 +482,8 @@ struct VRHomeView: View {
         case 2:
             openUpdatesWindow()
             Task { await updates.check() }
+        case 3:
+            spaceMode.toggle()
         default:
             for index in panels.indices {
                 panels[index].x = 0
