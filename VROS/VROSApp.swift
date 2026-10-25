@@ -55,23 +55,26 @@ private enum VRTheme: Int, CaseIterable {
     }
 }
 
+/// A spatial grab always begins on the plain white handle under a window.
+/// Record camera axes ONCE so pose changes don't rewrite stationary anchors.
 private struct WindowDrag {
-    enum Mode { case move, depth }
     let panelID: UUID
-    let mode: Mode
-    let firstPointer: CGPoint
-    let pointerOffset: CGSize
-    let initialDepth: Double
+    let initialAnchor: SIMD3<Float>
+    let initialPointer: CGPoint
     let initialHandDepth: Float?
-    let fixedScreenCenter: CGPoint
-    let initialAnchor: SIMD3<Float>?
-    var movementStarted = false
+    let initialWindowDepth: Float
+    let cameraRight: SIMD3<Float>
+    let cameraUp: SIMD3<Float>
+    let cameraBackward: SIMD3<Float>
+    let horizontalMetresPerPoint: Float
+    let verticalMetresPerPoint: Float
     var filteredPointer: CGPoint
-    var lastAppliedPointer: CGPoint
-    var activationFrames = 0
-    var movementFrames = 0
-    let depthTrackStart: CGFloat
-    let depthTrackLength: CGFloat
+    var filteredHandDepth: Float?
+    var planarEnabled = false
+    var planarConfirmations = 0
+    var depthEnabled = false
+    var depthConfirmations = 0
+    var lastAppliedAnchor: SIMD3<Float>
 }
 
 struct VRHomeView: View {
@@ -83,8 +86,8 @@ struct VRHomeView: View {
     @State private var panels = [
         VRPanel(title: "Bem-vindo ao VR OS", icon: "square.stack.3d.up",
                 text: "Janelas fixas no ambiente com ARKit.\n"
-                    + "Segure a pinça para selecionar; mova a mão para arrastar.\n"
-                    + "Use a linha Z abaixo de cada janela.", y: -0.34, depth: 1.5)
+                    + "Segure a linha branca sob a janela com a pinça.\n"
+                    + "Mova a mão para posicionar a janela no espaço.", y: -0.34, depth: 1.5)
     ]
     @State private var lastPinch = false
     @State private var drag: WindowDrag?
@@ -160,8 +163,8 @@ struct VRHomeView: View {
                         .frame(width: panelWidth(size) * scale,
                                height: panelHeight(size) * scale)
                         .position(center)
-                    depthBar(panel, size: size)
-                        .position(x: center.x, y: center.y + panelHeight(size) * scale / 2 + 25)
+                    grabHandle(panel, size: size)
+                        .position(grabHandleCenter(center, panel: panel, size: size))
                 }
             }
 
@@ -317,7 +320,7 @@ struct VRHomeView: View {
             }
 
             Spacer(minLength: 0)
-            Text("Pinça para mover · linha Z abaixo para profundidade")
+            Text("Pegue a linha branca abaixo para mover em 3D")
                 .font(.system(size: 9))
                 .foregroundStyle(.white.opacity(0.66))
                 .lineLimit(2)
@@ -333,45 +336,26 @@ struct VRHomeView: View {
         .shadow(color: .black.opacity(0.50), radius: 11, y: 5)
     }
 
-    // Independent, hand-draggable depth control BELOW each window.
-    private func depthBarWidth(_ size: CGSize) -> CGFloat {
-        max(100, min(size.width * 0.82, 180))
+    /// The handle is only a white line, without a track, numbers, or thumb.
+    private func grabHandleWidth(_ panel: VRPanel, size: CGSize) -> CGFloat {
+        min(size.width * 0.72, max(70, panelWidth(size) * windowScale(panel) * 0.68))
     }
 
-    private func depthBar(_ panel: VRPanel, size: CGSize) -> some View {
-        let width = depthBarWidth(size)
-        let track = width - 24
-        let fraction = CGFloat((panel.depth - 0.65) / 3.35)
-        return VStack(spacing: 4) {
-            HStack(spacing: 4) {
-                Text("PERTO")
-                Spacer(minLength: 1)
-                Text(String(format: "Z %.2f m", panel.depth))
-                    .fontWeight(.semibold)
-                Spacer(minLength: 1)
-                Text("LONGE")
-            }
-            .font(.system(size: 8))
-            .foregroundStyle(.white.opacity(0.88))
-            ZStack(alignment: .leading) {
-                Capsule().fill(Color.white.opacity(0.25))
-                    .frame(width: track, height: 4)
-                Capsule().fill(selectedTheme.accent)
-                    .frame(width: max(3, track * fraction), height: 4)
-                Circle().fill(.white)
-                    .frame(width: 12, height: 12)
-                    .offset(x: track * fraction - 6)
-            }
-            .frame(width: track, height: 14, alignment: .leading)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 5)
-        .frame(width: width, height: 40)
-        .background(selectedTheme.surface.opacity(0.94),
-                    in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12)
-            .stroke(selectedTheme.accent.opacity(0.52), lineWidth: 1))
-        .allowsHitTesting(false)
+    private func grabHandleCenter(_ center: CGPoint, panel: VRPanel,
+                                  size: CGSize) -> CGPoint {
+        CGPoint(x: center.x,
+                y: center.y + panelHeight(size) * windowScale(panel) / 2 + 22)
+    }
+
+    private func grabHandle(_ panel: VRPanel, size: CGSize) -> some View {
+        let held = drag?.panelID == panel.id
+        return Capsule()
+            .fill(Color.white.opacity(held ? 1 : 0.94))
+            .frame(width: grabHandleWidth(panel, size: size), height: held ? 7 : 5)
+            .shadow(color: .white.opacity(held ? 0.65 : 0.25),
+                    radius: held ? 7 : 3)
+            .frame(height: 26)
+            .allowsHitTesting(false)
     }
 
     private func themePicker(size: CGSize) -> some View {
@@ -475,78 +459,82 @@ struct VRHomeView: View {
             drag = nil
             return
         }
+
         let pointer = mappedPoint(hand.point, size: size)
         if hand.pinching && !lastPinch {
             beganPinch(pointer, hand: hand, size: size)
-        } else if hand.pinching, let drag = drag,
-                  let index = panels.firstIndex(where: { $0.id == drag.panelID }) {
-            // Smooth the fingertip before applying any interaction.
-            // The Vision landmark can drift while a real hand stays still.
-            let alpha: CGFloat = 0.24
-            let filtered = CGPoint(
-                x: drag.filteredPointer.x + (pointer.x - drag.filteredPointer.x) * alpha,
-                y: drag.filteredPointer.y + (pointer.y - drag.filteredPointer.y) * alpha
-            )
-            self.drag?.filteredPointer = filtered
-
-            let displacement = hypot(filtered.x - drag.firstPointer.x,
-                                     filtered.y - drag.firstPointer.y)
-            let threshold: CGFloat = drag.mode == .depth ? 4 : 28
-            if !drag.movementStarted {
-                // A single landmark jump must never start dragging.
-                self.drag?.activationFrames = displacement >= threshold
-                    ? drag.activationFrames + 1 : 0
-                guard (self.drag?.activationFrames ?? 0) >= 3 else {
-                    lastPinch = true
-                    return
-                }
-                self.drag?.movementStarted = true
-            }
-
-            let sinceCommit = hypot(filtered.x - drag.lastAppliedPointer.x,
-                                    filtered.y - drag.lastAppliedPointer.y)
-            let step: CGFloat = drag.mode == .depth ? 3 : 12
-            // Require two successive samples outside the motion gate.
-            // In a stationary pinch, the window anchor is never rewritten.
-            self.drag?.movementFrames = sinceCommit >= step
-                ? drag.movementFrames + 1 : 0
-            guard (self.drag?.movementFrames ?? 0) >= 2 else {
-                lastPinch = true
-                return
-            }
-            self.drag?.movementFrames = 0
-            self.drag?.lastAppliedPointer = filtered
-
-            // Consume the initial dead zone so the panel does not jump when
-            // the deliberate movement is first recognized.
-            let effective = max(0, displacement - threshold)
-            let ratio = displacement > 0 ? effective / displacement : 0
-            let deltaX = (filtered.x - drag.firstPointer.x) * ratio
-            let deltaY = (filtered.y - drag.firstPointer.y) * ratio
-
-            if drag.mode == .depth {
-                let fraction = (filtered.x - drag.depthTrackStart)
-                    / max(drag.depthTrackLength, 1)
-                let value = 0.65 + Double(fraction) * 3.35
-                adjustDepth(drag.panelID, to: value, size: size,
-                            lockedCenter: drag.fixedScreenCenter)
-            } else if runtime.spatialTracking, let origin = drag.initialAnchor,
-                      let baseRay = runtime.worldPoint(
-                        at: drag.fixedScreenCenter, viewport: size,
-                        depth: Float(drag.initialDepth)),
-                      let movedRay = runtime.worldPoint(
-                        at: CGPoint(x: drag.fixedScreenCenter.x + deltaX,
-                                   y: drag.fixedScreenCenter.y + deltaY),
-                        viewport: size, depth: Float(drag.initialDepth)) {
-                // Apply only the relative world displacement to the original
-                // anchor. Reconstructing an absolute anchor every Vision frame
-                // caused stationary pinches to walk sideways with camera pose.
-                panels[index].anchor = origin + movedRay - baseRay
-            }
+        } else if hand.pinching, var held = drag,
+                  let index = panels.firstIndex(where: { $0.id == held.panelID }) {
+            updateSpatialGrab(hand, pointer: pointer, held: &held, panelIndex: index)
+            drag = held
         } else if !hand.pinching {
+            // The last world anchor is retained; only the grip state resets.
             drag = nil
         }
         lastPinch = hand.pinching
+    }
+
+    private func updateSpatialGrab(_ hand: TrackedHand, pointer: CGPoint,
+                                   held: inout WindowDrag, panelIndex: Int) {
+        guard runtime.spatialTracking else { return }
+
+        // Vision produces noisy fingertip estimates while fingers are touching.
+        let alpha: CGFloat = 0.26
+        held.filteredPointer = CGPoint(
+            x: held.filteredPointer.x + (pointer.x - held.filteredPointer.x) * alpha,
+            y: held.filteredPointer.y + (pointer.y - held.filteredPointer.y) * alpha
+        )
+        let dx = held.filteredPointer.x - held.initialPointer.x
+        let dy = held.filteredPointer.y - held.initialPointer.y
+        let travel = hypot(dx, dy)
+
+        if !held.planarEnabled {
+            held.planarConfirmations = travel >= 16 ? held.planarConfirmations + 1 : 0
+            if held.planarConfirmations >= 3 { held.planarEnabled = true }
+        }
+
+        // Consume the fingertip noise deadzone instead of causing a grab jump.
+        let remaining = held.planarEnabled ? max(0, travel - 16) : 0
+        let factor = travel > 0 ? remaining / travel : 0
+        let deltaX = Float(dx * factor)
+        let deltaY = Float(dy * factor)
+        let moveXY = held.cameraRight * (deltaX * held.horizontalMetresPerPoint)
+                   - held.cameraUp * (deltaY * held.verticalMetresPerPoint)
+
+        // Hand depth is only an estimate from palm size (no LiDAR on this phone).
+        // Clamp outliers and low-pass filter before allowing Z movement.
+        if let raw = hand.estimatedDepth, let old = held.filteredHandDepth {
+            let bounded = max(old - 0.12, min(old + 0.12, raw))
+            held.filteredHandDepth = old * 0.76 + bounded * 0.24
+        }
+        var targetDepth = held.initialWindowDepth
+        if let baseline = held.initialHandDepth,
+           let filtered = held.filteredHandDepth {
+            let handDisplacement = filtered - baseline
+            if !held.depthEnabled {
+                held.depthConfirmations = abs(handDisplacement) >= 0.10
+                    ? held.depthConfirmations + 1 : 0
+                if held.depthConfirmations >= 3 { held.depthEnabled = true }
+            }
+            if held.depthEnabled {
+                // Pushing the hand outward makes the window come forward
+                // (larger/nearer), as requested; pulling back moves it away.
+                let beyondNoise = max(0, abs(handDisplacement) - 0.10)
+                let signed = handDisplacement >= 0 ? beyondNoise : -beyondNoise
+                targetDepth = max(0.65, min(4.0,
+                    held.initialWindowDepth - signed * 2.4))
+            }
+        }
+
+        // A camera-relative depth change becomes a true world-space translation.
+        let moveZ = held.cameraBackward * (held.initialWindowDepth - targetDepth)
+        let candidate = held.initialAnchor + moveXY + moveZ
+
+        // Never rewrite a world anchor for negligible landmark movement.
+        guard simd_distance(candidate, held.lastAppliedAnchor) >= 0.018 else { return }
+        held.lastAppliedAnchor = candidate
+        panels[panelIndex].anchor = candidate
+        panels[panelIndex].depth = Double(targetDepth)
     }
 
     private func beganPinch(_ pointer: CGPoint, hand: TrackedHand, size: CGSize) {
@@ -573,28 +561,44 @@ struct VRHomeView: View {
             return
         }
 
-        // Hit-test external Z bars BEFORE the panels themselves.
+        // Only the white line is a 3D movement handle. Its hit area is
+        // larger than its visible thickness for comfortable hand gestures.
         for panel in panels.reversed() {
-            guard let center = windowCenter(panel, size: size, right: false) else { continue }
-            let scale = windowScale(panel)
-            let barCenter = CGPoint(x: center.x,
-                                    y: center.y + panelHeight(size) * scale / 2 + 25)
-            let barWidth = depthBarWidth(size)
-            guard abs(pointer.x - barCenter.x) <= barWidth / 2 + 6,
-                  abs(pointer.y - barCenter.y) <= 25 else { continue }
-            let start = barCenter.x - barWidth / 2 + 12
-            let length = barWidth - 24
-            let fraction = min(1, max(0, (pointer.x - start) / length))
+            guard let center = windowCenter(panel, size: size, right: false),
+                  let anchor = panel.anchor,
+                  let pose = runtime.camera, runtime.spatialTracking else { continue }
+            let handle = grabHandleCenter(center, panel: panel, size: size)
+            guard abs(pointer.x - handle.x) <= grabHandleWidth(panel, size: size) / 2 + 12,
+                  abs(pointer.y - handle.y) <= 21 else { continue }
+
+            let transform = pose.transform
+            let cameraSpace = simd_inverse(transform)
+                * SIMD4<Float>(anchor.x, anchor.y, anchor.z, 1)
+            let depth = max(0.65, min(4.0, -cameraSpace.z))
+            let resolution = pose.imageResolution
+            let fillScale = max(size.width / max(resolution.width, 1),
+                                size.height / max(resolution.height, 1))
+            let fx = max(1, pose.intrinsics.columns.0.x * Float(fillScale))
+            let fy = max(1, pose.intrinsics.columns.1.y * Float(fillScale))
+            let right = SIMD3<Float>(transform.columns.0.x,
+                                     transform.columns.0.y,
+                                     transform.columns.0.z)
+            let up = SIMD3<Float>(transform.columns.1.x,
+                                  transform.columns.1.y,
+                                  transform.columns.1.z)
+            let backward = SIMD3<Float>(transform.columns.2.x,
+                                        transform.columns.2.y,
+                                        transform.columns.2.z)
             drag = WindowDrag(
-                panelID: panel.id, mode: .depth, firstPointer: pointer,
-                pointerOffset: .zero, initialDepth: panel.depth,
-                initialHandDepth: hand.estimatedDepth, fixedScreenCenter: center,
-                initialAnchor: panel.anchor, filteredPointer: pointer,
-                lastAppliedPointer: pointer, depthTrackStart: start,
-                depthTrackLength: length
+                panelID: panel.id, initialAnchor: anchor,
+                initialPointer: pointer, initialHandDepth: hand.estimatedDepth,
+                initialWindowDepth: depth,
+                cameraRight: right, cameraUp: up, cameraBackward: backward,
+                horizontalMetresPerPoint: depth / fx,
+                verticalMetresPerPoint: depth / fy,
+                filteredPointer: pointer, filteredHandDepth: hand.estimatedDepth,
+                lastAppliedAnchor: anchor
             )
-            adjustDepth(panel.id, to: 0.65 + Double(fraction) * 3.35,
-                        size: size, lockedCenter: center)
             return
         }
         for panel in panels.reversed() {
@@ -613,16 +617,8 @@ struct VRHomeView: View {
                 Task { await updates.check() }
                 return
             }
-            let mode: WindowDrag.Mode = .move
-            drag = WindowDrag(
-                panelID: panel.id, mode: mode, firstPointer: pointer,
-                pointerOffset: CGSize(width: center.x - pointer.x,
-                                      height: center.y - pointer.y),
-                initialDepth: panel.depth, initialHandDepth: hand.estimatedDepth,
-                fixedScreenCenter: center, initialAnchor: panel.anchor,
-                filteredPointer: pointer, lastAppliedPointer: pointer,
-                depthTrackStart: 0, depthTrackLength: 1
-            )
+            // A pinch on the panel itself does not drag it.
+            // Grabbing the white line is the sole 3D movement gesture.
             return
         }
     }
@@ -695,7 +691,7 @@ struct VRHomeView: View {
             panels.append(VRPanel(
                 title: "Janela \(count)", icon: "macwindow",
                 text: "Janela ancorada com ARKit.\n"
-                    + "Pinça para arrastar · Z na linha abaixo.\n"
+                    + "Pegue a linha branca abaixo para mover em 3D.\n"
                     + "Use Apps para abrir conteúdo online.",
                 x: CGFloat((count % 3) - 1) * 0.15,
                 y: CGFloat(count % 2 == 0 ? -0.38 : -0.28),
