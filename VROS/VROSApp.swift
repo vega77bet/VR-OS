@@ -83,6 +83,8 @@ struct VRHomeView: View {
     @State private var nextRemoteTemplateIndex = 0
     @State private var selectedTheme: VRTheme = .graphite
     @State private var themeMenuOpen = false
+    @State private var cinemaOpen = false
+    @StateObject private var cinema = CinemaModel()
     @State private var panels = [
         VRPanel(title: "Bem-vindo ao VR OS", icon: "square.stack.3d.up",
                 text: "Janelas fixas no ambiente com ARKit.\n"
@@ -96,8 +98,15 @@ struct VRHomeView: View {
         GeometryReader { geometry in
             let eyeSize = CGSize(width: geometry.size.width / 2, height: geometry.size.height)
             HStack(spacing: 0) {
-                eyeView(right: false, size: eyeSize)
-                eyeView(right: true, size: eyeSize)
+                if cinemaOpen {
+                    CinemaEyeView(rightEye: false, runtime: runtime, cinema: cinema,
+                                  onExit: { cinemaOpen = false })
+                    CinemaEyeView(rightEye: true, runtime: runtime, cinema: cinema,
+                                  onExit: { cinemaOpen = false })
+                } else {
+                    eyeView(right: false, size: eyeSize)
+                    eyeView(right: true, size: eyeSize)
+                }
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
             .background(Color.black)
@@ -230,7 +239,7 @@ struct VRHomeView: View {
     private func dock(size: CGSize) -> some View {
         HStack(spacing: 5) {
             dockButton("plus.rectangle.on.rectangle", "Janela", slot: 0, size: size)
-            dockButton("square.grid.2x2", "Apps", slot: 1, size: size)
+            dockButton("film.stack.fill", "Cinema", slot: 1, size: size)
             dockButton("arrow.down.circle", "Atualizar", slot: 2, size: size)
             dockButton("paintpalette.fill", "Temas", slot: 3, size: size)
             dockButton("scope", "Centro", slot: 4, size: size)
@@ -697,7 +706,8 @@ struct VRHomeView: View {
                 y: CGFloat(count % 2 == 0 ? -0.38 : -0.28),
                 depth: 1.6))
         case 1:
-            openRemoteWindow()
+            cinema.enter(camera: runtime.camera)
+            cinemaOpen = true
         case 2:
             openUpdatesWindow()
             Task { await updates.check() }
