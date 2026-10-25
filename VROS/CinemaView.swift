@@ -9,13 +9,15 @@ import UniformTypeIdentifiers
 /// resolution differs. All three modes share one synchronized AVPlayer.
 enum CinemaVideoMode: String, CaseIterable {
     case twoD = "2D"
-    case sbs = "3D SBS"
-    case overUnder = "3D OU"
+    case sbs = "SBS"
+    case halfSBS = "H-SBS"
+    case overUnder = "OU"
 
     var subtitle: String {
         switch self {
         case .twoD: return "Filme normal"
-        case .sbs: return "SBS / H-SBS"
+        case .sbs: return "Lado a lado completo"
+        case .halfSBS: return "Lado a lado meia resolução"
         case .overUnder: return "Cima e baixo"
         }
     }
@@ -115,8 +117,11 @@ final class CinemaModel: ObservableObject {
             player = movie
             movieTitle = url.deletingPathExtension().lastPathComponent
             let name = movieTitle.lowercased()
-            if name.contains("sbs") || name.contains("side-by-side") ||
-               name.contains("side_by_side") {
+            if name.contains("h-sbs") || name.contains("hsbs") ||
+               name.contains("half-sbs") || name.contains("half_sbs") {
+                selectedMode = .halfSBS
+            } else if name.contains("sbs") || name.contains("side-by-side") ||
+                      name.contains("side_by_side") {
                 selectedMode = .sbs
             } else if name.contains("over-under") || name.contains("top-bottom") ||
                       name.contains("top_bottom") || name.contains("3d-ou") {
@@ -149,6 +154,11 @@ final class CinemaModel: ObservableObject {
                     await MainActor.run {
                         guard self.movieImportID == importID else { return }
                         self.sourceAspect = width / height
+                        // An ordinary 1920x1080 SBS is usually H-SBS;
+                        // a 3840x1080 SBS is usually full-width SBS.
+                        if self.selectedMode == .sbs && self.sourceAspect < 2.6 {
+                            self.selectedMode = .halfSBS
+                        }
                         self.fitScreen()
                     }
                 } catch {
@@ -170,7 +180,7 @@ final class CinemaModel: ObservableObject {
     private func fitScreen() {
         var aspect = sourceAspect
         switch selectedMode {
-        case .twoD: break
+        case .twoD, .halfSBS: break
         case .sbs: aspect /= 2
         case .overUnder: aspect *= 2
         }
@@ -233,7 +243,7 @@ final class CinemaModel: ObservableObject {
             scaleY = 1
             translationX = 0
             translationY = 0
-        case .sbs:
+        case .sbs, .halfSBS:
             scaleX = 0.5
             scaleY = 1
             translationX = useRightHalf ? 0.5 : 0
@@ -604,7 +614,7 @@ struct CinemaEyeView: View {
                     let point = handPoint(size: geometry.size)
                     let bottom = geometry.size.height - 40
                     if point.y >= 44 && point.y <= 88 {
-                        let slot = min(2, max(0, Int(point.x / max(1, geometry.size.width) * 3)))
+                        let slot = min(3, max(0, Int(point.x / max(1, geometry.size.width) * 4)))
                         cinema.selectMode(CinemaVideoMode.allCases[slot])
                     } else if point.y > 88 && point.y <= 133 {
                         let slot = min(3, max(0, Int(point.x / max(1, geometry.size.width) * 4)))
