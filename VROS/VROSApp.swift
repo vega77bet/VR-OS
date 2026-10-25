@@ -40,6 +40,7 @@ private struct WindowDrag {
     let pointerOffset: CGSize
     let initialDepth: Double
     let initialHandDepth: Float?
+    let fixedScreenCenter: CGPoint
 }
 
 struct VRHomeView: View {
@@ -349,7 +350,8 @@ struct VRHomeView: View {
             if drag.mode == .depth {
                 let value = drag.initialDepth
                     + Double((pointer.x - drag.firstPointer.x) / size.width) * 3.35
-                adjustDepth(drag.panelID, to: value, size: size)
+                adjustDepth(drag.panelID, to: value, size: size,
+                            lockedCenter: drag.fixedScreenCenter)
             } else {
                 var distance = drag.initialDepth
                 if let start = drag.initialHandDepth, let current = hand.estimatedDepth {
@@ -396,21 +398,23 @@ struct VRHomeView: View {
                 Task { await updates.check() }
                 return
             }
-            let mode: WindowDrag.Mode = dy > height / 2 - 39 ? .depth : .move
+            let mode: WindowDrag.Mode = dy >= height / 2 - 54 ? .depth : .move
             drag = WindowDrag(
                 panelID: panel.id, mode: mode, firstPointer: pointer,
                 pointerOffset: CGSize(width: center.x - pointer.x,
                                       height: center.y - pointer.y),
-                initialDepth: panel.depth, initialHandDepth: hand.estimatedDepth
+                initialDepth: panel.depth, initialHandDepth: hand.estimatedDepth,
+                fixedScreenCenter: center
             )
             return
         }
     }
 
-    private func adjustDepth(_ id: UUID, to rawValue: Double, size: CGSize) {
+    private func adjustDepth(_ id: UUID, to rawValue: Double, size: CGSize,
+                             lockedCenter: CGPoint? = nil) {
         guard let index = panels.firstIndex(where: { $0.id == id }) else { return }
         let value = min(4.0, max(0.65, rawValue))
-        let center = windowCenter(panels[index], size: size, right: false)
+        let center = lockedCenter ?? windowCenter(panels[index], size: size, right: false)
         panels[index].depth = value
         if let center = center,
            let anchor = runtime.worldPoint(at: center, viewport: size, depth: Float(value)) {
