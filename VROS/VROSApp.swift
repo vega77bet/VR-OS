@@ -17,6 +17,7 @@ struct VROSApp: App {
 enum PanelKind: Equatable {
     case content
     case updates
+    case web
 }
 
 struct VRPanel: Identifiable {
@@ -30,6 +31,7 @@ struct VRPanel: Identifiable {
     var anchor: SIMD3<Float>?
     var kind: PanelKind = .content
     var templateID: String? = nil
+    var webApp: VRWebApp? = nil
 }
 
 private enum VRTheme: Int, CaseIterable {
@@ -83,6 +85,8 @@ struct VRHomeView: View {
     @State private var nextRemoteTemplateIndex = 0
     @State private var selectedTheme: VRTheme = .graphite
     @State private var themeMenuOpen = false
+    @State private var appsOpen = false
+    @State private var webSessions: [UUID: VRWebSession] = [:]
     @State private var cinemaOpen = false
     @StateObject private var cinema = CinemaModel()
     @State private var panels = [
@@ -168,9 +172,9 @@ struct VRHomeView: View {
             ForEach(panels) { panel in
                 if let center = windowCenter(panel, size: size, right: right) {
                     let scale = windowScale(panel)
-                    panelView(panel, size: size)
-                        .frame(width: panelWidth(size) * scale,
-                               height: panelHeight(size) * scale)
+                    panelView(panel, size: size, right: right)
+                        .frame(width: panelWidth(panel, size: size) * scale,
+                               height: panelHeight(panel, size: size) * scale)
                         .position(center)
                     grabHandle(panel, size: size)
                         .position(grabHandleCenter(center, panel: panel, size: size))
@@ -182,6 +186,9 @@ struct VRHomeView: View {
 
             if themeMenuOpen {
                 themePicker(size: size).position(x: w / 2, y: h / 2)
+            }
+            if appsOpen {
+                appsLauncher(size: size).position(x: w / 2, y: h / 2)
             }
 
             dock(size: size)
@@ -239,10 +246,11 @@ struct VRHomeView: View {
     private func dock(size: CGSize) -> some View {
         HStack(spacing: 5) {
             dockButton("plus.rectangle.on.rectangle", "Janela", slot: 0, size: size)
-            dockButton("film.stack.fill", "Cinema", slot: 1, size: size)
-            dockButton("arrow.down.circle", "Atualizar", slot: 2, size: size)
-            dockButton("paintpalette.fill", "Temas", slot: 3, size: size)
-            dockButton("scope", "Centro", slot: 4, size: size)
+            dockButton("square.grid.2x2.fill", "Apps", slot: 1, size: size)
+            dockButton("film.stack.fill", "Cinema", slot: 2, size: size)
+            dockButton("arrow.down.circle", "Atualizar", slot: 3, size: size)
+            dockButton("paintpalette.fill", "Temas", slot: 4, size: size)
+            dockButton("scope", "Centro", slot: 5, size: size)
         }
         .padding(5)
         .background(selectedTheme.surface.opacity(0.95),
@@ -262,14 +270,15 @@ struct VRHomeView: View {
                     .lineLimit(1).minimumScaleFactor(0.7)
             }
             .foregroundStyle(.white)
-            .frame(width: max(26, (size.width - 50) / 5), height: 48)
+            .frame(width: max(24, (size.width - 50) / 6), height: 48)
             .background(selectedTheme.accent.opacity(0.15),
                         in: RoundedRectangle(cornerRadius: 11))
         }
         .buttonStyle(.plain)
     }
 
-    private func panelView(_ panel: VRPanel, size: CGSize) -> some View {
+    private func panelView(_ panel: VRPanel, size: CGSize,
+                           right: Bool) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 7) {
                 Image(systemName: panel.icon)
@@ -293,7 +302,10 @@ struct VRHomeView: View {
 
             Rectangle().fill(Color.white.opacity(0.14)).frame(height: 1)
 
-            if panel.kind == .updates {
+            if panel.kind == .web, let browser = webSessions[panel.id] {
+                VRWebWindow(session: browser, rightEye: right)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if panel.kind == .updates {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Conteúdo: " + updates.manifest.version)
                         .font(.system(size: 10, weight: .medium))
@@ -328,7 +340,7 @@ struct VRHomeView: View {
                     .minimumScaleFactor(0.7)
             }
 
-            Spacer(minLength: 0)
+            if panel.kind != .web { Spacer(minLength: 0) }
             Text("Pegue a linha branca abaixo para mover em 3D")
                 .font(.system(size: 9))
                 .foregroundStyle(.white.opacity(0.66))
@@ -345,15 +357,24 @@ struct VRHomeView: View {
         .shadow(color: .black.opacity(0.50), radius: 11, y: 5)
     }
 
+    /// The web windows are larger than note cards so sites can be used.
+    private func panelWidth(_ panel: VRPanel, size: CGSize) -> CGFloat {
+        panel.kind == .web ? min(500, size.width * 0.96) : panelWidth(size)
+    }
+
+    private func panelHeight(_ panel: VRPanel, size: CGSize) -> CGFloat {
+        panel.kind == .web ? min(535, size.height * 0.72) : panelHeight(size)
+    }
+
     /// The handle is only a white line, without a track, numbers, or thumb.
     private func grabHandleWidth(_ panel: VRPanel, size: CGSize) -> CGFloat {
-        min(size.width * 0.72, max(70, panelWidth(size) * windowScale(panel) * 0.68))
+        min(size.width * 0.72, max(70, panelWidth(panel, size: size) * windowScale(panel) * 0.68))
     }
 
     private func grabHandleCenter(_ center: CGPoint, panel: VRPanel,
                                   size: CGSize) -> CGPoint {
         CGPoint(x: center.x,
-                y: center.y + panelHeight(size) * windowScale(panel) / 2 + 22)
+                y: center.y + panelHeight(panel, size: size) * windowScale(panel) / 2 + 22)
     }
 
     private func grabHandle(_ panel: VRPanel, size: CGSize) -> some View {
@@ -550,6 +571,20 @@ struct VRHomeView: View {
     }
 
     private func beganPinch(_ pointer: CGPoint, hand: TrackedHand, size: CGSize) {
+        if appsOpen {
+            let width = min(size.width * 0.89, 330)
+            let localX = pointer.x - (size.width - width) / 2
+            let top = size.height / 2 - 112
+            let localY = pointer.y - top
+            if localX >= 0 && localX <= width &&
+                localY >= 39 && localY < 210 {
+                let index = min(2, max(0, Int((localY - 39) / 57)))
+                openWebApp(VRWebApp.allCases[index])
+            } else {
+                appsOpen = false
+            }
+            return
+        }
         if themeMenuOpen {
             let width = min(size.width * 0.86, 330)
             let x = pointer.x - (size.width - width) / 2
@@ -562,13 +597,13 @@ struct VRHomeView: View {
             return
         }
         // Dock selection is based on 2D fingertip position, not hand depth.
-        let dockWidth = max(26, (size.width - 50) / 5) * 5 + 4 * 5 + 10
+        let dockWidth = max(24, (size.width - 50) / 6) * 6 + 5 * 5 + 10
         let dockLeft = (size.width - dockWidth) / 2
         if abs(pointer.y - dockCenterY(size)) <= 37 &&
            pointer.x >= dockLeft - 8 &&
            pointer.x <= dockLeft + dockWidth + 8 {
-            let cell = max(26, (size.width - 50) / 5) + 5
-            let slot = min(4, max(0, Int((pointer.x - dockLeft - 5) / cell)))
+            let cell = max(24, (size.width - 50) / 6) + 5
+            let slot = min(5, max(0, Int((pointer.x - dockLeft - 5) / cell)))
             activateDock(slot)
             return
         }
@@ -615,8 +650,8 @@ struct VRHomeView: View {
         }
         for panel in panels.reversed() {
             guard let center = windowCenter(panel, size: size, right: false) else { continue }
-            let width = panelWidth(size) * windowScale(panel)
-            let height = panelHeight(size) * windowScale(panel)
+            let width = panelWidth(panel, size: size) * windowScale(panel)
+            let height = panelHeight(panel, size: size) * windowScale(panel)
             let dx = pointer.x - center.x
             let dy = pointer.y - center.y
             guard abs(dx) < width / 2, abs(dy) < height / 2 else { continue }
@@ -651,6 +686,7 @@ struct VRHomeView: View {
 
     private func close(_ id: UUID) {
         panels.removeAll { $0.id == id }
+        webSessions.removeValue(forKey: id)
         if drag?.panelID == id { drag = nil }
     }
 
@@ -696,6 +732,73 @@ struct VRHomeView: View {
         ))
     }
 
+    private func openWebApp(_ app: VRWebApp) {
+        let browser = VRWebSession(app: app)
+        let offset = webSessions.count % 3
+        let newPanel = VRPanel(
+            title: app.title, icon: app.symbol,
+            text: app.description,
+            x: CGFloat(offset - 1) * 0.17,
+            y: -0.10 + CGFloat(offset % 2) * 0.05,
+            depth: 1.5,
+            kind: .web,
+            webApp: app
+        )
+        webSessions[newPanel.id] = browser
+        panels.append(newPanel)
+        appsOpen = false
+        themeMenuOpen = false
+    }
+
+    private func appsLauncher(size: CGSize) -> some View {
+        VStack(spacing: 7) {
+            HStack {
+                Image(systemName: "square.grid.2x2.fill")
+                Text("CENTRAL DE APPS").tracking(0.7)
+                Spacer(minLength: 0)
+                Button { appsOpen = false } label: {
+                    Image(systemName: "xmark.circle.fill")
+                }
+                .buttonStyle(.plain)
+            }
+            .font(.system(size: 11, weight: .bold))
+            ForEach(VRWebApp.allCases) { app in
+                Button { openWebApp(app) } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: app.symbol)
+                            .font(.system(size: 20))
+                            .foregroundStyle(app.accent)
+                            .frame(width: 29)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(app.title)
+                                .font(.system(size: 12, weight: .bold))
+                            Text(app.description)
+                                .font(.system(size: 9))
+                                .lineLimit(2)
+                                .foregroundStyle(.white.opacity(0.7))
+                        }
+                        Spacer(minLength: 0)
+                        Image(systemName: "plus.circle.fill")
+                            .foregroundStyle(.white.opacity(0.75))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 49)
+                    .padding(.horizontal, 7)
+                    .background(.white.opacity(0.08),
+                                in: RoundedRectangle(cornerRadius: 10))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(10)
+        .frame(width: min(size.width * 0.89, 330))
+        .foregroundStyle(.white)
+        .background(Color(white: 0.065).opacity(0.98),
+                    in: RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16)
+            .stroke(Color.white.opacity(0.21), lineWidth: 1))
+    }
+
     private func activateDock(_ slot: Int) {
         switch slot {
         case 0:
@@ -709,13 +812,17 @@ struct VRHomeView: View {
                 y: CGFloat(count % 2 == 0 ? -0.38 : -0.28),
                 depth: 1.6))
         case 1:
+            appsOpen.toggle()
+            if appsOpen { themeMenuOpen = false }
+        case 2:
             cinema.enter(camera: runtime.camera)
             cinemaOpen = true
-        case 2:
+        case 3:
             openUpdatesWindow()
             Task { await updates.check() }
-        case 3:
+        case 4:
             themeMenuOpen.toggle()
+            if themeMenuOpen { appsOpen = false }
         default:
             for index in panels.indices {
                 panels[index].x = 0
