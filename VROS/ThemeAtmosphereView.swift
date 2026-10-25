@@ -43,7 +43,7 @@ struct ThemeAtmosphereView: View {
                     }
                     context.stroke(path,
                                    with: .color(Color(red: 0.18, green: 0.94,
-                                                      blue: index.isMultiple(of: 2) ? 0.55 : 0.90)
+                                                      blue: stripe % 2 == 0 ? 0.55 : 0.90)
                                     .opacity(0.45 - index * 0.04)),
                                    style: StrokeStyle(lineWidth: 18, lineCap: .round))
                 }
