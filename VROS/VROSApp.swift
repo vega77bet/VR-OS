@@ -463,6 +463,9 @@ struct VRHomeView: View {
     }
 
     private func processGesture(_ hand: TrackedHand, size: CGSize) {
+        // Cinema owns pinch gestures while open. Never activate the OS dock
+        // behind the movie when changing stereo playback settings.
+        guard !cinemaOpen else { return }
         guard hand.visible else {
             lastPinch = false
             drag = nil
