@@ -86,7 +86,11 @@ final class CinemaModel: ObservableObject {
         // AVFoundation cannot reliably demux Matroska. Do not claim the
         // import succeeded when the user picks a .mkv.
         if url.pathExtension.lowercased() == "mkv" {
-            errorMessage = "MKV ainda não é compatível com este player. Use MP4 SBS ou converta o arquivo mantendo o 3D."
+            controlsTask?.cancel()
+            player?.pause()
+            playing = false
+            updateLighting()
+            errorMessage = "MKV ainda não é compatível com este player. Use MP4 SBS ou converta mantendo o 3D."
             controlsVisible = true
             return
         }
@@ -524,6 +528,36 @@ struct CinemaEyeView: View {
                     .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 10))
                     .padding(.horizontal, 12)
                     .padding(.top, 12)
+                    HStack(spacing: 4) {
+                        ForEach(CinemaVideoMode.allCases, id: \.rawValue) { mode in
+                            Button {
+                                cinema.selectMode(mode)
+                            } label: {
+                                Text(mode.rawValue)
+                                    .font(.system(size: 9, weight: .bold))
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: 28)
+                                    .background(
+                                        cinema.selectedMode == mode
+                                          ? Color.blue.opacity(0.75)
+                                          : Color.white.opacity(0.14),
+                                        in: RoundedRectangle(cornerRadius: 7))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 7)
+                    .padding(.top, 5)
+                    HStack(spacing: 4) {
+                        cinemaOption(cinema.immersiveScreen ? "MAX ON" : "MAX OFF") {
+                            cinema.toggleImmersive()
+                        }
+                        cinemaOption("Trocar olhos") { cinema.toggleEyeOrder() }
+                        cinemaOption("3D −") { cinema.adjustConvergence(-1) }
+                        cinemaOption("3D +") { cinema.adjustConvergence(1) }
+                    }
+                    .padding(.horizontal, 7)
+                    .padding(.top, 4)
                     Spacer()
                     Text(cinema.movieTitle)
                         .font(.system(size: 10, weight: .medium))
@@ -569,7 +603,18 @@ struct CinemaEyeView: View {
                     } else {
                     let point = handPoint(size: geometry.size)
                     let bottom = geometry.size.height - 40
-                    if abs(point.y - bottom) < 37 {
+                    if point.y >= 44 && point.y <= 88 {
+                        let slot = min(2, max(0, Int(point.x / max(1, geometry.size.width) * 3)))
+                        cinema.selectMode(CinemaVideoMode.allCases[slot])
+                    } else if point.y > 88 && point.y <= 133 {
+                        let slot = min(3, max(0, Int(point.x / max(1, geometry.size.width) * 4)))
+                        switch slot {
+                        case 0: cinema.toggleImmersive()
+                        case 1: cinema.toggleEyeOrder()
+                        case 2: cinema.adjustConvergence(-1)
+                        default: cinema.adjustConvergence(1)
+                        }
+                    } else if abs(point.y - bottom) < 37 {
                         let slot = min(4, max(0, Int(point.x / max(1, geometry.size.width) * 5)))
                         switch slot {
                         case 0: cinema.showPicker = true
@@ -606,6 +651,20 @@ struct CinemaEyeView: View {
         let scale = max(size.width / iw, size.height / ih)
         return CGPoint(x: raw.x * iw * scale - (iw * scale - size.width) / 2,
                        y: raw.y * ih * scale - (ih * scale - size.height) / 2)
+    }
+
+    private func cinemaOption(_ title: String,
+                              action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 8, weight: .semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(maxWidth: .infinity)
+                .frame(height: 28)
+                .background(.white.opacity(0.14), in: RoundedRectangle(cornerRadius: 7))
+        }
+        .buttonStyle(.plain)
     }
 
     private func cinemaButton(_ symbol: String, _ title: String,
