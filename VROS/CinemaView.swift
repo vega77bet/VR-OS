@@ -1,5 +1,7 @@
 import ARKit
 import AVFoundation
+import CoreMotion
+import simd
 import PhotosUI
 import CoreTransferable
 import SceneKit
@@ -58,6 +60,11 @@ final class CinemaModel: ObservableObject {
     private var player: AVPlayer?
     private var movieImportID = UUID()
     private var initialOrientation: simd_quatf?
+    private let motion = CMMotionManager()
+    private var motionReference: simd_quatf?
+    private var lastARPose: ARCamera?
+    @Published private(set) var headTrackingStatus = "Iniciando sensores…"
+    @Published var showControlsAutomatically = false
     private var roomLights: [SCNLight] = []
     private var ambientLight: SCNLight?
     private var screenBounceLight: SCNLight?
@@ -81,11 +88,16 @@ final class CinemaModel: ObservableObject {
     }
 
     func enter(camera: ARCamera?) {
+        lastARPose = camera
         initialOrientation = camera.map { simd_quatf($0.transform) }
-        revealControls()
+        motionReference = nil
+        controlsVisible = true
+        startHeadTracking()
     }
 
     func exit() {
+        motion.stopDeviceMotionUpdates()
+        motionReference = nil
         player?.pause()
         playing = false
         controlsTask?.cancel()
@@ -93,8 +105,61 @@ final class CinemaModel: ObservableObject {
         updateLighting()
     }
 
+    /// CoreMotion does not depend on visible ARKit features, so head tracking
+    /// keeps updating in a dark room and while a fullscreen video is playing.
+    /// Motion callback drives the SceneKit cameras directly at 60 Hz.
+    private func startHeadTracking() {
+        guard motion.isDeviceMotionAvailable else {
+            headTrackingStatus = "Sensores indisponíveis · modo AR"
+            return
+        }
+        motion.deviceMotionUpdateInterval = 1.0 / 60.0
+        let referenceFrame: CMAttitudeReferenceFrame =
+            CMMotionManager.availableAttitudeReferenceFrames()
+                .contains(.xArbitraryCorrectedZVertical)
+                ? .xArbitraryCorrectedZVertical : .xArbitraryZVertical
+        motion.startDeviceMotionUpdates(using: referenceFrame, to: .main) {
+            [weak self] measurement, error in
+            guard let self = self, let measurement = measurement, error == nil else { return }
+            let q = measurement.attitude.quaternion
+            let current = simd_normalize(simd_quatf(ix: Float(q.x), iy: Float(q.y),
+                                                   iz: Float(q.z), r: Float(q.w)))
+            if self.motionReference == nil {
+                self.motionReference = current
+                self.headTrackingStatus = "Cabeça: sensores ativos"
+            }
+            guard let baseline = self.motionReference else { return }
+            let relative = simd_inverse(baseline) * current
+
+            // Phone is fixed horizontally in a VR Box. Rotate the motion
+            // basis to match landscape screen axes, before applying to the
+            // two virtual eye cameras in the same shared scene.
+            let landscape = simd_quatf(angle: -.pi / 2,
+                                       axis: SIMD3<Float>(0, 0, 1))
+            let cameraRotation = landscape * relative * simd_inverse(landscape)
+            self.leftCamera.simdOrientation = cameraRotation
+            self.rightCamera.simdOrientation = cameraRotation
+        }
+    }
+
+    func recenterHead() {
+        if let reading = motion.deviceMotion?.attitude.quaternion {
+            motionReference = simd_normalize(simd_quatf(
+                ix: Float(reading.x), iy: Float(reading.y),
+                iz: Float(reading.z), r: Float(reading.w)))
+            leftCamera.simdOrientation = simd_quatf()
+            rightCamera.simdOrientation = simd_quatf()
+        } else if let pose = lastARPose {
+            initialOrientation = simd_quatf(pose.transform)
+        }
+        revealControls()
+    }
+
     func updateHead(_ camera: ARCamera?) {
-        guard let pose = camera else { return }
+        lastARPose = camera
+        // Use ARKit only if motion sensors cannot run. The ARKit pose may
+        // freeze when a headset blocks environmental features.
+        guard !motion.isDeviceMotionActive, let pose = camera else { return }
         let current = simd_quatf(pose.transform)
         if initialOrientation == nil { initialOrientation = current }
         guard let origin = initialOrientation else { return }
@@ -311,7 +376,7 @@ final class CinemaModel: ObservableObject {
     func revealControls() {
         controlsTask?.cancel()
         controlsVisible = true
-        guard playing else { return }
+        guard playing && showControlsAutomatically else { return }
         controlsTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 5_000_000_000)
             guard !Task.isCancelled else { return }
@@ -319,6 +384,15 @@ final class CinemaModel: ObservableObject {
                 guard let self = self, self.playing else { return }
                 self.controlsVisible = false
             }
+        }
+    }
+
+    func toggleMenu() {
+        if controlsVisible {
+            controlsTask?.cancel()
+            controlsVisible = false
+        } else {
+            revealControls()
         }
     }
 
@@ -555,6 +629,41 @@ struct CinemaEyeView: View {
             ZStack {
                 CinemaSceneView(cinema: cinema, runtime: runtime, rightEye: rightEye)
                     .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        // Tapping empty cinema space always restores options.
+                        if !cinema.controlsVisible { cinema.revealControls() }
+                    }
+                // Persistent access: controls can ALWAYS be reopened without
+                // requiring rear-camera hand tracking inside the VR headset.
+                VStack {
+                    HStack {
+                        Button {
+                            cinema.toggleMenu()
+                        } label: {
+                            Label(cinema.controlsVisible ? "Ocultar" : "Menu",
+                                  systemImage: "line.3.horizontal")
+                                .font(.system(size: 10, weight: .bold))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 7)
+                                .background(.black.opacity(0.75),
+                                            in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        Spacer()
+                        Button { onExit() } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 11, weight: .bold))
+                                .frame(width: 29, height: 29)
+                                .background(.black.opacity(0.75), in: Circle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.top, 6)
+                    Spacer()
+                }
+                .foregroundStyle(.white)
                 if cinema.controlsVisible {
                     VStack(spacing: 0) {
                         HStack(spacing: 5) {
@@ -589,6 +698,7 @@ struct CinemaEyeView: View {
                     .padding(.horizontal, 7)
                     .padding(.top, 5)
                     HStack(spacing: 4) {
+                        cinemaOption("Centralizar") { cinema.recenterHead() }
                         cinemaOption(cinema.immersiveScreen ? "MAX ON" : "MAX OFF") {
                             cinema.toggleImmersive()
                         }
@@ -598,6 +708,10 @@ struct CinemaEyeView: View {
                     }
                     .padding(.horizontal, 7)
                     .padding(.top, 4)
+                    Text(cinema.headTrackingStatus)
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(.green.opacity(0.95))
+                        .padding(.top, 3)
                     Spacer()
                     Text(cinema.movieTitle)
                         .font(.system(size: 10, weight: .medium))
@@ -691,15 +805,20 @@ struct CinemaEyeView: View {
                     } else {
                     let point = handPoint(size: geometry.size)
                     let bottom = geometry.size.height - 40
-                    if point.y >= 44 && point.y <= 88 {
+                    if point.y < 42 && point.x < geometry.size.width * 0.5 {
+                        cinema.toggleMenu()
+                    } else if point.y < 42 {
+                        onExit()
+                    } else if point.y >= 44 && point.y <= 88 {
                         let slot = min(3, max(0, Int(point.x / max(1, geometry.size.width) * 4)))
                         cinema.selectMode(CinemaVideoMode.allCases[slot])
                     } else if point.y > 88 && point.y <= 133 {
-                        let slot = min(3, max(0, Int(point.x / max(1, geometry.size.width) * 4)))
+                        let slot = min(4, max(0, Int(point.x / max(1, geometry.size.width) * 5)))
                         switch slot {
-                        case 0: cinema.toggleImmersive()
-                        case 1: cinema.toggleEyeOrder()
-                        case 2: cinema.adjustConvergence(-1)
+                        case 0: cinema.recenterHead()
+                        case 1: cinema.toggleImmersive()
+                        case 2: cinema.toggleEyeOrder()
+                        case 3: cinema.adjustConvergence(-1)
                         default: cinema.adjustConvergence(1)
                         }
                     } else if abs(point.y - bottom) < 65 {
