@@ -2,7 +2,7 @@ name: Build VR OS IPA
 on:
   workflow_dispatch:
   push:
-    branches: [main, vr-os-2-handtracking, vr-os-3-full-hand, vr-os-3-spatial-depth, vr-os-3-online-updates, vr-os-3-space-360, vr-os-3-depth-fix, vr-os-4-four-themes, vr-os-4-pinch-stability, vr-os-4-pinch-lock, vr-os-4-dock-depth-fix, vr-os-4-external-z-reachable-dock, vr-os-5-spatial-grab-handle, vr-os-6-imax-cinema]
+    branches: [main, vr-os-2-handtracking, vr-os-3-full-hand, vr-os-3-spatial-depth, vr-os-3-online-updates, vr-os-3-space-360, vr-os-3-depth-fix, vr-os-4-four-themes, vr-os-4-pinch-stability, vr-os-4-pinch-lock, vr-os-4-dock-depth-fix, vr-os-4-external-z-reachable-dock, vr-os-5-spatial-grab-handle, vr-os-6-imax-cinema, vr-os-7-imax-ultra-v2]
   pull_request:
     branches: [main]
 
@@ -22,10 +22,10 @@ jobs:
         run: |
           mkdir -p Payload
           cp -R build/Build/Products/Release-iphoneos/VROS.app Payload/
-          zip -qry VR-OS-6-IMAX-Cinema-unsigned.ipa Payload
+          zip -qry VR-OS-7-IMAX-Ultra-V2-unsigned.ipa Payload
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: VR-OS-6-IMAX-Cinema-unsigned-IPA
-          path: VR-OS-6-IMAX-Cinema-unsigned.ipa
+          name: VR-OS-7-IMAX-Ultra-V2-unsigned-IPA
+          path: VR-OS-7-IMAX-Ultra-V2-unsigned.ipa
           retention-days: 14
