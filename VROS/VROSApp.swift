@@ -14,6 +14,11 @@ struct VROSApp: App {
 
 /// Windows are ARKit world-positioned for the lifetime of a tracking session.
 /// They are not persistent anchors and do not survive app restarts.
+enum PanelKind: Equatable {
+    case content
+    case updates
+}
+
 struct VRPanel: Identifiable {
     let id = UUID()
     var title: String
@@ -23,6 +28,8 @@ struct VRPanel: Identifiable {
     var y: CGFloat = 0
     var depth: Double = 1.5
     var anchor: SIMD3<Float>?
+    var kind: PanelKind = .content
+    var templateID: String? = nil
 }
 
 private struct WindowDrag {
@@ -37,6 +44,8 @@ private struct WindowDrag {
 
 struct VRHomeView: View {
     @StateObject private var runtime = VRRuntime()
+    @StateObject private var updates = LiveUpdateManager()
+    @State private var nextRemoteTemplateIndex = 0
     @State private var panels = [
         VRPanel(title: "Bem-vindo ao VR OS", icon: "square.stack.3d.up",
                 text: "Janelas fixas no ambiente com ARKit.\n"
@@ -65,9 +74,15 @@ struct VRHomeView: View {
             .onReceive(runtime.$hand) { hand in
                 processGesture(hand, size: eyeSize)
             }
+            .onReceive(updates.$manifest) { remote in
+                applyRemoteWindowContent(remote)
+            }
         }
         .ignoresSafeArea()
-        .onAppear { runtime.start() }
+        .onAppear {
+            runtime.start()
+            Task { await updates.check() }
+        }
         .onDisappear { runtime.stop() }
     }
 
@@ -141,7 +156,7 @@ struct VRHomeView: View {
                 Circle()
                     .fill(runtime.spatialTracking ? Color.white : Color.gray)
                     .frame(width: 5, height: 5)
-                Text("VR OS 3.0 · ESPACIAL")
+                Text(updates.manifest.headline)
                     .tracking(1.0)
                     .font(.system(size: 10, weight: .semibold))
             }
@@ -153,18 +168,19 @@ struct VRHomeView: View {
         .foregroundStyle(.white)
         .padding(.horizontal, 13)
         .padding(.vertical, 7)
-        .background(Color(white: 0.16).opacity(0.94), in: Capsule())
+        .background(Color(white: updates.manifest.theme.dockGray).opacity(0.94), in: Capsule())
         .frame(maxWidth: size.width * 0.88)
     }
 
     private func dock(size: CGSize) -> some View {
         HStack(spacing: 8) {
             dockButton("plus.rectangle.on.rectangle", "Janela", slot: 0)
-            dockButton("note.text", "Notas", slot: 1)
-            dockButton("scope", "Centralizar", slot: 2)
+            dockButton("square.grid.2x2", "Apps", slot: 1)
+            dockButton("arrow.down.circle", "Atualizar", slot: 2)
+            dockButton("scope", "Centro", slot: 3)
         }
         .padding(7)
-        .background(Color(white: 0.19).opacity(0.95),
+        .background(Color(white: updates.manifest.theme.dockGray).opacity(0.95),
                     in: RoundedRectangle(cornerRadius: 17))
         .overlay(RoundedRectangle(cornerRadius: 17)
             .stroke(Color.white.opacity(0.15), lineWidth: 1))
@@ -211,11 +227,40 @@ struct VRHomeView: View {
 
             Rectangle().fill(Color.white.opacity(0.14)).frame(height: 1)
 
-            Text(panel.text)
-                .font(.system(size: 11, weight: .regular))
-                .foregroundStyle(.white.opacity(0.86))
-                .lineLimit(4)
-                .minimumScaleFactor(0.7)
+            if panel.kind == .updates {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Conteúdo: " + updates.manifest.version)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.88))
+                    Text(updates.statusMessage)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.white.opacity(0.8))
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.8)
+                    Button {
+                        Task { await updates.check() }
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "arrow.clockwise")
+                            Text(updates.isChecking ? "Buscando…" : "Buscar atualizações")
+                        }
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.vertical, 5)
+                        .padding(.horizontal, 10)
+                        .background(Color.white.opacity(0.15),
+                                    in: RoundedRectangle(cornerRadius: 9))
+                    }
+                    .disabled(updates.isChecking)
+                    .buttonStyle(.plain)
+                }
+            } else {
+                Text(panel.text)
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundStyle(.white.opacity(0.86))
+                    .lineLimit(4)
+                    .minimumScaleFactor(0.7)
+            }
 
             Spacer(minLength: 0)
 
@@ -237,8 +282,10 @@ struct VRHomeView: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(white: 0.19).opacity(0.97),
-                    in: RoundedRectangle(cornerRadius: 16))
+        .background(
+            Color(white: updates.manifest.theme.surfaceGray)
+                .opacity(updates.manifest.theme.surfaceOpacity),
+            in: RoundedRectangle(cornerRadius: 16))
         .overlay(RoundedRectangle(cornerRadius: 16)
             .stroke(Color.white.opacity(0.20), lineWidth: 1))
         .shadow(color: .black.opacity(0.50), radius: 11, y: 5)
@@ -320,9 +367,10 @@ struct VRHomeView: View {
 
     private func beganPinch(_ pointer: CGPoint, hand: TrackedHand, size: CGSize) {
         if pointer.y > size.height - 83 {
-            if pointer.x < size.width * 0.36 { activateDock(0) }
-            else if pointer.x < size.width * 0.65 { activateDock(1) }
-            else { activateDock(2) }
+            let dockWidth: CGFloat = 4 * 78 + 3 * 8 + 14
+            let dockStart = (size.width - dockWidth) / 2
+            let slot = min(3, max(0, Int((pointer.x - dockStart) / 86)))
+            activateDock(slot)
             return
         }
         for panel in panels.reversed() {
@@ -334,6 +382,11 @@ struct VRHomeView: View {
             guard abs(dx) < width / 2, abs(dy) < height / 2 else { continue }
             if dx > width / 2 - 40 && dy < -height / 2 + 40 {
                 close(panel.id)
+                return
+            }
+            if panel.kind == .updates && dy > -height / 2 + 40 &&
+                dy < height / 2 - 35 {
+                Task { await updates.check() }
                 return
             }
             let mode: WindowDrag.Mode = dy > height / 2 - 39 ? .depth : .move
@@ -363,33 +416,70 @@ struct VRHomeView: View {
         if drag?.panelID == id { drag = nil }
     }
 
+    private func applyRemoteWindowContent(_ manifest: RemoteManifest) {
+        for index in panels.indices {
+            guard let templateID = panels[index].templateID,
+                  let template = manifest.templates.first(where: { $0.id == templateID })
+            else { continue }
+            panels[index].title = template.title
+            panels[index].icon = template.symbol
+            panels[index].text = template.text
+            // Keep user's chosen depth / anchor: live content updates should not
+            // teleport already-placed windows.
+        }
+    }
+
+    private func openRemoteWindow() {
+        let templates = updates.manifest.templates
+        guard !templates.isEmpty else { return }
+        let template = templates[nextRemoteTemplateIndex % templates.count]
+        nextRemoteTemplateIndex += 1
+        panels.append(VRPanel(
+            title: template.title,
+            icon: template.symbol,
+            text: template.text,
+            x: CGFloat((nextRemoteTemplateIndex % 3) - 1) * 0.14,
+            y: CGFloat(nextRemoteTemplateIndex % 2 == 0 ? -0.12 : 0.09),
+            depth: template.depth,
+            templateID: template.id
+        ))
+    }
+
+    private func openUpdatesWindow() {
+        if panels.contains(where: { $0.kind == .updates }) { return }
+        panels.append(VRPanel(
+            title: "Atualizações online",
+            icon: "arrow.down.circle",
+            text: "",
+            x: 0.08,
+            y: -0.04,
+            depth: 1.3,
+            kind: .updates
+        ))
+    }
+
     private func activateDock(_ slot: Int) {
         switch slot {
         case 0:
             let count = panels.count + 1
             panels.append(VRPanel(
                 title: "Janela \(count)", icon: "macwindow",
-                text: "Fixada no espaço pelo ARKit.\n"
-                    + "Pinça para arrastar · Z pela barra inferior.\n"
-                    + "O Z da mão é aproximado, não medido.",
+                text: "Janela ancorada com ARKit.\n"
+                    + "Pinça para arrastar · Z na barra inferior.\n"
+                    + "Use Apps para abrir conteúdo online.",
                 x: CGFloat((count % 3) - 1) * 0.15,
                 y: CGFloat(count % 2 == 0 ? -0.12 : 0.10),
                 depth: 1.6))
         case 1:
-            panels.append(VRPanel(
-                title: "Notas", icon: "note.text",
-                text: "• 21 pontos da mão\n• Profundidade monocular aproximada\n"
-                    + "• Janelas no espaço até reiniciar\n• Duas imagens da mesma câmera",
-                x: 0.14, y: -0.12, depth: 1.8))
+            openRemoteWindow()
+        case 2:
+            openUpdatesWindow()
+            Task { await updates.check() }
         default:
-            // Explicitly move all windows in front of the user's CURRENT pose.
             for index in panels.indices {
-                let distance = panels[index].depth
                 panels[index].x = 0
                 panels[index].y = 0
                 panels[index].anchor = nil
-                // Pending windows are anchored on the next ARKit camera update.
-                panels[index].depth = distance
             }
         }
     }

@@ -28,3 +28,31 @@ Bundle ID preservado da versão anterior para facilitar atualização via assina
 
 ## Segurança / privacidade
 Os quadros de câmera e hand tracking são processados localmente; este protótipo não os envia a servidores.
+
+
+## Conteúdo atualizável pela internet (VR OS 3.1)
+
+A nova Central de Atualizações usa um manifesto JSON público hospedado em:
+https://vr-os-content-updates.vercel.app/manifest.json
+
+O repositório do app continua privado. O servidor público da Vercel contém apenas configurações de interface, nunca código Swift, frames de câmera, senhas, tokens ou dados pessoais.
+
+### Como funciona
+- Ao abrir o aplicativo, LiveUpdateManager busca via HTTPS o JSON público usando URLSession.
+- Toque em Atualizar na dock para abrir a central. O botão Buscar atualizações busca de novo.
+- Tema grafite, título do sistema e catálogo Apps (textos, ícones e modelos de janelas) são configuráveis no JSON.
+- Janelas já abertas originadas do catálogo têm título/texto/ícone atualizados sem perder posição ou profundidade.
+- Ao receber resposta válida, o manifesto é salvo no UserDefaults; sem internet, utiliza a última cópia válida ou o fallback incluído no IPA.
+- Versão, schema, número e tamanhos de textos, faixas de cores e URL nativa são validados. O arquivo remoto não é executado; só preenche propriedades da interface.
+- O botão Atualizar da dock também dispara a busca, inclusive por pinça; não é necessário PC para buscar e aplicar essas configurações.
+
+### Publicar outra versão de conteúdo
+Atualize o manifesto JSON no projeto Vercel vr-os-content-updates e faça um novo deployment de produção. A URL estável permanece a mesma. O app irá encontrar a nova versão na próxima abertura ou toque em Buscar. O arquivo de referência no GitHub está em updates/manifest.example.json. Editar apenas o arquivo no GitHub não publica o conteúdo: é necessário publicar o novo JSON na Vercel.
+
+### Limite obrigatório do iOS
+Não há atualização de código nativo em tempo real. Mudanças de ARKit, Vision, SwiftUI, permissões, performance, vídeo, novos gestos nativos ou correção de bugs do app exigem novo IPA assinado e instalado com AltStore ou outra distribuição autorizada. Não coloque links públicos para IPA sem assinatura esperando instalação automática: isso não funciona no iOS.
+
+Esta versão precisa de uma instalação manual inicial para adicionar o mecanismo. Depois disso, somente atualizações de interface e catálogo chegam pela rede.
+
+### Estado de teste
+O build automatizado confirma apenas compilação; a rede e a interface não foram validadas no iPhone real. Use em ambiente seguro, parado, sem obstáculos.
