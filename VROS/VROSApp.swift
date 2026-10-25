@@ -64,8 +64,12 @@ private struct WindowDrag {
     let initialDepth: Double
     let initialHandDepth: Float?
     let fixedScreenCenter: CGPoint
+    let initialAnchor: SIMD3<Float>?
     var movementStarted = false
     var filteredPointer: CGPoint
+    var lastAppliedPointer: CGPoint
+    var activationFrames = 0
+    var movementFrames = 0
 }
 
 struct VRHomeView: View {
@@ -77,7 +81,7 @@ struct VRHomeView: View {
     @State private var panels = [
         VRPanel(title: "Bem-vindo ao VR OS", icon: "square.stack.3d.up",
                 text: "Janelas fixas no ambiente com ARKit.\n"
-                    + "Pinça para pegar. Aproxime ou afaste a mão para mudar a distância.\n"
+                    + "Segure a pinça para selecionar; mova a mão para arrastar.\n"
                     + "Ajuste o Z na barra inferior.", depth: 1.5)
     ]
     @State private var lastPinch = false
@@ -432,40 +436,66 @@ struct VRHomeView: View {
             beganPinch(pointer, hand: hand, size: size)
         } else if hand.pinching, let drag = drag,
                   let index = panels.firstIndex(where: { $0.id == drag.panelID }) {
+            // Smooth the fingertip before applying any interaction.
+            // The Vision landmark can drift while a real hand stays still.
+            let alpha: CGFloat = 0.24
+            let filtered = CGPoint(
+                x: drag.filteredPointer.x + (pointer.x - drag.filteredPointer.x) * alpha,
+                y: drag.filteredPointer.y + (pointer.y - drag.filteredPointer.y) * alpha
+            )
+            self.drag?.filteredPointer = filtered
+
+            let displacement = hypot(filtered.x - drag.firstPointer.x,
+                                     filtered.y - drag.firstPointer.y)
+            let threshold: CGFloat = drag.mode == .depth ? 17 : 28
+            if !drag.movementStarted {
+                // A single landmark jump must never start dragging.
+                self.drag?.activationFrames = displacement >= threshold
+                    ? drag.activationFrames + 1 : 0
+                guard (self.drag?.activationFrames ?? 0) >= 3 else {
+                    lastPinch = true
+                    return
+                }
+                self.drag?.movementStarted = true
+            }
+
+            let sinceCommit = hypot(filtered.x - drag.lastAppliedPointer.x,
+                                    filtered.y - drag.lastAppliedPointer.y)
+            let step: CGFloat = drag.mode == .depth ? 7 : 12
+            // Require two successive samples outside the motion gate.
+            // In a stationary pinch, the window anchor is never rewritten.
+            self.drag?.movementFrames = sinceCommit >= step
+                ? drag.movementFrames + 1 : 0
+            guard (self.drag?.movementFrames ?? 0) >= 2 else {
+                lastPinch = true
+                return
+            }
+            self.drag?.movementFrames = 0
+            self.drag?.lastAppliedPointer = filtered
+
+            // Consume the initial dead zone so the panel does not jump when
+            // the deliberate movement is first recognized.
+            let effective = max(0, displacement - threshold)
+            let ratio = displacement > 0 ? effective / displacement : 0
+            let deltaX = (filtered.x - drag.firstPointer.x) * ratio
+            let deltaY = (filtered.y - drag.firstPointer.y) * ratio
+
             if drag.mode == .depth {
-                let value = drag.initialDepth
-                    + Double((pointer.x - drag.firstPointer.x) / size.width) * 3.35
+                let value = drag.initialDepth + Double(deltaX / size.width) * 3.35
                 adjustDepth(drag.panelID, to: value, size: size,
                             lockedCenter: drag.fixedScreenCenter)
-            } else {
-                // Hand tracking jitters even during a stationary pinch.
-                // Require a deliberate 20pt displacement before any drag.
-                let deltaX = pointer.x - drag.firstPointer.x
-                let deltaY = pointer.y - drag.firstPointer.y
-                let travel = hypot(deltaX, deltaY)
-                if !drag.movementStarted {
-                    guard travel >= 20 else {
-                        lastPinch = hand.pinching
-                        return
-                    }
-                    self.drag?.movementStarted = true
-                }
-
-                // Keep Z strictly unchanged during XY drag. Depth changes
-                // only via the dedicated slider, never from noisy monocular Z.
-                let previous = self.drag?.filteredPointer ?? drag.firstPointer
-                let alpha: CGFloat = 0.22
-                let filtered = CGPoint(
-                    x: previous.x + (pointer.x - previous.x) * alpha,
-                    y: previous.y + (pointer.y - previous.y) * alpha
-                )
-                self.drag?.filteredPointer = filtered
-                let target = CGPoint(x: filtered.x + drag.pointerOffset.width,
-                                     y: filtered.y + drag.pointerOffset.height)
-                if let anchor = runtime.worldPoint(at: target, viewport: size,
-                                                   depth: Float(drag.initialDepth)) {
-                    panels[index].anchor = anchor
-                }
+            } else if runtime.spatialTracking, let origin = drag.initialAnchor,
+                      let baseRay = runtime.worldPoint(
+                        at: drag.fixedScreenCenter, viewport: size,
+                        depth: Float(drag.initialDepth)),
+                      let movedRay = runtime.worldPoint(
+                        at: CGPoint(x: drag.fixedScreenCenter.x + deltaX,
+                                   y: drag.fixedScreenCenter.y + deltaY),
+                        viewport: size, depth: Float(drag.initialDepth)) {
+                // Apply only the relative world displacement to the original
+                // anchor. Reconstructing an absolute anchor every Vision frame
+                // caused stationary pinches to walk sideways with camera pose.
+                panels[index].anchor = origin + movedRay - baseRay
             }
         } else if !hand.pinching {
             drag = nil
@@ -514,8 +544,8 @@ struct VRHomeView: View {
                 pointerOffset: CGSize(width: center.x - pointer.x,
                                       height: center.y - pointer.y),
                 initialDepth: panel.depth, initialHandDepth: hand.estimatedDepth,
-                fixedScreenCenter: center,
-                filteredPointer: pointer
+                fixedScreenCenter: center, initialAnchor: panel.anchor,
+                filteredPointer: pointer, lastAppliedPointer: pointer
             )
             return
         }
