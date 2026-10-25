@@ -4,12 +4,34 @@ import SceneKit
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// Layout of the pixels in an imported stereoscopic movie.
+/// H-SBS and full SBS have exactly the same left/right packing; only source
+/// resolution differs. All three modes share one synchronized AVPlayer.
+enum CinemaVideoMode: String, CaseIterable {
+    case twoD = "2D"
+    case sbs = "3D SBS"
+    case overUnder = "3D OU"
+
+    var subtitle: String {
+        switch self {
+        case .twoD: return "Filme normal"
+        case .sbs: return "SBS / H-SBS"
+        case .overUnder: return "Cima e baixo"
+        }
+    }
+}
+
 final class CinemaModel: ObservableObject {
     let scene = SCNScene()
     let leftCamera = SCNNode()
     let rightCamera = SCNNode()
-    private let screenMaterial = SCNMaterial()
-    private let videoPlane = SCNPlane(width: 23.8, height: 13.4)
+    // Both eyes sample different halves of the same AVPlayer frame. Using
+    // one player keeps audio, seeking and left/right images synchronized.
+    private let leftScreenMaterial = SCNMaterial()
+    private let rightScreenMaterial = SCNMaterial()
+    private let leftVideoPlane = SCNPlane(width: 23.8, height: 13.4)
+    private let rightVideoPlane = SCNPlane(width: 23.8, height: 13.4)
+    private var sourceAspect: CGFloat = 16.0 / 9.0
     private let screenWidth: CGFloat = 27.2
     private let screenHeight: CGFloat = 13.4
     private var player: AVPlayer?
@@ -22,11 +44,20 @@ final class CinemaModel: ObservableObject {
     private var controlsTask: Task<Void, Never>?
     @Published var movieTitle = "Escolha um filme MP4"
     @Published var playing = false
+    @Published var selectedMode: CinemaVideoMode = .twoD
+    @Published var immersiveScreen = true
+    @Published var swapEyes = false
+    @Published var convergence: CGFloat = 0
     @Published var controlsVisible = true
     @Published var errorMessage: String?
     @Published var showPicker = false
 
-    init() { buildRoom(); updateLighting(animated: false) }
+    init() {
+        buildRoom()
+        updateStereoMaterials()
+        updateSeatPosition()
+        updateLighting(animated: false)
+    }
 
     func enter(camera: ARCamera?) {
         initialOrientation = camera.map { simd_quatf($0.transform) }
@@ -52,6 +83,13 @@ final class CinemaModel: ObservableObject {
     }
 
     func loadMovie(_ url: URL) {
+        // AVFoundation cannot reliably demux Matroska. Do not claim the
+        // import succeeded when the user picks a .mkv.
+        if url.pathExtension.lowercased() == "mkv" {
+            errorMessage = "MKV ainda não é compatível com este player. Use MP4 SBS ou converta o arquivo mantendo o 3D."
+            controlsVisible = true
+            return
+        }
         let access = url.startAccessingSecurityScopedResource()
         defer { if access { url.stopAccessingSecurityScopedResource() } }
         do {
@@ -68,9 +106,21 @@ final class CinemaModel: ObservableObject {
             player?.pause()
             let movie = AVPlayer(url: dest)
             movie.actionAtItemEnd = .pause
-            screenMaterial.diffuse.contents = movie
+            leftScreenMaterial.diffuse.contents = movie
+            rightScreenMaterial.diffuse.contents = movie
             player = movie
             movieTitle = url.deletingPathExtension().lastPathComponent
+            let name = movieTitle.lowercased()
+            if name.contains("sbs") || name.contains("side-by-side") ||
+               name.contains("side_by_side") {
+                selectedMode = .sbs
+            } else if name.contains("over-under") || name.contains("top-bottom") ||
+                      name.contains("top_bottom") || name.contains("3d-ou") {
+                selectedMode = .overUnder
+            } else {
+                selectedMode = .twoD
+            }
+            updateStereoMaterials()
             errorMessage = nil
             playing = true
             updateLighting()
@@ -94,13 +144,15 @@ final class CinemaModel: ObservableObject {
                     guard width > 0, height > 0 else { return }
                     await MainActor.run {
                         guard self.movieImportID == importID else { return }
-                        self.fitScreen(to: width / height)
+                        self.sourceAspect = width / height
+                        self.fitScreen()
                     }
                 } catch {
                     await MainActor.run {
                         guard self.movieImportID == importID else { return }
                         // Keep the safe 16:9 default if metadata is unavailable.
-                        self.fitScreen(to: 16.0 / 9.0)
+                        self.sourceAspect = 16.0 / 9.0
+                        self.fitScreen()
                     }
                 }
             }
@@ -109,11 +161,98 @@ final class CinemaModel: ObservableObject {
         }
     }
 
-    private func fitScreen(to aspect: CGFloat) {
+    /// The movie's overall aspect ratio differs from one eye's aspect
+    /// ratio in packed SBS or over/under movies.
+    private func fitScreen() {
+        var aspect = sourceAspect
+        switch selectedMode {
+        case .twoD: break
+        case .sbs: aspect /= 2
+        case .overUnder: aspect *= 2
+        }
         guard aspect.isFinite, aspect > 0 else { return }
         let height = min(screenHeight, screenWidth / aspect)
-        videoPlane.height = height
-        videoPlane.width = height * aspect
+        let width = height * aspect
+        leftVideoPlane.height = height
+        leftVideoPlane.width = width
+        rightVideoPlane.height = height
+        rightVideoPlane.width = width
+    }
+
+    func selectMode(_ mode: CinemaVideoMode) {
+        selectedMode = mode
+        updateStereoMaterials()
+        fitScreen()
+        revealControls()
+    }
+
+    func toggleImmersive() {
+        immersiveScreen.toggle()
+        updateSeatPosition()
+        revealControls()
+    }
+
+    private func updateSeatPosition() {
+        // The movie screen is at z=-15.66. In immersive mode the viewer is
+        // about 13 m away, for a horizontal angular width around 90 degrees.
+        let z: Float = immersiveScreen ? -2.6 : 3.25
+        leftCamera.position = SCNVector3(-0.032, 1.68, z)
+        rightCamera.position = SCNVector3(0.032, 1.68, z)
+    }
+
+    func toggleEyeOrder() {
+        swapEyes.toggle()
+        updateStereoMaterials()
+        revealControls()
+    }
+
+    func adjustConvergence(_ direction: CGFloat) {
+        convergence = max(-0.02, min(0.02, convergence + direction * 0.0025))
+        updateStereoMaterials()
+        revealControls()
+    }
+
+    private func updateStereoMaterials() {
+        configureEyeMaterial(leftScreenMaterial, rightEye: false)
+        configureEyeMaterial(rightScreenMaterial, rightEye: true)
+    }
+
+    private func configureEyeMaterial(_ material: SCNMaterial, rightEye: Bool) {
+        let useRightHalf = swapEyes ? !rightEye : rightEye
+        let scaleX: Float
+        let scaleY: Float
+        let translationX: Float
+        let translationY: Float
+        switch selectedMode {
+        case .twoD:
+            scaleX = 1
+            scaleY = 1
+            translationX = 0
+            translationY = 0
+        case .sbs:
+            scaleX = 0.5
+            scaleY = 1
+            translationX = useRightHalf ? 0.5 : 0
+            translationY = 0
+        case .overUnder:
+            scaleX = 1
+            scaleY = 0.5
+            translationX = 0
+            // Texture v=1 corresponds to the top. Left eye gets top.
+            translationY = useRightHalf ? 0 : 0.5
+        }
+        // The convergence adjustment shifts sampling only slightly, and is
+        // limited to the 3D modes. This does NOT alter the source movie.
+        let shift: Float = selectedMode == .twoD ? 0 :
+            Float(convergence) * (rightEye ? 1 : -1)
+        let transform = SCNMatrix4Mult(
+            SCNMatrix4MakeTranslation(translationX + shift, translationY, 0),
+            SCNMatrix4MakeScale(scaleX, scaleY, 1))
+        material.diffuse.contentsTransform = transform
+        material.diffuse.wrapS = .clamp
+        material.diffuse.wrapT = .clamp
+        material.lightingModel = .constant
+        material.isDoubleSided = true
     }
 
     func togglePlayback() {
@@ -208,13 +347,20 @@ final class CinemaModel: ObservableObject {
         backing.position = SCNVector3(0, 7.05, -15.76)
         scene.rootNode.addChildNode(backing)
 
-        let screen = SCNNode(geometry: videoPlane)
-        screenMaterial.diffuse.contents = UIColor(white: 0.018, alpha: 1)
-        screenMaterial.lightingModel = .constant
-        screenMaterial.isDoubleSided = true
-        videoPlane.firstMaterial = screenMaterial
-        screen.position = SCNVector3(0, 7.05, -15.66)
-        scene.rootNode.addChildNode(screen)
+        // SceneKit category masks ensure each physical eye can see ONLY
+        // its own movie texture; the rest of the room remains shared.
+        leftScreenMaterial.diffuse.contents = UIColor(white: 0.018, alpha: 1)
+        rightScreenMaterial.diffuse.contents = UIColor(white: 0.018, alpha: 1)
+        leftVideoPlane.firstMaterial = leftScreenMaterial
+        rightVideoPlane.firstMaterial = rightScreenMaterial
+        let leftScreen = SCNNode(geometry: leftVideoPlane)
+        leftScreen.position = SCNVector3(0, 7.05, -15.66)
+        leftScreen.categoryBitMask = 2
+        scene.rootNode.addChildNode(leftScreen)
+        let rightScreen = SCNNode(geometry: rightVideoPlane)
+        rightScreen.position = SCNVector3(0, 7.05, -15.66)
+        rightScreen.categoryBitMask = 4
+        scene.rootNode.addChildNode(rightScreen)
         box(27.8, 0.12, 0.22, 0, 13.94, -15.7, gold)
         box(27.8, 0.12, 0.22, 0, 0.16, -15.7, gold)
         box(0.12, 13.7, 0.22, -13.92, 7.05, -15.7, gold)
@@ -320,13 +466,13 @@ final class CinemaModel: ObservableObject {
         scene.rootNode.addChildNode(screenLight)
 
         // Two independent eyes, 64-mm interpupillary separation.
-        for (eye, x) in [(leftCamera, Float(-0.032)),
-                         (rightCamera, Float(0.032))] {
+        for (index, eye) in [leftCamera, rightCamera].enumerated() {
             eye.camera = SCNCamera()
+            eye.camera?.categoryBitMask = index == 0 ? (1 | 2) : (1 | 4)
             eye.camera?.fieldOfView = 75
             eye.camera?.zNear = 0.05
             eye.camera?.zFar = 90
-            eye.position = SCNVector3(x, 1.68, 3.25)
+            eye.position = SCNVector3(index == 0 ? -0.032 : 0.032, 1.68, 3.25)
             scene.rootNode.addChildNode(eye)
         }
     }
