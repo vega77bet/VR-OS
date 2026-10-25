@@ -265,7 +265,7 @@ final class CinemaModel: ObservableObject {
                       chamfer: CGFloat = 0.07) {
             let node = SCNNode(geometry: SCNBox(width: w, height: h, length: d,
                                                  chamferRadius: chamfer))
-            node.geometry?.firstMaterial?.diffuse.contents = _color
+            node.geometry?.firstMaterial?.diffuse.contents = color
             node.position = SCNVector3(_x, _y, _z)
             seatPrototype.addChildNode(node)
         }
@@ -297,7 +297,7 @@ final class CinemaModel: ObservableObject {
         ambientLight = ambient.light
         scene.rootNode.addChildNode(ambient)
         for side: Float in [-1, 1] {
-            for z: Float in [-8, 7] {
+            for z in [Float(-8), Float(7)] {
                 let lamp = SCNNode()
                 let light = SCNLight()
                 light.type = .omni
@@ -365,8 +365,9 @@ struct CinemaEyeView: View {
             ZStack {
                 CinemaSceneView(cinema: cinema, runtime: runtime, rightEye: rightEye)
                     .ignoresSafeArea()
-                VStack(spacing: 0) {
-                    HStack(spacing: 5) {
+                if cinema.controlsVisible {
+                    VStack(spacing: 0) {
+                        HStack(spacing: 5) {
                         Image(systemName: "film.fill")
                         Text("VR-OS CINEMA").tracking(1.1)
                         Spacer(minLength: 0)
@@ -399,8 +400,10 @@ struct CinemaEyeView: View {
                     .padding(.horizontal, 7)
                     .padding(.bottom, 16)
                 }
-                .foregroundStyle(.white)
-                if runtime.hand.visible {
+                    .foregroundStyle(.white)
+                    .transition(.opacity)
+                }
+                if cinema.controlsVisible && runtime.hand.visible {
                     Circle()
                         .stroke(.white, lineWidth: runtime.hand.pinching ? 3 : 1.5)
                         .frame(width: runtime.hand.pinching ? 24 : 17,
@@ -409,9 +412,15 @@ struct CinemaEyeView: View {
                         .allowsHitTesting(false)
                 }
             }
+            .animation(.easeInOut(duration: 0.25), value: cinema.controlsVisible)
             .onReceive(runtime.$hand) { hand in
                 guard !rightEye else { return }
                 if hand.visible && hand.pinching && !lastPinch {
+                    if !cinema.controlsVisible {
+                        // First pinch brings the controls back without
+                        // accidentally pausing or exiting the movie.
+                        cinema.revealControls()
+                    } else {
                     let point = handPoint(size: geometry.size)
                     let bottom = geometry.size.height - 40
                     if abs(point.y - bottom) < 37 {
@@ -424,11 +433,12 @@ struct CinemaEyeView: View {
                         default: onExit()
                         }
                     }
+                    }
                 }
                 lastPinch = hand.visible && hand.pinching
             }
         }
-        .fileImporter(isPresented: $cinema.showPicker,
+        .fileImporter(isPresented: rightEye ? .constant(false) : $cinema.showPicker,
                       allowedContentTypes: [.mpeg4Movie, .movie, .video],
                       allowsMultipleSelection: false) { result in
             switch result {
