@@ -4,12 +4,36 @@ import SceneKit
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// Source-video packing, independent of the two VR headset eye viewports.
+/// H-SBS uses anamorphic half-width pictures, so its display aspect ratio
+/// comes from the full encoded frame, not from half its pixel width.
+enum CinemaVideoMode: String, CaseIterable, Identifiable {
+    case twoD, sbs, halfSBS, overUnder
+
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .twoD: return "2D"
+        case .sbs: return "SBS"
+        case .halfSBS: return "H-SBS"
+        case .overUnder: return "OU"
+        }
+    }
+}
+
 final class CinemaModel: ObservableObject {
     let scene = SCNScene()
     let leftCamera = SCNNode()
     let rightCamera = SCNNode()
-    private let screenMaterial = SCNMaterial()
+    private let leftScreenMaterial = SCNMaterial()
+    private let rightScreenMaterial = SCNMaterial()
     private let videoPlane = SCNPlane(width: 23.8, height: 13.4)
+    private let rightVideoPlane = SCNPlane(width: 23.8, height: 13.4)
+    private var encodedAspect: CGFloat = 16.0 / 9.0
+    // The room stays in category 1. Movie screens have separate categories
+    // so the left-eye camera can NEVER show the right-eye video and vice versa.
+    private let leftVideoCategory = 2
+    private let rightVideoCategory = 4
     private let screenWidth: CGFloat = 27.2
     private let screenHeight: CGFloat = 13.4
     private var player: AVPlayer?
@@ -25,6 +49,9 @@ final class CinemaModel: ObservableObject {
     @Published var controlsVisible = true
     @Published var errorMessage: String?
     @Published var showPicker = false
+    @Published var displayMode: CinemaVideoMode = .twoD {
+        didSet { applyDisplayMode() }
+    }
 
     init() { buildRoom(); updateLighting(animated: false) }
 
@@ -66,10 +93,16 @@ final class CinemaModel: ObservableObject {
                 UUID().uuidString + "." + url.pathExtension.lowercased())
             try FileManager.default.copyItem(at: url, to: dest)
             player?.pause()
+            guard ["mp4", "m4v", "mov"].contains(dest.pathExtension.lowercased()) else {
+                errorMessage = "Por enquanto o cinema reproduz MP4/M4V/MOV compatíveis. MKV exige outro decodificador."
+                return
+            }
             let movie = AVPlayer(url: dest)
             movie.actionAtItemEnd = .pause
-            screenMaterial.diffuse.contents = movie
+            leftScreenMaterial.diffuse.contents = movie
+            rightScreenMaterial.diffuse.contents = movie
             player = movie
+            applyDisplayMode()
             movieTitle = url.deletingPathExtension().lastPathComponent
             errorMessage = nil
             playing = true
@@ -109,11 +142,54 @@ final class CinemaModel: ObservableObject {
         }
     }
 
+    /// Maintain the intended movie aspect ratio after unpacking the stereo
+    /// source. SBS contains two full-width eye images; H-SBS is anamorphic.
     private func fitScreen(to aspect: CGFloat) {
         guard aspect.isFinite, aspect > 0 else { return }
+        encodedAspect = aspect
+        applyDisplayMode()
+    }
+
+    private func applyDisplayMode() {
+        let aspect: CGFloat
+        switch displayMode {
+        case .twoD, .halfSBS:
+            aspect = encodedAspect
+        case .sbs:
+            aspect = encodedAspect / 2.0
+        case .overUnder:
+            aspect = encodedAspect * 2.0
+        }
+        guard aspect.isFinite, aspect > 0 else { return }
         let height = min(screenHeight, screenWidth / aspect)
+        let width = min(screenWidth, height * aspect)
         videoPlane.height = height
-        videoPlane.width = height * aspect
+        videoPlane.width = width
+        rightVideoPlane.height = height
+        rightVideoPlane.width = width
+
+        // UV cropping happens on the GPU. One AVPlayer controls both eye
+        // materials, guaranteeing matched seek/playback timestamps.
+        // UV origin is bottom-left: OU top half belongs to the left eye.
+        let left: (Float, Float, Float, Float)
+        let right: (Float, Float, Float, Float)
+        switch displayMode {
+        case .twoD:
+            left = (1, 1, 0, 0)
+            right = left
+        case .sbs, .halfSBS:
+            left = (0.5, 1, 0, 0)
+            right = (0.5, 1, 0.5, 0)
+        case .overUnder:
+            left = (1, 0.5, 0, 0.5)
+            right = (1, 0.5, 0, 0)
+        }
+        func crop(_ uv: (Float, Float, Float, Float)) -> SCNMatrix4 {
+            SCNMatrix4Mult(SCNMatrix4MakeTranslation(uv.2, uv.3, 0),
+                           SCNMatrix4MakeScale(uv.0, uv.1, 1))
+        }
+        leftScreenMaterial.diffuse.contentsTransform = crop(left)
+        rightScreenMaterial.diffuse.contentsTransform = crop(right)
     }
 
     func togglePlayback() {
@@ -208,13 +284,24 @@ final class CinemaModel: ObservableObject {
         backing.position = SCNVector3(0, 7.05, -15.76)
         scene.rootNode.addChildNode(backing)
 
-        let screen = SCNNode(geometry: videoPlane)
-        screenMaterial.diffuse.contents = UIColor(white: 0.018, alpha: 1)
-        screenMaterial.lightingModel = .constant
-        screenMaterial.isDoubleSided = true
-        videoPlane.firstMaterial = screenMaterial
-        screen.position = SCNVector3(0, 7.05, -15.66)
-        scene.rootNode.addChildNode(screen)
+        // Two coincident video planes: SceneKit camera categories select the
+        // one visible to each headset eye. The room is shared between both.
+        for (plane, material, category) in [
+            (videoPlane, leftScreenMaterial, leftVideoCategory),
+            (rightVideoPlane, rightScreenMaterial, rightVideoCategory)
+        ] {
+            material.diffuse.contents = UIColor(white: 0.018, alpha: 1)
+            material.diffuse.wrapS = .clamp
+            material.diffuse.wrapT = .clamp
+            material.lightingModel = .constant
+            material.isDoubleSided = true
+            plane.firstMaterial = material
+            let screen = SCNNode(geometry: plane)
+            screen.categoryBitMask = category
+            screen.position = SCNVector3(0, 7.05, -15.66)
+            scene.rootNode.addChildNode(screen)
+        }
+        applyDisplayMode()
         box(27.8, 0.12, 0.22, 0, 13.94, -15.7, gold)
         box(27.8, 0.12, 0.22, 0, 0.16, -15.7, gold)
         box(0.12, 13.7, 0.22, -13.92, 7.05, -15.7, gold)
@@ -324,6 +411,7 @@ final class CinemaModel: ObservableObject {
                          (rightCamera, Float(0.032))] {
             eye.camera = SCNCamera()
             eye.camera?.fieldOfView = 75
+            eye.camera?.categoryBitMask = 1 | (x < 0 ? leftVideoCategory : rightVideoCategory)
             eye.camera?.zNear = 0.05
             eye.camera?.zFar = 90
             eye.position = SCNVector3(x, 1.68, 3.25)
@@ -379,6 +467,27 @@ struct CinemaEyeView: View {
                     .padding(.horizontal, 12)
                     .padding(.top, 12)
                     Spacer()
+                    HStack(spacing: 4) {
+                        ForEach(CinemaVideoMode.allCases) { mode in
+                            Button {
+                                cinema.displayMode = mode
+                                cinema.revealControls()
+                            } label: {
+                                Text(mode.label)
+                                    .font(.system(size: 9, weight: .bold))
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 8)
+                                    .background(
+                                        cinema.displayMode == mode
+                                        ? Color.blue.opacity(0.86)
+                                        : Color.black.opacity(0.66),
+                                        in: RoundedRectangle(cornerRadius: 7))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 7)
+                    .padding(.bottom, 8)
                     Text(cinema.movieTitle)
                         .font(.system(size: 10, weight: .medium))
                         .lineLimit(1)
