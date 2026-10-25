@@ -1,8 +1,27 @@
 import ARKit
 import AVFoundation
+import PhotosUI
+import CoreTransferable
 import SceneKit
 import SwiftUI
 import UniformTypeIdentifiers
+
+/// PhotosPicker's file representation is copied while its temporary access is
+/// valid, avoiding loading gigabyte-sized movies into RAM as Data.
+private struct CinemaPhotoMovie: Transferable {
+    let url: URL
+
+    static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(importedContentType: .movie) { received in
+            let original = received.file
+            let ext = original.pathExtension.isEmpty ? "mov" : original.pathExtension
+            let destination = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString + "." + ext)
+            try FileManager.default.copyItem(at: original, to: destination)
+            return CinemaPhotoMovie(url: destination)
+        }
+    }
+}
 
 /// Layout of the pixels in an imported stereoscopic movie.
 /// H-SBS and full SBS have exactly the same left/right packing; only source
@@ -520,8 +539,16 @@ struct CinemaEyeView: View {
     let rightEye: Bool
     @ObservedObject var runtime: VRRuntime
     @ObservedObject var cinema: CinemaModel
+    @ObservedObject var updates: LiveUpdateManager
     let onExit: () -> Void
     @State private var lastPinch = false
+    @State private var pickedMovie: PhotosPickerItem?
+    @State private var pickingPhotoMovie = false
+
+    private var newerAppAvailable: Bool {
+        let installed = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
+        return updates.manifest.latestNativeVersion.compare(installed, options: .numeric) == .orderedDescending
+    }
 
     var body: some View {
         GeometryReader { geometry in
@@ -578,20 +605,50 @@ struct CinemaEyeView: View {
                     if let error = cinema.errorMessage {
                         Text(error).font(.system(size: 9)).foregroundStyle(.red).lineLimit(2)
                     }
-                    HStack(spacing: 5) {
-                        cinemaButton("folder.fill", "Filme") { cinema.showPicker = true }
+                    HStack(spacing: 4) {
+                        cinemaButton("folder.fill", "Arquivos") { cinema.showPicker = true }
+                        cinemaButton("photo.on.rectangle.angled", "Fototeca") {
+                            guard !rightEye else { return }
+                            pickingPhotoMovie = true
+                        }
                         cinemaButton("gobackward.10", "-10s") { cinema.seek(-10) }
                         cinemaButton(cinema.playing ? "pause.fill" : "play.fill",
                                      cinema.playing ? "Pausar" : "Play") {
                             cinema.togglePlayback()
                         }
                         cinemaButton("goforward.10", "+10s") { cinema.seek(10) }
+                        cinemaButton("arrow.down.circle", "Internet") {
+                            Task { await updates.check(); cinema.revealControls() }
+                        }
                         cinemaButton("xmark", "Sair") { onExit() }
                     }
-                    .padding(7)
+                    .padding(5)
                     .background(.black.opacity(0.75), in: RoundedRectangle(cornerRadius: 12))
                     .padding(.horizontal, 7)
-                    .padding(.bottom, 16)
+                    .padding(.bottom, 5)
+                    if updates.isChecking {
+                        Text("Buscando atualizações pela internet…")
+                            .font(.system(size: 9))
+                    } else {
+                        Text(updates.statusMessage)
+                            .font(.system(size: 9))
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.75)
+                    }
+                    if newerAppAvailable,
+                       let url = URL(string: updates.manifest.nativeReleaseURL) {
+                        Link(destination: url) {
+                            Text("Nova versão do app · instalar externamente")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundColor(.yellow)
+                        }
+                    }
+                    Text("Conteúdo online atualiza aqui. Código/IPA exige instalar versão assinada.")
+                        .font(.system(size: 8))
+                        .foregroundStyle(.white.opacity(0.65))
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.7)
+                        .padding(.bottom, 9)
                 }
                     .foregroundStyle(.white)
                     .transition(.opacity)
@@ -606,6 +663,24 @@ struct CinemaEyeView: View {
                 }
             }
             .animation(.easeInOut(duration: 0.25), value: cinema.controlsVisible)
+            .onChange(of: pickedMovie) { nextItem in
+                guard !rightEye, let nextItem = nextItem else { return }
+                Task {
+                    do {
+                        guard let movie = try await nextItem.loadTransferable(
+                            type: CinemaPhotoMovie.self) else {
+                            cinema.errorMessage = "Não foi possível importar esse vídeo da Fototeca."
+                            cinema.revealControls()
+                            return
+                        }
+                        cinema.loadMovie(movie.url)
+                        try? FileManager.default.removeItem(at: movie.url)
+                    } catch {
+                        cinema.errorMessage = "Erro na Fototeca: " + error.localizedDescription
+                        cinema.revealControls()
+                    }
+                }
+            }
             .onReceive(runtime.$hand) { hand in
                 guard !rightEye else { return }
                 if hand.visible && hand.pinching && !lastPinch {
@@ -627,13 +702,15 @@ struct CinemaEyeView: View {
                         case 2: cinema.adjustConvergence(-1)
                         default: cinema.adjustConvergence(1)
                         }
-                    } else if abs(point.y - bottom) < 37 {
-                        let slot = min(4, max(0, Int(point.x / max(1, geometry.size.width) * 5)))
+                    } else if abs(point.y - bottom) < 65 {
+                        let slot = min(6, max(0, Int(point.x / max(1, geometry.size.width) * 7)))
                         switch slot {
                         case 0: cinema.showPicker = true
-                        case 1: cinema.seek(-10)
-                        case 2: cinema.togglePlayback()
-                        case 3: cinema.seek(10)
+                        case 1: pickingPhotoMovie = true
+                        case 2: cinema.seek(-10)
+                        case 3: cinema.togglePlayback()
+                        case 4: cinema.seek(10)
+                        case 5: Task { await updates.check(); cinema.revealControls() }
                         default: onExit()
                         }
                     }
@@ -642,6 +719,9 @@ struct CinemaEyeView: View {
                 lastPinch = hand.visible && hand.pinching
             }
         }
+        .photosPicker(isPresented: rightEye ? .constant(false) : $pickingPhotoMovie,
+                      selection: rightEye ? .constant(nil) : $pickedMovie,
+                      matching: .videos)
         .fileImporter(isPresented: rightEye ? .constant(false) : $cinema.showPicker,
                       allowedContentTypes: [.mpeg4Movie, .movie, .video],
                       allowsMultipleSelection: false) { result in

@@ -99,9 +99,9 @@ struct VRHomeView: View {
             let eyeSize = CGSize(width: geometry.size.width / 2, height: geometry.size.height)
             HStack(spacing: 0) {
                 if cinemaOpen {
-                    CinemaEyeView(rightEye: false, runtime: runtime, cinema: cinema,
+                    CinemaEyeView(rightEye: false, runtime: runtime, cinema: cinema, updates: updates,
                                   onExit: { cinema.exit(); cinemaOpen = false })
-                    CinemaEyeView(rightEye: true, runtime: runtime, cinema: cinema,
+                    CinemaEyeView(rightEye: true, runtime: runtime, cinema: cinema, updates: updates,
                                   onExit: { cinema.exit(); cinemaOpen = false })
                 } else {
                     eyeView(right: false, size: eyeSize)
