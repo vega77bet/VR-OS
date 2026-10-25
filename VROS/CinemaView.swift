@@ -692,7 +692,9 @@ final class CinemaModel: ObservableObject {
                     // seat picker is explicitly open, never during the movie.
                     let orb = SCNSphere(radius: 0.26)
                     orb.segmentCount = 12
-                    orb.firstMaterial?.lightingModel = .constant
+                    let orbMaterial = SCNMaterial()
+                    orbMaterial.lightingModel = .constant
+                    orb.firstMaterial = orbMaterial
                     let marker = SCNNode(geometry: orb)
                     marker.name = "seat-indicator-\(seatID)"
                     marker.categoryBitMask = 8
@@ -754,6 +756,26 @@ private struct CinemaSceneView: UIViewRepresentable {
     let runtime: VRRuntime
     let rightEye: Bool
 
+    func makeCoordinator() -> Coordinator {
+        Coordinator(cinema: cinema)
+    }
+
+    final class Coordinator: NSObject {
+        let cinema: CinemaModel
+
+        init(cinema: CinemaModel) { self.cinema = cinema }
+
+        @objc func handleTap(_ recognizer: UITapGestureRecognizer) {
+            guard recognizer.state == .ended,
+                  let view = recognizer.view as? SCNView else { return }
+            if cinema.seatSelectionMode &&
+               cinema.chooseSeat(at: recognizer.location(in: view), in: view) {
+                return
+            }
+            if !cinema.controlsVisible { cinema.revealControls() }
+        }
+    }
+
     func makeUIView(context: Context) -> SCNView {
         let view = SCNView(frame: .zero)
         view.scene = cinema.scene
@@ -762,6 +784,9 @@ private struct CinemaSceneView: UIViewRepresentable {
         view.isPlaying = true
         view.rendersContinuously = true
         view.antialiasingMode = .multisampling2X
+        if !rightEye { cinema.leftSceneView = view }
+        view.addGestureRecognizer(UITapGestureRecognizer(
+            target: context.coordinator, action: #selector(Coordinator.handleTap(_:))))
         return view
     }
 
@@ -811,7 +836,21 @@ struct CinemaEyeView: View {
                                             in: Capsule())
                         }
                         .buttonStyle(.plain)
-                        Spacer()
+                        Spacer(minLength: 3)
+                        Button {
+                            cinema.toggleSeatSelection()
+                        } label: {
+                            Label(cinema.seatSelectionMode ? "Fechar assentos" : "Assentos",
+                                  systemImage: "chair.lounge.fill")
+                                .font(.system(size: 9, weight: .bold))
+                                .padding(.horizontal, 9)
+                                .padding(.vertical, 7)
+                                .background(cinema.seatSelectionMode
+                                    ? Color.blue.opacity(0.84) : .black.opacity(0.75),
+                                    in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        Spacer(minLength: 3)
                         Button { onExit() } label: {
                             Image(systemName: "xmark")
                                 .font(.system(size: 11, weight: .bold))
@@ -825,6 +864,28 @@ struct CinemaEyeView: View {
                     Spacer()
                 }
                 .foregroundStyle(.white)
+                if cinema.seatSelectionMode {
+                    Circle()
+                        .strokeBorder(.cyan.opacity(0.88), lineWidth: 1.7)
+                        .frame(width: 29, height: 29)
+                        .position(x: geometry.size.width / 2,
+                                  y: geometry.size.height / 2)
+                        .allowsHitTesting(false)
+                    VStack {
+                        Spacer()
+                        Text("Olhe para a bolinha da poltrona e faça pinça ou toque")
+                            .font(.system(size: 9, weight: .semibold))
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.7)
+                            .foregroundStyle(.white)
+                            .padding(8)
+                            .background(.black.opacity(0.78),
+                                        in: RoundedRectangle(cornerRadius: 8))
+                            .padding(.horizontal, 10)
+                            .padding(.bottom, 101)
+                    }
+                    .allowsHitTesting(false)
+                }
                 if cinema.controlsVisible {
                     VStack(spacing: 0) {
                         HStack(spacing: 5) {
@@ -869,7 +930,7 @@ struct CinemaEyeView: View {
                     }
                     .padding(.horizontal, 7)
                     .padding(.top, 4)
-                    Text(cinema.headTrackingStatus)
+                    Text(cinema.headTrackingStatus + " · " + cinema.currentSeatLabel)
                         .font(.system(size: 9, weight: .medium))
                         .foregroundStyle(.green.opacity(0.95))
                         .padding(.top, 3)
@@ -959,7 +1020,12 @@ struct CinemaEyeView: View {
             .onReceive(runtime.$hand) { hand in
                 guard !rightEye else { return }
                 if hand.visible && hand.pinching && !lastPinch {
-                    if !cinema.controlsVisible {
+                    if cinema.seatSelectionMode {
+                        // First try the fingertip; aim at a seat marker with
+                        // the centre reticle as a fallback for the VR Box.
+                        _ = cinema.chooseSeat(at: handPoint(size: geometry.size),
+                                              tryGazeCenter: true)
+                    } else if !cinema.controlsVisible {
                         // First pinch brings the controls back without
                         // accidentally pausing or exiting the movie.
                         cinema.revealControls()
