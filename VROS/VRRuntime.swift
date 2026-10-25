@@ -8,6 +8,27 @@ struct TrackedHand: Equatable {
     var point: CGPoint = CGPoint(x: 0.5, y: 0.5)
     var visible = false
     var pinching = false
+    // Vision provides 21 2D joints: wrist, thumb, index, middle, ring and little fingers.
+    var joints: [CGPoint?] = Array(repeating: nil, count: 21)
+}
+
+enum HandSkeleton {
+    static let names: [VNHumanHandPoseObservation.JointName] = [
+        .wrist,
+        .thumbCMC, .thumbMP, .thumbIP, .thumbTip,
+        .indexMCP, .indexPIP, .indexDIP, .indexTip,
+        .middleMCP, .middlePIP, .middleDIP, .middleTip,
+        .ringMCP, .ringPIP, .ringDIP, .ringTip,
+        .littleMCP, .littlePIP, .littleDIP, .littleTip
+    ]
+    static let bones: [(Int, Int)] = [
+        (0,1),(1,2),(2,3),(3,4),
+        (0,5),(5,6),(6,7),(7,8),
+        (0,9),(9,10),(10,11),(11,12),
+        (0,13),(13,14),(14,15),(15,16),
+        (0,17),(17,18),(18,19),(19,20),
+        (5,9),(9,13),(13,17)
+    ]
 }
 
 final class VRRuntime: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleBufferDelegate {
@@ -23,7 +44,7 @@ final class VRRuntime: NSObject, ObservableObject, AVCaptureVideoDataOutputSampl
     private let motion = CMMotionManager()
     private var configured = false
     private var frameNumber = 0
-    private var filteredPoint: CGPoint?
+    private var filteredJoints: [CGPoint?] = Array(repeating: nil, count: 21)
     private var pinchLatched = false
     private var pinchFrames = 0
     private var missingFrames = 0
@@ -78,7 +99,7 @@ final class VRRuntime: NSObject, ObservableObject, AVCaptureVideoDataOutputSampl
                 self.configured = true
             }
             if !self.session.isRunning { self.session.startRunning() }
-            DispatchQueue.main.async { self.cameraStatus = "Procure sua mão em frente à câmera" }
+            DispatchQueue.main.async { self.cameraStatus = "Mostre a mão inteira à câmera" }
         }
     }
 
@@ -110,47 +131,60 @@ final class VRRuntime: NSObject, ObservableObject, AVCaptureVideoDataOutputSampl
 
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         frameNumber += 1
-        // Run Vision on alternating camera frames so preview stays responsive.
         guard frameNumber % 2 == 0 else { return }
-
-        // The capture connection rotates the buffers to landscape-right.
         let handler = VNImageRequestHandler(cmSampleBuffer: sampleBuffer, orientation: .up, options: [:])
         do {
             try handler.perform([request])
-            guard let observation = request.results?.first,
-                  let index = try? observation.recognizedPoint(.indexTip),
-                  let thumb = try? observation.recognizedPoint(.thumbTip),
-                  index.confidence > 0.35, thumb.confidence > 0.35 else {
+            guard let observation = request.results?.first else {
+                noHand()
+                return
+            }
+            let points = try observation.recognizedPoints(.all)
+            var next: [CGPoint?] = Array(repeating: nil, count: HandSkeleton.names.count)
+            for (i, name) in HandSkeleton.names.enumerated() {
+                guard let joint = points[name], joint.confidence >= 0.28 else {
+                    filteredJoints[i] = nil
+                    continue
+                }
+                let raw = CGPoint(x: joint.location.x, y: 1 - joint.location.y)
+                if let old = filteredJoints[i] {
+                    let smooth = CGPoint(x: old.x * 0.58 + raw.x * 0.42,
+                                         y: old.y * 0.58 + raw.y * 0.42)
+                    next[i] = smooth
+                    filteredJoints[i] = smooth
+                } else {
+                    next[i] = raw
+                    filteredJoints[i] = raw
+                }
+            }
+            guard let index = next[8], let thumb = next[4] else {
                 noHand()
                 return
             }
             missingFrames = 0
-            let point = CGPoint(x: index.location.x, y: 1 - index.location.y)
-            let smoothed: CGPoint
-            if let old = filteredPoint {
-                smoothed = CGPoint(x: old.x * 0.55 + point.x * 0.45,
-                                   y: old.y * 0.55 + point.y * 0.45)
+            // Normalize pinch threshold by palm size to reduce distance sensitivity.
+            let palmSize: CGFloat
+            if let wrist = next[0], let middle = next[9] {
+                palmSize = max(0.045, hypot(wrist.x - middle.x, wrist.y - middle.y))
             } else {
-                smoothed = point
+                palmSize = 0.12
             }
-            filteredPoint = smoothed
-
-            let distance = hypot(index.location.x - thumb.location.x,
-                                 index.location.y - thumb.location.y)
-            if pinchLatched {
-                if distance > 0.095 { pinchFrames += 1 }
-                else { pinchFrames = 0 }
-                if pinchFrames >= 2 { pinchLatched = false; pinchFrames = 0 }
+            let pinchRatio = hypot(index.x - thumb.x, index.y - thumb.y) / palmSize
+            let target = pinchLatched ? pinchRatio < 0.63 : pinchRatio < 0.42
+            if target == pinchLatched {
+                pinchFrames = 0
             } else {
-                if distance < 0.065 { pinchFrames += 1 }
-                else { pinchFrames = 0 }
-                if pinchFrames >= 2 { pinchLatched = true; pinchFrames = 0 }
+                pinchFrames += 1
+                if pinchFrames >= 2 {
+                    pinchLatched = target
+                    pinchFrames = 0
+                }
             }
-
-            let latest = TrackedHand(point: smoothed, visible: true, pinching: pinchLatched)
+            let count = next.compactMap { $0 }.count
+            let latest = TrackedHand(point: index, visible: true, pinching: pinchLatched, joints: next)
             DispatchQueue.main.async { [weak self] in
                 self?.hand = latest
-                self?.cameraStatus = "Mão detectada · pinça para clicar"
+                self?.cameraStatus = "Mão: \(count)/21 pontos · pinça para clicar"
             }
         } catch {
             noHand()
@@ -160,19 +194,18 @@ final class VRRuntime: NSObject, ObservableObject, AVCaptureVideoDataOutputSampl
     private func noHand() {
         missingFrames += 1
         guard missingFrames >= 3 else { return }
-        filteredPoint = nil
+        filteredJoints = Array(repeating: nil, count: 21)
         pinchLatched = false
         pinchFrames = 0
         DispatchQueue.main.async { [weak self] in
             self?.hand = TrackedHand()
-            self?.cameraStatus = "Mostre a mão à câmera traseira"
+            self?.cameraStatus = "Mostre a palma e os dedos à câmera"
         }
     }
 }
 
 final class VRPreviewUIView: UIView {
     override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
-
     var cameraLayer: AVCaptureVideoPreviewLayer {
         layer as! AVCaptureVideoPreviewLayer
     }

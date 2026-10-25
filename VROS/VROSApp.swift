@@ -25,7 +25,7 @@ struct VRPanel: Identifiable {
 struct VRHomeView: View {
     @StateObject private var runtime = VRRuntime()
     @State private var panels: [VRPanel] = [
-        VRPanel(title: "VR OS 2.0", icon: "square.stack.3d.up",
+        VRPanel(title: "VR OS 3.0", icon: "square.stack.3d.up",
                 text: "Bem-vindo! Mostre sua mão à câmera.\nJunte indicador e polegar para clicar.\nSegure a pinça sobre a janela para mover.")
     ]
     @State private var lastPinch = false
@@ -76,7 +76,7 @@ struct VRHomeView: View {
             }
 
             VStack(spacing: 4) {
-                Text("VR OS 2.0  •  HAND TRACKING")
+                Text("VR OS 3.0  •  HAND SKELETON")
                     .font(.system(size: 11, weight: .bold, design: .rounded))
                     .tracking(1)
                 Text(runtime.cameraStatus)
@@ -99,10 +99,14 @@ struct VRHomeView: View {
             .position(x: w / 2, y: h - 45)
 
             if runtime.hand.visible {
+                HandSkeletonOverlay(hand: runtime.hand) { joint in
+                    mappedPoint(joint, size: size)
+                }
+                .allowsHitTesting(false)
                 let cursor = mappedPoint(runtime.hand.point, size: size)
                 ZStack {
                     Circle()
-                        .stroke(runtime.hand.pinching ? Color.green : Color.cyan, lineWidth: 3)
+                        .stroke(runtime.hand.pinching ? Color.green : Color.gray, lineWidth: 3)
                         .frame(width: runtime.hand.pinching ? 36 : 25,
                                height: runtime.hand.pinching ? 36 : 25)
                     Circle()
@@ -123,7 +127,7 @@ struct VRHomeView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Image(systemName: panel.icon)
-                    .foregroundStyle(.cyan)
+                    .foregroundStyle(.white.opacity(0.85))
                 Text(panel.title)
                     .font(.system(size: 15, weight: .bold))
                     .lineLimit(1)
@@ -135,7 +139,7 @@ struct VRHomeView: View {
             .padding(.bottom, 3)
 
             Rectangle()
-                .fill(Color.cyan.opacity(0.5))
+                .fill(Color.gray.opacity(0.5))
                 .frame(height: 1)
 
             Text(panel.text)
@@ -162,11 +166,11 @@ struct VRHomeView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
             RoundedRectangle(cornerRadius: 16)
-                .fill(Color(red: 0.055, green: 0.09, blue: 0.16).opacity(0.96))
+                .fill(Color(red: 0.17, green: 0.17, blue: 0.18).opacity(0.96))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 16)
-                .stroke(Color.cyan.opacity(0.38), lineWidth: 1.5)
+                .stroke(Color.gray.opacity(0.38), lineWidth: 1.5)
         )
         .shadow(color: .black.opacity(0.5), radius: 12, y: 5)
     }
@@ -263,7 +267,7 @@ struct VRHomeView: View {
         case 1:
             panels.append(VRPanel(
                 title: "Notas", icon: "note.text",
-                text: "VR OS 2.0 — versão experimental\n• Duas imagens para VR Box\n• Mãos via Apple Vision\n• Pinça, mover e fechar janelas",
+                text: "VR OS 3.0 — 21 pontos da mão\n• Duas imagens para VR Box\n• Mãos via Apple Vision\n• Pinça, mover e fechar janelas",
                 x: 0.16, y: -0.10
             ))
         default:
