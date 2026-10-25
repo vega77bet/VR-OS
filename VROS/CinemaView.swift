@@ -607,20 +607,10 @@ struct CinemaEyeView: View {
                     }
                     HStack(spacing: 4) {
                         cinemaButton("folder.fill", "Arquivos") { cinema.showPicker = true }
-                        PhotosPicker(selection: rightEye ? .constant(nil) : $pickedMovie,
-                                     matching: .videos,
-                                     photoLibrary: .shared()) {
-                            VStack(spacing: 3) {
-                                Image(systemName: "photo.on.rectangle.angled")
-                                    .font(.system(size: 15))
-                                Text("Fototeca").font(.system(size: 9, weight: .medium))
-                            }
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 40)
-                            .background(.white.opacity(0.14),
-                                        in: RoundedRectangle(cornerRadius: 8))
+                        cinemaButton("photo.on.rectangle.angled", "Fototeca") {
+                            guard !rightEye else { return }
+                            pickingPhotoMovie = true
                         }
-                        .buttonStyle(.plain)
                         cinemaButton("gobackward.10", "-10s") { cinema.seek(-10) }
                         cinemaButton(cinema.playing ? "pause.fill" : "play.fill",
                                      cinema.playing ? "Pausar" : "Play") {
@@ -729,15 +719,9 @@ struct CinemaEyeView: View {
                 lastPinch = hand.visible && hand.pinching
             }
         }
-        .onChange(of: pickingPhotoMovie) { shouldOpen in
-            guard shouldOpen && !rightEye else { return }
-            // SwiftUI PhotosPicker is a presentation controller, not a
-            // supported programmatic open from hand pinch. Indicate users
-            // should tap the visible picker (unlike a non-functional shortcut).
-            cinema.errorMessage = "Para abrir a Fototeca, toque em Fototeca na tela."
-            cinema.revealControls()
-            pickingPhotoMovie = false
-        }
+        .photosPicker(isPresented: rightEye ? .constant(false) : $pickingPhotoMovie,
+                      selection: rightEye ? .constant(nil) : $pickedMovie,
+                      matching: .videos)
         .fileImporter(isPresented: rightEye ? .constant(false) : $cinema.showPicker,
                       allowedContentTypes: [.mpeg4Movie, .movie, .video],
                       allowsMultipleSelection: false) { result in
