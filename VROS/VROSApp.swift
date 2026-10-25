@@ -153,7 +153,7 @@ struct VRHomeView: View {
 
             ForEach(panels) { panel in
                 if let center = windowCenter(panel, size: size, right: right) {
-                    let scale = windowScale(panel.depth)
+                    let scale = windowScale(panel)
                     panelView(panel, size: size)
                         .frame(width: panelWidth(size) * scale,
                                height: panelHeight(size) * scale)
@@ -218,21 +218,22 @@ struct VRHomeView: View {
     }
 
     private func dock(size: CGSize) -> some View {
-        HStack(spacing: 8) {
-            dockButton("plus.rectangle.on.rectangle", "Janela", slot: 0)
-            dockButton("square.grid.2x2", "Apps", slot: 1)
-            dockButton("arrow.down.circle", "Atualizar", slot: 2)
-            dockButton("paintpalette.fill", "Temas", slot: 3)
-            dockButton("scope", "Centro", slot: 4)
+        HStack(spacing: 5) {
+            dockButton("plus.rectangle.on.rectangle", "Janela", slot: 0, size: size)
+            dockButton("square.grid.2x2", "Apps", slot: 1, size: size)
+            dockButton("arrow.down.circle", "Atualizar", slot: 2, size: size)
+            dockButton("paintpalette.fill", "Temas", slot: 3, size: size)
+            dockButton("scope", "Centro", slot: 4, size: size)
         }
-        .padding(7)
+        .padding(5)
         .background(selectedTheme.surface.opacity(0.95),
                     in: RoundedRectangle(cornerRadius: 17))
         .overlay(RoundedRectangle(cornerRadius: 17)
             .stroke(Color.white.opacity(0.15), lineWidth: 1))
     }
 
-    private func dockButton(_ symbol: String, _ label: String, slot: Int) -> some View {
+    private func dockButton(_ symbol: String, _ label: String, slot: Int,
+                            size: CGSize) -> some View {
         Button {
             activateDock(slot)
         } label: {
@@ -242,7 +243,7 @@ struct VRHomeView: View {
                     .lineLimit(1).minimumScaleFactor(0.7)
             }
             .foregroundStyle(.white)
-            .frame(width: 64, height: 42)
+            .frame(width: max(26, (size.width - 50) / 5), height: 48)
             .background(selectedTheme.accent.opacity(0.15),
                         in: RoundedRectangle(cornerRadius: 11))
         }
@@ -390,8 +391,15 @@ struct VRHomeView: View {
 
     private func panelWidth(_ size: CGSize) -> CGFloat { min(350, size.width * 0.75) }
     private func panelHeight(_ size: CGSize) -> CGFloat { min(213, size.height * 0.54) }
-    private func windowScale(_ depth: Double) -> CGFloat {
-        min(1.45, max(0.65, CGFloat(1.5 / depth)))
+    private func windowScale(_ panel: VRPanel) -> CGFloat {
+        // Perspective must use the actual distance from the AR camera to
+        // the window's world anchor, not a cosmetic scale tied to slider Z.
+        guard let anchor = panel.anchor, let camera = runtime.camera else {
+            return min(2.5, max(0.3, CGFloat(1.5 / panel.depth)))
+        }
+        let position = camera.transform.columns.3
+        let distance = simd_distance(anchor, SIMD3<Float>(position.x, position.y, position.z))
+        return min(2.5, max(0.3, CGFloat(1.5 / max(distance, 0.1))))
     }
 
     private func windowCenter(_ panel: VRPanel, size: CGSize, right: Bool) -> CGPoint? {
@@ -515,17 +523,22 @@ struct VRHomeView: View {
             } else { themeMenuOpen = false }
             return
         }
-        if pointer.y > size.height - 83 {
-            let dockWidth: CGFloat = 5 * 64 + 4 * 8 + 14
-            let dockStart = (size.width - dockWidth) / 2
-            let slot = min(4, max(0, Int((pointer.x - dockStart) / 72)))
+        // The VR viewport is HALF the phone screen. The old 366pt dock
+        // overflowed that half, making several hand targets unreachable.
+        let dockWidth = max(26, (size.width - 50) / 5) * 5 + 4 * 5 + 10
+        let dockLeft = (size.width - dockWidth) / 2
+        let dockTop = size.height - 41 - 29
+        if pointer.y >= dockTop - 8 && pointer.y <= dockTop + 66 &&
+           pointer.x >= dockLeft && pointer.x <= dockLeft + dockWidth {
+            let cell = max(26, (size.width - 50) / 5) + 5
+            let slot = min(4, max(0, Int((pointer.x - dockLeft - 5) / cell)))
             activateDock(slot)
             return
         }
         for panel in panels.reversed() {
             guard let center = windowCenter(panel, size: size, right: false) else { continue }
-            let width = panelWidth(size) * windowScale(panel.depth)
-            let height = panelHeight(size) * windowScale(panel.depth)
+            let width = panelWidth(size) * windowScale(panel)
+            let height = panelHeight(size) * windowScale(panel)
             let dx = pointer.x - center.x
             let dy = pointer.y - center.y
             guard abs(dx) < width / 2, abs(dy) < height / 2 else { continue }
@@ -555,11 +568,13 @@ struct VRHomeView: View {
                              lockedCenter: CGPoint? = nil) {
         guard let index = panels.firstIndex(where: { $0.id == id }) else { return }
         let value = min(4.0, max(0.65, rawValue))
+        // Move the window's world position along the camera-to-window ray.
+        // This changes real spatial parallax as well as apparent size.
         let center = lockedCenter ?? windowCenter(panels[index], size: size, right: false)
-        panels[index].depth = value
         if let center = center,
            let anchor = runtime.worldPoint(at: center, viewport: size, depth: Float(value)) {
             panels[index].anchor = anchor
+            panels[index].depth = value
         }
     }
 
