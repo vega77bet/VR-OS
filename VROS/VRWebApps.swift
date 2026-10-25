@@ -57,7 +57,7 @@ final class VRWebSession: ObservableObject {
     @Published private(set) var requestedURL: URL
     @Published private(set) var canGoBack = false
     @Published private(set) var canGoForward = false
-    @Published private(set) var loading = false
+    @Published var loading = false
     @Published var message: String?
 
     weak var primary: WKWebView?
