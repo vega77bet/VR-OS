@@ -2,7 +2,7 @@ name: Build VR OS IPA
 on:
   workflow_dispatch:
   push:
-    branches: [main, vr-os-2-handtracking]
+    branches: [main, vr-os-2-handtracking, vr-os-3-full-hand]
   pull_request:
     branches: [main]
 
