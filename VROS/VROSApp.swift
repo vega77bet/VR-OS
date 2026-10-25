@@ -84,6 +84,7 @@ struct VRHomeView: View {
     @State private var selectedTheme: VRTheme = .graphite
     @State private var themeMenuOpen = false
     @State private var cinemaOpen = false
+    @StateObject private var cinema = CinemaModel()
     @State private var panels = [
         VRPanel(title: "Bem-vindo ao VR OS", icon: "square.stack.3d.up",
                 text: "Janelas fixas no ambiente com ARKit.\n"
@@ -98,9 +99,9 @@ struct VRHomeView: View {
             let eyeSize = CGSize(width: geometry.size.width / 2, height: geometry.size.height)
             HStack(spacing: 0) {
                 if cinemaOpen {
-                    CinemaEyeView(rightEye: false, runtime: runtime,
+                    CinemaEyeView(rightEye: false, runtime: runtime, cinema: cinema,
                                   onExit: { cinemaOpen = false })
-                    CinemaEyeView(rightEye: true, runtime: runtime,
+                    CinemaEyeView(rightEye: true, runtime: runtime, cinema: cinema,
                                   onExit: { cinemaOpen = false })
                 } else {
                     eyeView(right: false, size: eyeSize)
@@ -705,6 +706,7 @@ struct VRHomeView: View {
                 y: CGFloat(count % 2 == 0 ? -0.38 : -0.28),
                 depth: 1.6))
         case 1:
+            cinema.enter(camera: runtime.camera)
             cinemaOpen = true
         case 2:
             openUpdatesWindow()
