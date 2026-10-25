@@ -100,9 +100,9 @@ struct VRHomeView: View {
             HStack(spacing: 0) {
                 if cinemaOpen {
                     CinemaEyeView(rightEye: false, runtime: runtime, cinema: cinema,
-                                  onExit: { cinemaOpen = false })
+                                  onExit: { cinema.exit(); cinemaOpen = false })
                     CinemaEyeView(rightEye: true, runtime: runtime, cinema: cinema,
-                                  onExit: { cinemaOpen = false })
+                                  onExit: { cinema.exit(); cinemaOpen = false })
                 } else {
                     eyeView(right: false, size: eyeSize)
                     eyeView(right: true, size: eyeSize)
@@ -701,7 +701,7 @@ struct VRHomeView: View {
                 title: "Janela \(count)", icon: "macwindow",
                 text: "Janela ancorada com ARKit.\n"
                     + "Pegue a linha branca abaixo para mover em 3D.\n"
-                    + "Use Apps para abrir conteúdo online.",
+                    + "Use Cinema para assistir aos seus arquivos MP4.",
                 x: CGFloat((count % 3) - 1) * 0.15,
                 y: CGFloat(count % 2 == 0 ? -0.38 : -0.28),
                 depth: 1.6))
