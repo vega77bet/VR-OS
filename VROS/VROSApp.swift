@@ -32,6 +32,29 @@ struct VRPanel: Identifiable {
     var templateID: String? = nil
 }
 
+private enum VRTheme: Int, CaseIterable {
+    case graphite, cosmos, aurora, synthwave
+    var title: String { ["Grafite", "Cosmos 360", "Aurora", "Synthwave"][rawValue] }
+    var subtitle: String { ["Câmera real", "Estrelas 360°", "Céu boreal", "Grade retrô"][rawValue] }
+    var symbol: String { ["camera.fill", "moon.stars.fill", "sparkles", "waveform.path"][rawValue] }
+    var accent: Color {
+        switch self {
+        case .graphite: return Color(white: 0.82)
+        case .cosmos: return Color(red: 0.68, green: 0.58, blue: 1)
+        case .aurora: return Color(red: 0.36, green: 0.95, blue: 0.72)
+        case .synthwave: return Color(red: 1, green: 0.36, blue: 0.76)
+        }
+    }
+    var surface: Color {
+        switch self {
+        case .graphite: return Color(white: 0.18)
+        case .cosmos: return Color(red: 0.12, green: 0.09, blue: 0.23)
+        case .aurora: return Color(red: 0.04, green: 0.15, blue: 0.16)
+        case .synthwave: return Color(red: 0.19, green: 0.04, blue: 0.20)
+        }
+    }
+}
+
 private struct WindowDrag {
     enum Mode { case move, depth }
     let panelID: UUID
@@ -47,7 +70,8 @@ struct VRHomeView: View {
     @StateObject private var runtime = VRRuntime()
     @StateObject private var updates = LiveUpdateManager()
     @State private var nextRemoteTemplateIndex = 0
-    @State private var spaceMode = false
+    @State private var selectedTheme: VRTheme = .graphite
+    @State private var themeMenuOpen = false
     @State private var panels = [
         VRPanel(title: "Bem-vindo ao VR OS", icon: "square.stack.3d.up",
                 text: "Janelas fixas no ambiente com ARKit.\n"
@@ -82,6 +106,8 @@ struct VRHomeView: View {
         }
         .ignoresSafeArea()
         .onAppear {
+            selectedTheme = VRTheme(rawValue:
+                UserDefaults.standard.integer(forKey: "vros.selectedTheme.v1")) ?? .graphite
             runtime.start()
             Task { await updates.check() }
         }
@@ -92,8 +118,11 @@ struct VRHomeView: View {
         let w = size.width
         let h = size.height
         return ZStack {
-            if spaceMode {
+            if selectedTheme == .cosmos {
                 SpaceSkyView(camera: runtime.camera, size: size)
+            } else if selectedTheme == .aurora || selectedTheme == .synthwave {
+                ThemeAtmosphereView(isAurora: selectedTheme == .aurora,
+                                    camera: runtime.camera, size: size)
             } else if let frame = runtime.cameraImage {
                 Image(decorative: frame, scale: 1, orientation: .up)
                     .resizable()
@@ -112,7 +141,7 @@ struct VRHomeView: View {
                 }
             }
 
-            if !spaceMode {
+            if selectedTheme == .graphite {
                 Color.black.opacity(0.10).allowsHitTesting(false)
             }
 
@@ -128,6 +157,10 @@ struct VRHomeView: View {
 
             statusBar(size: size)
                 .position(x: w / 2, y: 28)
+
+            if themeMenuOpen {
+                themePicker(size: size).position(x: w / 2, y: h / 2)
+            }
 
             dock(size: size)
                 .position(x: w / 2, y: h - 41)
@@ -174,7 +207,7 @@ struct VRHomeView: View {
         .foregroundStyle(.white)
         .padding(.horizontal, 13)
         .padding(.vertical, 7)
-        .background(Color(white: updates.manifest.theme.dockGray).opacity(0.94), in: Capsule())
+        .background(selectedTheme.surface.opacity(0.94), in: Capsule())
         .frame(maxWidth: size.width * 0.88)
     }
 
@@ -183,12 +216,11 @@ struct VRHomeView: View {
             dockButton("plus.rectangle.on.rectangle", "Janela", slot: 0)
             dockButton("square.grid.2x2", "Apps", slot: 1)
             dockButton("arrow.down.circle", "Atualizar", slot: 2)
-            dockButton(spaceMode ? "camera.fill" : "moon.stars.fill",
-                       spaceMode ? "Câmera" : "Espaço", slot: 3)
+            dockButton("paintpalette.fill", "Temas", slot: 3)
             dockButton("scope", "Centro", slot: 4)
         }
         .padding(7)
-        .background(Color(white: updates.manifest.theme.dockGray).opacity(0.95),
+        .background(selectedTheme.surface.opacity(0.95),
                     in: RoundedRectangle(cornerRadius: 17))
         .overlay(RoundedRectangle(cornerRadius: 17)
             .stroke(Color.white.opacity(0.15), lineWidth: 1))
@@ -205,7 +237,7 @@ struct VRHomeView: View {
             }
             .foregroundStyle(.white)
             .frame(width: 64, height: 42)
-            .background(Color.white.opacity(0.09),
+            .background(selectedTheme.accent.opacity(0.15),
                         in: RoundedRectangle(cornerRadius: 11))
         }
         .buttonStyle(.plain)
@@ -291,12 +323,63 @@ struct VRHomeView: View {
         .padding(12)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
-            Color(white: updates.manifest.theme.surfaceGray)
+            (selectedTheme == .graphite ? Color(white: updates.manifest.theme.surfaceGray) : selectedTheme.surface)
                 .opacity(updates.manifest.theme.surfaceOpacity),
             in: RoundedRectangle(cornerRadius: 16))
         .overlay(RoundedRectangle(cornerRadius: 16)
-            .stroke(Color.white.opacity(0.20), lineWidth: 1))
+            .stroke(selectedTheme.accent.opacity(0.45), lineWidth: 1))
         .shadow(color: .black.opacity(0.50), radius: 11, y: 5)
+    }
+
+    private func themePicker(size: CGSize) -> some View {
+        let width = min(size.width * 0.86, 330)
+        return VStack(spacing: 8) {
+            HStack {
+                Image(systemName: "paintpalette.fill")
+                Text("TEMAS").tracking(2)
+                Spacer()
+                Button { themeMenuOpen = false } label: { Image(systemName: "xmark.circle.fill") }
+                    .buttonStyle(.plain)
+            }
+            .font(.system(size: 12, weight: .semibold))
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                ForEach(VRTheme.allCases, id: \.rawValue) { theme in
+                    Button { chooseTheme(theme) } label: {
+                        VStack(spacing: 4) {
+                            Image(systemName: theme.symbol).font(.system(size: 23))
+                            Text(theme.title).font(.system(size: 12, weight: .bold))
+                            Text(theme.subtitle).font(.system(size: 9)).opacity(0.7)
+                        }
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 86)
+                        .background(theme.surface, in: RoundedRectangle(cornerRadius: 12))
+                        .overlay(RoundedRectangle(cornerRadius: 12)
+                            .stroke(theme == selectedTheme ? theme.accent : Color.white.opacity(0.25),
+                                    lineWidth: theme == selectedTheme ? 2.5 : 1))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            HStack(spacing: 5) {
+                ForEach(VRTheme.allCases, id: \.rawValue) { theme in
+                    Circle().fill(theme == selectedTheme ? theme.accent : Color.white.opacity(0.3))
+                        .frame(width: 6, height: 6)
+                }
+            }
+        }
+        .foregroundStyle(.white)
+        .padding(13)
+        .frame(width: width)
+        .background(Color(white: 0.07).opacity(0.97), in: RoundedRectangle(cornerRadius: 17))
+        .overlay(RoundedRectangle(cornerRadius: 17)
+            .stroke(selectedTheme.accent.opacity(0.6), lineWidth: 1))
+    }
+
+    private func chooseTheme(_ theme: VRTheme) {
+        selectedTheme = theme
+        UserDefaults.standard.set(theme.rawValue, forKey: "vros.selectedTheme.v1")
+        themeMenuOpen = false
     }
 
     private func panelWidth(_ size: CGSize) -> CGFloat { min(350, size.width * 0.75) }
@@ -375,6 +458,17 @@ struct VRHomeView: View {
     }
 
     private func beganPinch(_ pointer: CGPoint, hand: TrackedHand, size: CGSize) {
+        if themeMenuOpen {
+            let width = min(size.width * 0.86, 330)
+            let x = pointer.x - (size.width - width) / 2
+            let y = pointer.y - (size.height - 250) / 2
+            if x >= 0 && x <= width && y >= 32 && y <= 225 {
+                let column = x < width / 2 ? 0 : 1
+                let row = y < 128 ? 0 : 1
+                chooseTheme(VRTheme.allCases[row * 2 + column])
+            } else { themeMenuOpen = false }
+            return
+        }
         if pointer.y > size.height - 83 {
             let dockWidth: CGFloat = 5 * 64 + 4 * 8 + 14
             let dockStart = (size.width - dockWidth) / 2
@@ -487,7 +581,7 @@ struct VRHomeView: View {
             openUpdatesWindow()
             Task { await updates.check() }
         case 3:
-            spaceMode.toggle()
+            themeMenuOpen.toggle()
         default:
             for index in panels.indices {
                 panels[index].x = 0
