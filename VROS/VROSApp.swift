@@ -70,6 +70,8 @@ private struct WindowDrag {
     var lastAppliedPointer: CGPoint
     var activationFrames = 0
     var movementFrames = 0
+    let depthTrackStart: CGFloat
+    let depthTrackLength: CGFloat
 }
 
 struct VRHomeView: View {
@@ -82,7 +84,7 @@ struct VRHomeView: View {
         VRPanel(title: "Bem-vindo ao VR OS", icon: "square.stack.3d.up",
                 text: "Janelas fixas no ambiente com ARKit.\n"
                     + "Segure a pinça para selecionar; mova a mão para arrastar.\n"
-                    + "Ajuste o Z na barra inferior.", depth: 1.5)
+                    + "Use a linha Z abaixo de cada janela.", y: -0.34, depth: 1.5)
     ]
     @State private var lastPinch = false
     @State private var drag: WindowDrag?
@@ -158,6 +160,8 @@ struct VRHomeView: View {
                         .frame(width: panelWidth(size) * scale,
                                height: panelHeight(size) * scale)
                         .position(center)
+                    depthBar(panel, size: size)
+                        .position(x: center.x, y: center.y + panelHeight(size) * scale / 2 + 25)
                 }
             }
 
@@ -169,7 +173,7 @@ struct VRHomeView: View {
             }
 
             dock(size: size)
-                .position(x: w / 2, y: h - 41)
+                .position(x: w / 2, y: dockCenterY(size))
 
             if runtime.hand.visible {
                 HandSkeletonOverlay(hand: runtime.hand) { joint in
@@ -216,6 +220,9 @@ struct VRHomeView: View {
         .background(selectedTheme.surface.opacity(0.94), in: Capsule())
         .frame(maxWidth: size.width * 0.88)
     }
+
+    // The menu lives above the edge of the camera view so hands can reach it.
+    private func dockCenterY(_ size: CGSize) -> CGFloat { size.height * 0.74 }
 
     private func dock(size: CGSize) -> some View {
         HStack(spacing: 5) {
@@ -310,22 +317,10 @@ struct VRHomeView: View {
             }
 
             Spacer(minLength: 0)
-
-            HStack(spacing: 7) {
-                Image(systemName: "arrow.left.and.right")
-                    .font(.system(size: 10))
-                Text("Z")
-                    .font(.system(size: 10, weight: .semibold))
-                Slider(value: Binding(
-                    get: { panels.first(where: { $0.id == panel.id })?.depth ?? panel.depth },
-                    set: { adjustDepth(panel.id, to: $0, size: size) }
-                ), in: 0.65...4.0, step: 0.05)
-                .tint(Color(white: 0.76))
-                Text(String(format: "%.2f m", panel.depth))
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
-                    .frame(width: 49, alignment: .trailing)
-            }
-            .foregroundStyle(.white.opacity(0.82))
+            Text("Pinça para mover · linha Z abaixo para profundidade")
+                .font(.system(size: 9))
+                .foregroundStyle(.white.opacity(0.66))
+                .lineLimit(2)
         }
         .padding(12)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -336,6 +331,47 @@ struct VRHomeView: View {
         .overlay(RoundedRectangle(cornerRadius: 16)
             .stroke(selectedTheme.accent.opacity(0.45), lineWidth: 1))
         .shadow(color: .black.opacity(0.50), radius: 11, y: 5)
+    }
+
+    // Independent, hand-draggable depth control BELOW each window.
+    private func depthBarWidth(_ size: CGSize) -> CGFloat {
+        max(100, min(size.width * 0.82, 180))
+    }
+
+    private func depthBar(_ panel: VRPanel, size: CGSize) -> some View {
+        let width = depthBarWidth(size)
+        let track = width - 24
+        let fraction = CGFloat((panel.depth - 0.65) / 3.35)
+        return VStack(spacing: 4) {
+            HStack(spacing: 4) {
+                Text("PERTO")
+                Spacer(minLength: 1)
+                Text(String(format: "Z %.2f m", panel.depth))
+                    .fontWeight(.semibold)
+                Spacer(minLength: 1)
+                Text("LONGE")
+            }
+            .font(.system(size: 8))
+            .foregroundStyle(.white.opacity(0.88))
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.white.opacity(0.25))
+                    .frame(width: track, height: 4)
+                Capsule().fill(selectedTheme.accent)
+                    .frame(width: max(3, track * fraction), height: 4)
+                Circle().fill(.white)
+                    .frame(width: 12, height: 12)
+                    .offset(x: track * fraction - 6)
+            }
+            .frame(width: track, height: 14, alignment: .leading)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 5)
+        .frame(width: width, height: 40)
+        .background(selectedTheme.surface.opacity(0.94),
+                    in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12)
+            .stroke(selectedTheme.accent.opacity(0.52), lineWidth: 1))
+        .allowsHitTesting(false)
     }
 
     private func themePicker(size: CGSize) -> some View {
@@ -390,7 +426,7 @@ struct VRHomeView: View {
     }
 
     private func panelWidth(_ size: CGSize) -> CGFloat { min(350, size.width * 0.75) }
-    private func panelHeight(_ size: CGSize) -> CGFloat { min(213, size.height * 0.54) }
+    private func panelHeight(_ size: CGSize) -> CGFloat { min(180, size.height * 0.39) }
     private func windowScale(_ panel: VRPanel) -> CGFloat {
         // Perspective must use the actual distance from the AR camera to
         // the window's world anchor, not a cosmetic scale tied to slider Z.
@@ -455,7 +491,7 @@ struct VRHomeView: View {
 
             let displacement = hypot(filtered.x - drag.firstPointer.x,
                                      filtered.y - drag.firstPointer.y)
-            let threshold: CGFloat = drag.mode == .depth ? 17 : 28
+            let threshold: CGFloat = drag.mode == .depth ? 4 : 28
             if !drag.movementStarted {
                 // A single landmark jump must never start dragging.
                 self.drag?.activationFrames = displacement >= threshold
@@ -469,7 +505,7 @@ struct VRHomeView: View {
 
             let sinceCommit = hypot(filtered.x - drag.lastAppliedPointer.x,
                                     filtered.y - drag.lastAppliedPointer.y)
-            let step: CGFloat = drag.mode == .depth ? 7 : 12
+            let step: CGFloat = drag.mode == .depth ? 3 : 12
             // Require two successive samples outside the motion gate.
             // In a stationary pinch, the window anchor is never rewritten.
             self.drag?.movementFrames = sinceCommit >= step
@@ -489,7 +525,9 @@ struct VRHomeView: View {
             let deltaY = (filtered.y - drag.firstPointer.y) * ratio
 
             if drag.mode == .depth {
-                let value = drag.initialDepth + Double(deltaX / size.width) * 3.35
+                let fraction = (filtered.x - drag.depthTrackStart)
+                    / max(drag.depthTrackLength, 1)
+                let value = 0.65 + Double(fraction) * 3.35
                 adjustDepth(drag.panelID, to: value, size: size,
                             lockedCenter: drag.fixedScreenCenter)
             } else if runtime.spatialTracking, let origin = drag.initialAnchor,
@@ -523,16 +561,40 @@ struct VRHomeView: View {
             } else { themeMenuOpen = false }
             return
         }
-        // The VR viewport is HALF the phone screen. The old 366pt dock
-        // overflowed that half, making several hand targets unreachable.
+        // Dock selection is based on 2D fingertip position, not hand depth.
         let dockWidth = max(26, (size.width - 50) / 5) * 5 + 4 * 5 + 10
         let dockLeft = (size.width - dockWidth) / 2
-        let dockTop = size.height - 41 - 29
-        if pointer.y >= dockTop - 8 && pointer.y <= dockTop + 66 &&
-           pointer.x >= dockLeft && pointer.x <= dockLeft + dockWidth {
+        if abs(pointer.y - dockCenterY(size)) <= 37 &&
+           pointer.x >= dockLeft - 8 &&
+           pointer.x <= dockLeft + dockWidth + 8 {
             let cell = max(26, (size.width - 50) / 5) + 5
             let slot = min(4, max(0, Int((pointer.x - dockLeft - 5) / cell)))
             activateDock(slot)
+            return
+        }
+
+        // Hit-test external Z bars BEFORE the panels themselves.
+        for panel in panels.reversed() {
+            guard let center = windowCenter(panel, size: size, right: false) else { continue }
+            let scale = windowScale(panel)
+            let barCenter = CGPoint(x: center.x,
+                                    y: center.y + panelHeight(size) * scale / 2 + 25)
+            let barWidth = depthBarWidth(size)
+            guard abs(pointer.x - barCenter.x) <= barWidth / 2 + 6,
+                  abs(pointer.y - barCenter.y) <= 25 else { continue }
+            let start = barCenter.x - barWidth / 2 + 12
+            let length = barWidth - 24
+            let fraction = min(1, max(0, (pointer.x - start) / length))
+            drag = WindowDrag(
+                panelID: panel.id, mode: .depth, firstPointer: pointer,
+                pointerOffset: .zero, initialDepth: panel.depth,
+                initialHandDepth: hand.estimatedDepth, fixedScreenCenter: center,
+                initialAnchor: panel.anchor, filteredPointer: pointer,
+                lastAppliedPointer: pointer, depthTrackStart: start,
+                depthTrackLength: length
+            )
+            adjustDepth(panel.id, to: 0.65 + Double(fraction) * 3.35,
+                        size: size, lockedCenter: center)
             return
         }
         for panel in panels.reversed() {
@@ -551,14 +613,15 @@ struct VRHomeView: View {
                 Task { await updates.check() }
                 return
             }
-            let mode: WindowDrag.Mode = dy >= height / 2 - 54 ? .depth : .move
+            let mode: WindowDrag.Mode = .move
             drag = WindowDrag(
                 panelID: panel.id, mode: mode, firstPointer: pointer,
                 pointerOffset: CGSize(width: center.x - pointer.x,
                                       height: center.y - pointer.y),
                 initialDepth: panel.depth, initialHandDepth: hand.estimatedDepth,
                 fixedScreenCenter: center, initialAnchor: panel.anchor,
-                filteredPointer: pointer, lastAppliedPointer: pointer
+                filteredPointer: pointer, lastAppliedPointer: pointer,
+                depthTrackStart: 0, depthTrackLength: 1
             )
             return
         }
@@ -606,7 +669,7 @@ struct VRHomeView: View {
             icon: template.symbol,
             text: template.text,
             x: CGFloat((nextRemoteTemplateIndex % 3) - 1) * 0.14,
-            y: CGFloat(nextRemoteTemplateIndex % 2 == 0 ? -0.12 : 0.09),
+            y: CGFloat(nextRemoteTemplateIndex % 2 == 0 ? -0.38 : -0.28),
             depth: template.depth,
             templateID: template.id
         ))
@@ -619,7 +682,7 @@ struct VRHomeView: View {
             icon: "arrow.down.circle",
             text: "",
             x: 0.08,
-            y: -0.04,
+            y: -0.30,
             depth: 1.3,
             kind: .updates
         ))
@@ -632,10 +695,10 @@ struct VRHomeView: View {
             panels.append(VRPanel(
                 title: "Janela \(count)", icon: "macwindow",
                 text: "Janela ancorada com ARKit.\n"
-                    + "Pinça para arrastar · Z na barra inferior.\n"
+                    + "Pinça para arrastar · Z na linha abaixo.\n"
                     + "Use Apps para abrir conteúdo online.",
                 x: CGFloat((count % 3) - 1) * 0.15,
-                y: CGFloat(count % 2 == 0 ? -0.12 : 0.10),
+                y: CGFloat(count % 2 == 0 ? -0.38 : -0.28),
                 depth: 1.6))
         case 1:
             openRemoteWindow()
