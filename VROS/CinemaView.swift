@@ -182,7 +182,10 @@ final class CinemaModel: ObservableObject {
         switch selectedMode {
         case .twoD, .halfSBS: break
         case .sbs: aspect /= 2
-        case .overUnder: aspect *= 2
+        case .overUnder:
+            // Full OU has a tall packed frame (e.g. 1920×2160); half OU
+            // is anamorphic (e.g. 1920×1080). Both should end up 16:9.
+            if sourceAspect < 1.2 { aspect *= 2 }
         }
         guard aspect.isFinite, aspect > 0 else { return }
         let height = min(screenHeight, screenWidth / aspect)
