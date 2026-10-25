@@ -1,6 +1,8 @@
 name: VROS
 options:
   bundleIdPrefix: com.vega77bet
+  deploymentTarget:
+    iOS: "16.0"
 targets:
   VROS:
     type: application
@@ -10,13 +12,14 @@ targets:
       - VROS
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.vega77bet.vros
+        PRODUCT_BUNDLE_IDENTIFIER: com.vega77bet.vros2
         SWIFT_VERSION: "5.0"
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_NSCameraUsageDescription: "O VR OS usa a câmera para posicionar janelas virtuais no ambiente."
+        INFOPLIST_KEY_NSCameraUsageDescription: "O VR OS usa a câmera traseira para mostrar o ambiente e rastrear as mãos."
+        INFOPLIST_KEY_NSMotionUsageDescription: "O VR OS usa os sensores para acompanhar os movimentos da cabeça."
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
-        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
-        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: UIInterfaceOrientationPortrait
+        INFOPLIST_KEY_UIRequiresFullScreen: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         CODE_SIGNING_ALLOWED: NO
