@@ -87,6 +87,7 @@ struct VRHomeView: View {
     @State private var themeMenuOpen = false
     @State private var appsOpen = false
     @State private var webSessions: [UUID: VRWebSession] = [:]
+    @State private var webWindowZoom: CGFloat = 1.0
     @State private var cinemaOpen = false
     @StateObject private var cinema = CinemaModel()
     @State private var panels = [
@@ -359,11 +360,11 @@ struct VRHomeView: View {
 
     /// The web windows are larger than note cards so sites can be used.
     private func panelWidth(_ panel: VRPanel, size: CGSize) -> CGFloat {
-        panel.kind == .web ? min(500, size.width * 0.96) : panelWidth(size)
+        panel.kind == .web ? size.width * 0.98 : panelWidth(size)
     }
 
     private func panelHeight(_ panel: VRPanel, size: CGSize) -> CGFloat {
-        panel.kind == .web ? min(535, size.height * 0.72) : panelHeight(size)
+        panel.kind == .web ? size.height * 0.84 : panelHeight(size)
     }
 
     /// The handle is only a white line, without a track, numbers, or thumb.
@@ -445,11 +446,13 @@ struct VRHomeView: View {
         // Perspective must use the actual distance from the AR camera to
         // the window's world anchor, not a cosmetic scale tied to slider Z.
         guard let anchor = panel.anchor, let camera = runtime.camera else {
-            return min(2.5, max(0.3, CGFloat(1.5 / panel.depth)))
+            let normal = min(2.5, max(0.3, CGFloat(1.5 / panel.depth)))
+            return panel.kind == .web ? normal * webWindowZoom : normal
         }
         let position = camera.transform.columns.3
         let distance = simd_distance(anchor, SIMD3<Float>(position.x, position.y, position.z))
-        return min(2.5, max(0.3, CGFloat(1.5 / max(distance, 0.1))))
+        let normal = min(2.5, max(0.3, CGFloat(1.5 / max(distance, 0.1))))
+        return panel.kind == .web ? normal * webWindowZoom : normal
     }
 
     private func windowCenter(_ panel: VRPanel, size: CGSize, right: Bool) -> CGPoint? {
@@ -738,9 +741,9 @@ struct VRHomeView: View {
         let newPanel = VRPanel(
             title: app.title, icon: app.symbol,
             text: app.description,
-            x: CGFloat(offset - 1) * 0.17,
-            y: -0.10 + CGFloat(offset % 2) * 0.05,
-            depth: 1.5,
+            x: 0,
+            y: -0.02,
+            depth: 1.2,
             kind: .web,
             webApp: app
         )
@@ -762,6 +765,15 @@ struct VRHomeView: View {
                 .buttonStyle(.plain)
             }
             .font(.system(size: 11, weight: .bold))
+            HStack(spacing: 8) {
+                Text("Tamanho das janelas")
+                    .font(.system(size: 10))
+                Slider(value: $webWindowZoom, in: 0.65...1.55, step: 0.05)
+                    .tint(.cyan)
+                Text("\(Int(webWindowZoom * 100))%")
+                    .font(.system(size: 10, weight: .bold))
+                    .frame(width: 35)
+            }
             ForEach(VRWebApp.allCases) { app in
                 Button { openWebApp(app) } label: {
                     HStack(spacing: 8) {
