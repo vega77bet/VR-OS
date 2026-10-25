@@ -2,7 +2,7 @@ name: Build VR OS IPA
 on:
   workflow_dispatch:
   push:
-    branches: [main, vr-os-2-handtracking, vr-os-3-full-hand, vr-os-3-spatial-depth, vr-os-3-online-updates, vr-os-3-space-360, vr-os-3-depth-fix]
+    branches: [main, vr-os-2-handtracking, vr-os-3-full-hand, vr-os-3-spatial-depth, vr-os-3-online-updates, vr-os-3-space-360, vr-os-3-depth-fix, vr-os-4-four-themes]
   pull_request:
     branches: [main]
 
@@ -22,10 +22,10 @@ jobs:
         run: |
           mkdir -p Payload
           cp -R build/Build/Products/Release-iphoneos/VROS.app Payload/
-          zip -qry VR-OS-3-3-unsigned.ipa Payload
+          zip -qry VR-OS-4-unsigned.ipa Payload
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: VR-OS-3-3-unsigned-IPA
-          path: VR-OS-3-3-unsigned.ipa
+          name: VR-OS-4-unsigned-IPA
+          path: VR-OS-4-unsigned.ipa
           retention-days: 14
