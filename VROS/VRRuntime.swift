@@ -1,15 +1,19 @@
+import ARKit
 import AVFoundation
-import CoreMotion
+import CoreImage
+import ImageIO
 import SwiftUI
 import Vision
-import ImageIO
 
+/// Every landmark is camera-image normalized (origin at top left).
+/// estimatedDepth is a monocular guess in metres, NOT a depth-sensor reading.
 struct TrackedHand: Equatable {
-    var point: CGPoint = CGPoint(x: 0.5, y: 0.5)
+    var point = CGPoint(x: 0.5, y: 0.5)
     var visible = false
     var pinching = false
-    // Vision provides 21 2D joints: wrist, thumb, index, middle, ring and little fingers.
     var joints: [CGPoint?] = Array(repeating: nil, count: 21)
+    var estimatedDepth: Float?
+    var worldPoint: SIMD3<Float>?
 }
 
 enum HandSkeleton {
@@ -21,6 +25,7 @@ enum HandSkeleton {
         .ringMCP, .ringPIP, .ringDIP, .ringTip,
         .littleMCP, .littlePIP, .littleDIP, .littleTip
     ]
+
     static let bones: [(Int, Int)] = [
         (0,1),(1,2),(2,3),(3,4),
         (0,5),(5,6),(6,7),(7,8),
@@ -31,108 +36,161 @@ enum HandSkeleton {
     ]
 }
 
-final class VRRuntime: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleBufferDelegate {
-    let session = AVCaptureSession()
-    @Published var hand = TrackedHand()
-    @Published var cameraStatus = "Iniciando câmera…"
-    @Published var headYaw: Double = 0
-    @Published var headPitch: Double = 0
+/// ARKit owns the rear camera. Both stereo halves consume one shared CGImage.
+/// Running a separate AVCaptureSession alongside ARWorldTracking would contend
+/// for the same camera, so Vision runs directly on ARFrame.capturedImage.
+final class VRRuntime: NSObject, ObservableObject, ARSessionDelegate {
+    let session = ARSession()
 
-    private let cameraQueue = DispatchQueue(label: "vros.camera.setup")
-    private let videoQueue = DispatchQueue(label: "vros.hand.vision", qos: .userInitiated)
+    @Published private(set) var cameraImage: CGImage?
+    @Published private(set) var camera: ARCamera?
+    @Published private(set) var hand = TrackedHand()
+    @Published private(set) var cameraStatus = "Iniciando ARKit…"
+    @Published private(set) var spatialTracking = false
+
+    private let frameQueue = DispatchQueue(label: "vros.arkit.frames", qos: .userInitiated)
+    private let visionQueue = DispatchQueue(label: "vros.vision.hand", qos: .userInitiated)
+    private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
     private let request = VNDetectHumanHandPoseRequest()
-    private let motion = CMMotionManager()
-    private var configured = false
+
+    // Only touched from frameQueue, except the Vision filters (visionQueue only).
     private var frameNumber = 0
+    private var visionBusy = false
+
     private var filteredJoints: [CGPoint?] = Array(repeating: nil, count: 21)
+    private var filteredDepth: Float?
     private var pinchLatched = false
     private var pinchFrames = 0
     private var missingFrames = 0
-    private var initialYaw: Double?
 
     override init() {
         super.init()
         request.maximumHandCount = 1
+        session.delegate = self
+        session.delegateQueue = frameQueue
     }
 
     func start() {
-        startMotion()
-        switch AVCaptureDevice.authorizationStatus(for: .video) {
-        case .authorized: setupCamera()
-        case .notDetermined:
-            AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
-                if granted { self?.setupCamera() }
-                else { DispatchQueue.main.async { self?.cameraStatus = "Permita a câmera nos Ajustes" } }
+        guard ARWorldTrackingConfiguration.isSupported else {
+            cameraStatus = "Este aparelho não suporta ARKit World Tracking"
+            return
+        }
+        guard AVCaptureDevice.authorizationStatus(for: .video) != .denied &&
+              AVCaptureDevice.authorizationStatus(for: .video) != .restricted else {
+            cameraStatus = "Libere a câmera nos Ajustes do iPhone"
+            return
+        }
+        if AVCaptureDevice.authorizationStatus(for: .video) == .notDetermined {
+            AVCaptureDevice.requestAccess(for: .video) { [weak self] allowed in
+                DispatchQueue.main.async {
+                    if allowed { self?.runSession() }
+                    else { self?.cameraStatus = "Permita o acesso à câmera" }
+                }
             }
-        default:
-            cameraStatus = "Câmera bloqueada: Ajustes > Privacidade > Câmera"
+        } else {
+            runSession()
         }
     }
 
-    private func setupCamera() {
-        cameraQueue.async { [weak self] in
-            guard let self = self else { return }
-            if !self.configured {
-                self.session.beginConfiguration()
-                self.session.sessionPreset = .hd1280x720
-                guard let camera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
-                      let input = try? AVCaptureDeviceInput(device: camera),
-                      self.session.canAddInput(input) else {
-                    self.session.commitConfiguration()
-                    DispatchQueue.main.async { self.cameraStatus = "Câmera traseira indisponível" }
-                    return
-                }
-                self.session.addInput(input)
-                let output = AVCaptureVideoDataOutput()
-                output.alwaysDiscardsLateVideoFrames = true
-                output.setSampleBufferDelegate(self, queue: self.videoQueue)
-                guard self.session.canAddOutput(output) else {
-                    self.session.commitConfiguration()
-                    DispatchQueue.main.async { self.cameraStatus = "Não foi possível iniciar Vision" }
-                    return
-                }
-                self.session.addOutput(output)
-                if let connection = output.connection(with: .video), connection.isVideoOrientationSupported {
-                    connection.videoOrientation = .landscapeRight
-                }
-                self.session.commitConfiguration()
-                self.configured = true
-            }
-            if !self.session.isRunning { self.session.startRunning() }
-            DispatchQueue.main.async { self.cameraStatus = "Mostre a mão inteira à câmera" }
-        }
-    }
-
-    private func startMotion() {
-        guard motion.isDeviceMotionAvailable, !motion.isDeviceMotionActive else { return }
-        motion.deviceMotionUpdateInterval = 1.0 / 30.0
-        motion.startDeviceMotionUpdates(to: .main) { [weak self] reading, _ in
-            guard let self = self, let attitude = reading?.attitude else { return }
-            if self.initialYaw == nil { self.initialYaw = attitude.yaw }
-            var delta = attitude.yaw - (self.initialYaw ?? 0)
-            while delta > .pi { delta -= 2 * .pi }
-            while delta < -.pi { delta += 2 * .pi }
-            self.headYaw = delta
-            self.headPitch = attitude.pitch
-        }
-    }
-
-    func recenter() {
-        initialYaw = motion.deviceMotion?.attitude.yaw
+    private func runSession() {
+        let config = ARWorldTrackingConfiguration()
+        config.worldAlignment = .gravity
+        config.planeDetection = [.horizontal, .vertical]
+        session.run(config, options: [.resetTracking, .removeExistingAnchors])
+        cameraStatus = "ARKit: procurando o ambiente…"
     }
 
     func stop() {
-        motion.stopDeviceMotionUpdates()
-        cameraQueue.async { [weak self] in
-            guard let self = self else { return }
-            if self.session.isRunning { self.session.stopRunning() }
+        session.pause()
+    }
+
+    /// Recenter means put the panels in front of the current camera pose.
+    /// It does not reset the ARKit world origin.
+    func worldPoint(at screenPoint: CGPoint, viewport: CGSize, depth: Float,
+                    using pose: ARCamera? = nil) -> SIMD3<Float>? {
+        guard let pose = pose ?? camera, viewport.width > 0, viewport.height > 0 else { return nil }
+        let resolution = pose.imageResolution
+        let sourceW = max(resolution.width, 1)
+        let sourceH = max(resolution.height, 1)
+        let scale = max(viewport.width / sourceW, viewport.height / sourceH)
+        let sourceX = (screenPoint.x + (sourceW * scale - viewport.width) * 0.5) / scale
+        let sourceY = (screenPoint.y + (sourceH * scale - viewport.height) * 0.5) / scale
+        let intrinsics = pose.intrinsics
+        let fx = max(intrinsics.columns.0.x, 1)
+        let fy = max(intrinsics.columns.1.y, 1)
+        let cx = intrinsics.columns.2.x
+        let cy = intrinsics.columns.2.y
+        let local = SIMD4<Float>(
+            Float((sourceX - CGFloat(cx)) / CGFloat(fx)) * depth,
+            -Float((sourceY - CGFloat(cy)) / CGFloat(fy)) * depth,
+            -depth, 1
+        )
+        let world = pose.transform * local
+        return SIMD3<Float>(world.x, world.y, world.z)
+    }
+
+    func projectedPoint(_ world: SIMD3<Float>, viewport: CGSize,
+                        rightEye: Bool) -> CGPoint? {
+        guard let pose = camera else { return nil }
+        let view = simd_inverse(pose.transform) * SIMD4<Float>(world.x, world.y, world.z, 1)
+        guard view.z < -0.1 else { return nil }
+        let point = pose.projectPoint(world, orientation: .landscapeRight, viewportSize: viewport)
+        guard point.x.isFinite, point.y.isFinite else { return nil }
+
+        // Approximate stereo window disparity from a virtual 64-mm interpupillary distance.
+        // Camera passthrough remains monocular; this is NOT stereo camera reconstruction.
+        let effectiveFocal = CGFloat(pose.intrinsics.columns.0.x) *
+            max(viewport.width / max(pose.imageResolution.width, 1),
+                viewport.height / max(pose.imageResolution.height, 1))
+        let disparity = min(32, effectiveFocal * 0.032 / CGFloat(-view.z))
+        return CGPoint(x: point.x + (rightEye ? -disparity : disparity), y: point.y)
+    }
+
+    func session(_ session: ARSession, didUpdate frame: ARFrame) {
+        frameNumber += 1
+        let frameIndex = frameNumber
+        let pose = frame.camera
+        let reliable: Bool
+        if case .normal = pose.trackingState { reliable = true }
+        else { reliable = false }
+
+        // Render at up to ~15 fps to keep the CGImage/SwiftUI path affordable.
+        // Reusing the same immutable CGImage in both eyes prevents a black left preview.
+        if frameIndex % 2 == 0 {
+            let image = CIImage(cvPixelBuffer: frame.capturedImage)
+            let output = ciContext.createCGImage(image, from: image.extent)
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                if let output = output { self.cameraImage = output }
+                self.camera = pose
+                self.spatialTracking = reliable
+                if !reliable {
+                    self.cameraStatus = "ARKit: mova o iPhone devagar para localizar o ambiente"
+                }
+            }
+        }
+
+        // Never build a backlog of expensive Vision requests.
+        if frameIndex % 3 == 0 && !visionBusy {
+            visionBusy = true
+            visionQueue.async { [weak self] in
+                self?.detectHand(in: frame)
+                self?.frameQueue.async { [weak self] in self?.visionBusy = false }
+            }
         }
     }
 
-    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-        frameNumber += 1
-        guard frameNumber % 2 == 0 else { return }
-        let handler = VNImageRequestHandler(cmSampleBuffer: sampleBuffer, orientation: .up, options: [:])
+    func session(_ session: ARSession, didFailWithError error: Error) {
+        DispatchQueue.main.async { [weak self] in
+            self?.cameraStatus = "Erro ARKit: \(error.localizedDescription)"
+        }
+    }
+
+    private func detectHand(in frame: ARFrame) {
+        // ARKit captures landscape-right sensor images; Vision and display share
+        // this unrotated buffer so their 2D coordinates use the same origin.
+        let handler = VNImageRequestHandler(cvPixelBuffer: frame.capturedImage,
+                                            orientation: .up, options: [:])
         do {
             try handler.perform([request])
             guard let observation = request.results?.first else {
@@ -148,28 +206,23 @@ final class VRRuntime: NSObject, ObservableObject, AVCaptureVideoDataOutputSampl
                 }
                 let raw = CGPoint(x: joint.location.x, y: 1 - joint.location.y)
                 if let old = filteredJoints[i] {
-                    let smooth = CGPoint(x: old.x * 0.58 + raw.x * 0.42,
-                                         y: old.y * 0.58 + raw.y * 0.42)
-                    next[i] = smooth
-                    filteredJoints[i] = smooth
+                    let value = CGPoint(x: old.x * 0.56 + raw.x * 0.44,
+                                        y: old.y * 0.56 + raw.y * 0.44)
+                    next[i] = value
                 } else {
                     next[i] = raw
-                    filteredJoints[i] = raw
                 }
+                filteredJoints[i] = next[i]
             }
             guard let index = next[8], let thumb = next[4] else {
                 noHand()
                 return
             }
+
             missingFrames = 0
-            // Normalize pinch threshold by palm size to reduce distance sensitivity.
-            let palmSize: CGFloat
-            if let wrist = next[0], let middle = next[9] {
-                palmSize = max(0.045, hypot(wrist.x - middle.x, wrist.y - middle.y))
-            } else {
-                palmSize = 0.12
-            }
-            let pinchRatio = hypot(index.x - thumb.x, index.y - thumb.y) / palmSize
+            let palm = palmSpan(next)
+            let pinchSize = max(palm, 0.04)
+            let pinchRatio = hypot(index.x - thumb.x, index.y - thumb.y) / pinchSize
             let target = pinchLatched ? pinchRatio < 0.63 : pinchRatio < 0.42
             if target == pinchLatched {
                 pinchFrames = 0
@@ -180,54 +233,63 @@ final class VRRuntime: NSObject, ObservableObject, AVCaptureVideoDataOutputSampl
                     pinchFrames = 0
                 }
             }
+
+            let depth = estimateDepth(joints: next, camera: frame.camera)
+            let world: SIMD3<Float>? = depth.flatMap { d in
+                let viewport = frame.camera.imageResolution
+                return worldPoint(at: CGPoint(x: index.x * viewport.width,
+                                              y: index.y * viewport.height),
+                                  viewport: viewport, depth: d, using: frame.camera)
+            }
+            let state = TrackedHand(point: index, visible: true, pinching: pinchLatched,
+                                    joints: next, estimatedDepth: depth, worldPoint: world)
             let count = next.compactMap { $0 }.count
-            let latest = TrackedHand(point: index, visible: true, pinching: pinchLatched, joints: next)
+            let message = depth.map { "Mão \(count)/21 · Z ≈ \(String(format: "%.2f", $0)) m" }
+                ?? "Mão \(count)/21 · Z não estimado"
             DispatchQueue.main.async { [weak self] in
-                self?.hand = latest
-                self?.cameraStatus = "Mão: \(count)/21 pontos · pinça para clicar"
+                self?.hand = state
+                self?.cameraStatus = message
             }
         } catch {
             noHand()
         }
     }
 
+    private func palmSpan(_ joints: [CGPoint?]) -> CGFloat {
+        guard let indexBase = joints[5], let littleBase = joints[17] else { return 0 }
+        return hypot(indexBase.x - littleBase.x, indexBase.y - littleBase.y)
+    }
+
+    /// Monocular pinhole estimate: distance ~= focal_length_px * palm_width_m / palm_width_px.
+    /// Palm width is assumed (8.5 cm); foreshortening, finger pose, and hand size
+    /// change the apparent width, so this MUST NOT be treated as measured depth.
+    private func estimateDepth(joints: [CGPoint?], camera: ARCamera) -> Float? {
+        guard let indexBase = joints[5], let littleBase = joints[17] else {
+            return filteredDepth
+        }
+        let imageW = Float(camera.imageResolution.width)
+        let imageH = Float(camera.imageResolution.height)
+        let dx = Float(indexBase.x - littleBase.x) * imageW
+        let dy = Float(indexBase.y - littleBase.y) * imageH
+        let apparent = hypot(dx, dy)
+        guard apparent > 7 else { return filteredDepth }
+        let fx = camera.intrinsics.columns.0.x
+        let raw = max(0.30, min(3.5, fx * 0.085 / apparent))
+        let value = filteredDepth.map { 0.78 * $0 + 0.22 * raw } ?? raw
+        filteredDepth = value
+        return value
+    }
+
     private func noHand() {
         missingFrames += 1
         guard missingFrames >= 3 else { return }
         filteredJoints = Array(repeating: nil, count: 21)
+        filteredDepth = nil
         pinchLatched = false
         pinchFrames = 0
         DispatchQueue.main.async { [weak self] in
             self?.hand = TrackedHand()
-            self?.cameraStatus = "Mostre a palma e os dedos à câmera"
-        }
-    }
-}
-
-final class VRPreviewUIView: UIView {
-    override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
-    var cameraLayer: AVCaptureVideoPreviewLayer {
-        layer as! AVCaptureVideoPreviewLayer
-    }
-}
-
-struct VRPreview: UIViewRepresentable {
-    let session: AVCaptureSession
-
-    func makeUIView(context: Context) -> VRPreviewUIView {
-        let view = VRPreviewUIView()
-        view.backgroundColor = .black
-        view.cameraLayer.videoGravity = .resizeAspectFill
-        view.cameraLayer.session = session
-        if let connection = view.cameraLayer.connection, connection.isVideoOrientationSupported {
-            connection.videoOrientation = .landscapeRight
-        }
-        return view
-    }
-
-    func updateUIView(_ uiView: VRPreviewUIView, context: Context) {
-        if uiView.cameraLayer.session !== session {
-            uiView.cameraLayer.session = session
+            self?.cameraStatus = "Mostre palma e dedos à câmera traseira"
         }
     }
 }
