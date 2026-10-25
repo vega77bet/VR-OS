@@ -79,6 +79,9 @@ final class CinemaModel: ObservableObject {
     private var lastARPose: ARCamera?
     @Published private(set) var headTrackingStatus = "Iniciando sensores…"
     @Published var showControlsAutomatically = false
+    @Published private(set) var screenPitchDegrees: Float = 0
+    @Published var invertTracking = true
+    private var screenPitchOffset: Float = 0
     private var roomLights: [SCNLight] = []
     private var ambientLight: SCNLight?
     private var screenBounceLight: SCNLight?
@@ -113,6 +116,8 @@ final class CinemaModel: ObservableObject {
         initialOrientation = camera.map { simd_quatf($0.transform) }
         motionReference = nil
         controlsVisible = true
+        screenPitchOffset = 0
+        refreshScreenPitch()
         startHeadTracking()
     }
 
@@ -159,8 +164,7 @@ final class CinemaModel: ObservableObject {
             let landscape = simd_quatf(angle: -.pi / 2,
                                        axis: SIMD3<Float>(0, 0, 1))
             let cameraRotation = landscape * relative * simd_inverse(landscape)
-            self.leftCamera.simdOrientation = cameraRotation
-            self.rightCamera.simdOrientation = cameraRotation
+            self.applyHeadOrientation(cameraRotation)
         }
     }
 
@@ -169,10 +173,12 @@ final class CinemaModel: ObservableObject {
             motionReference = simd_normalize(simd_quatf(
                 ix: Float(reading.x), iy: Float(reading.y),
                 iz: Float(reading.z), r: Float(reading.w)))
-            leftCamera.simdOrientation = simd_quatf()
-            rightCamera.simdOrientation = simd_quatf()
+            applyHeadOrientation(simd_quatf())
         } else if let pose = lastARPose {
             initialOrientation = simd_quatf(pose.transform)
+            applyHeadOrientation(simd_quatf())
+        } else {
+            applyHeadOrientation(simd_quatf())
         }
         revealControls()
     }
@@ -186,8 +192,46 @@ final class CinemaModel: ObservableObject {
         if initialOrientation == nil { initialOrientation = current }
         guard let origin = initialOrientation else { return }
         let relative = simd_inverse(origin) * current
-        leftCamera.simdOrientation = relative
-        rightCamera.simdOrientation = relative
+        applyHeadOrientation(relative)
+    }
+
+    /// The virtual screen's centre is ~7 m above the auditorium floor.
+    /// Aim the camera at its centre instead of straight ahead at the seats.
+    private func refreshScreenPitch() {
+        let eyeY = seats.first(where: { $0.id == currentSeatID })?
+            .cameraPosition.y ?? 1.70
+        let eyeZ = seats.first(where: { $0.id == currentSeatID })?
+            .cameraPosition.z ?? -2.60
+        let horizontalDistance = max(1, eyeZ + 15.76)
+        let naturalPitch = atan2(Float(7.05) - eyeY, horizontalDistance)
+        screenPitchDegrees = (naturalPitch + screenPitchOffset) * 180 / .pi
+    }
+
+    private func applyHeadOrientation(_ raw: simd_quatf) {
+        let corrected = invertTracking ? simd_inverse(raw) : raw
+        let pitch = simd_quatf(angle: screenPitchDegrees * .pi / 180,
+                               axis: SIMD3<Float>(1, 0, 0))
+        let rotation = simd_normalize(pitch * corrected)
+        leftCamera.simdOrientation = rotation
+        rightCamera.simdOrientation = rotation
+    }
+
+    func adjustScreenHeight(_ direction: Float) {
+        screenPitchOffset = max(-0.65, min(0.65,
+                                         screenPitchOffset + direction * (.pi / 36)))
+        refreshScreenPitch()
+        recenterHead()
+    }
+
+    func resetScreenAim() {
+        screenPitchOffset = 0
+        refreshScreenPitch()
+        recenterHead()
+    }
+
+    func toggleTrackingDirection() {
+        invertTracking.toggle()
+        recenterHead()
     }
 
     func loadMovie(_ url: URL) {
@@ -312,6 +356,8 @@ final class CinemaModel: ObservableObject {
     func toggleImmersive() {
         immersiveScreen.toggle()
         updateSeatPosition()
+        refreshScreenPitch()
+        recenterHead()
         revealControls()
     }
 
@@ -385,6 +431,8 @@ final class CinemaModel: ObservableObject {
         leftCamera.simdOrientation = simd_quatf()
         rightCamera.simdOrientation = simd_quatf()
         updateSeatPosition(animated: true)
+        refreshScreenPitch()
+        recenterHead()
         setSeatSelectionMode(false)
         return true
     }
@@ -930,6 +978,16 @@ struct CinemaEyeView: View {
                     }
                     .padding(.horizontal, 7)
                     .padding(.top, 4)
+                    HStack(spacing: 4) {
+                        cinemaOption("Tela ↑") { cinema.adjustScreenHeight(1) }
+                        cinemaOption("Tela ↓") { cinema.adjustScreenHeight(-1) }
+                        cinemaOption("Mirar tela") { cinema.resetScreenAim() }
+                        cinemaOption(cinema.invertTracking ? "Eixo invertido" : "Eixo normal") {
+                            cinema.toggleTrackingDirection()
+                        }
+                    }
+                    .padding(.horizontal, 7)
+                    .padding(.top, 3)
                     Text(cinema.headTrackingStatus + " · " + cinema.currentSeatLabel)
                         .font(.system(size: 9, weight: .medium))
                         .foregroundStyle(.green.opacity(0.95))
