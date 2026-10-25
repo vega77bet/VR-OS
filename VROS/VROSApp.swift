@@ -64,6 +64,8 @@ private struct WindowDrag {
     let initialDepth: Double
     let initialHandDepth: Float?
     let fixedScreenCenter: CGPoint
+    var movementStarted = false
+    var filteredPointer: CGPoint
 }
 
 struct VRHomeView: View {
@@ -436,19 +438,33 @@ struct VRHomeView: View {
                 adjustDepth(drag.panelID, to: value, size: size,
                             lockedCenter: drag.fixedScreenCenter)
             } else {
-                var distance = drag.initialDepth
-                if let start = drag.initialHandDepth, let current = hand.estimatedDepth {
-                    // Forward/backward motion of the hand changes the window's Z.
-                    // Relative displacement only: avoid snapping window to hand depth.
-                    distance += Double(current - start)
+                // Hand tracking jitters even during a stationary pinch.
+                // Require a deliberate 20pt displacement before any drag.
+                let deltaX = pointer.x - drag.firstPointer.x
+                let deltaY = pointer.y - drag.firstPointer.y
+                let travel = hypot(deltaX, deltaY)
+                if !drag.movementStarted {
+                    guard travel >= 20 else {
+                        lastPinch = hand.pinching
+                        return
+                    }
+                    self.drag?.movementStarted = true
                 }
-                distance = min(4.0, max(0.65, distance))
-                let target = CGPoint(x: pointer.x + drag.pointerOffset.width,
-                                     y: pointer.y + drag.pointerOffset.height)
+
+                // Keep Z strictly unchanged during XY drag. Depth changes
+                // only via the dedicated slider, never from noisy monocular Z.
+                let previous = self.drag?.filteredPointer ?? drag.firstPointer
+                let alpha: CGFloat = 0.22
+                let filtered = CGPoint(
+                    x: previous.x + (pointer.x - previous.x) * alpha,
+                    y: previous.y + (pointer.y - previous.y) * alpha
+                )
+                self.drag?.filteredPointer = filtered
+                let target = CGPoint(x: filtered.x + drag.pointerOffset.width,
+                                     y: filtered.y + drag.pointerOffset.height)
                 if let anchor = runtime.worldPoint(at: target, viewport: size,
-                                                   depth: Float(distance)) {
+                                                   depth: Float(drag.initialDepth)) {
                     panels[index].anchor = anchor
-                    panels[index].depth = distance
                 }
             }
         } else if !hand.pinching {
@@ -498,7 +514,8 @@ struct VRHomeView: View {
                 pointerOffset: CGSize(width: center.x - pointer.x,
                                       height: center.y - pointer.y),
                 initialDepth: panel.depth, initialHandDepth: hand.estimatedDepth,
-                fixedScreenCenter: center
+                fixedScreenCenter: center,
+                filteredPointer: pointer
             )
             return
         }
