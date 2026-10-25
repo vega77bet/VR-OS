@@ -44,6 +44,20 @@ enum CinemaVideoMode: String, CaseIterable {
     }
 }
 
+/// Stable world-space position for a selectable reclining theater seat.
+private struct CinemaSeat {
+    let id: Int
+    let row: Int
+    let column: Int
+    let position: SCNVector3
+
+    var cameraPosition: SCNVector3 {
+        SCNVector3(position.x, position.y + 1.70, position.z - 0.13)
+    }
+
+    var label: String { "F\(row + 1) · P\(column + 1)" }
+}
+
 final class CinemaModel: ObservableObject {
     let scene = SCNScene()
     let leftCamera = SCNNode()
@@ -70,6 +84,12 @@ final class CinemaModel: ObservableObject {
     private var screenBounceLight: SCNLight?
     private var accentNodes: [SCNNode] = []
     private var controlsTask: Task<Void, Never>?
+    private var seats: [CinemaSeat] = []
+    private var seatMarkers: [Int: SCNNode] = [:]
+    weak var leftSceneView: SCNView?
+    @Published private(set) var currentSeatID = 30
+    @Published private(set) var currentSeatLabel = "F3 · P7"
+    @Published var seatSelectionMode = false
     @Published var movieTitle = "Escolha um filme MP4"
     @Published var playing = false
     @Published var selectedMode: CinemaVideoMode = .twoD
@@ -88,6 +108,7 @@ final class CinemaModel: ObservableObject {
     }
 
     func enter(camera: ARCamera?) {
+        setSeatSelectionMode(false)
         lastARPose = camera
         initialOrientation = camera.map { simd_quatf($0.transform) }
         motionReference = nil
@@ -96,6 +117,7 @@ final class CinemaModel: ObservableObject {
     }
 
     func exit() {
+        setSeatSelectionMode(false)
         motion.stopDeviceMotionUpdates()
         motionReference = nil
         player?.pause()
@@ -293,12 +315,89 @@ final class CinemaModel: ObservableObject {
         revealControls()
     }
 
-    private func updateSeatPosition() {
-        // The movie screen is at z=-15.66. In immersive mode the viewer is
-        // about 13 m away, for a horizontal angular width around 90 degrees.
-        let z: Float = immersiveScreen ? -2.6 : 3.25
-        leftCamera.position = SCNVector3(-0.032, 1.68, z)
-        rightCamera.position = SCNVector3(0.032, 1.68, z)
+    /// Camera translation is the seat position. MAX changes field of view,
+    /// not the physical seat, so users don't accidentally leave their chair.
+    private func updateSeatPosition(animated: Bool = false) {
+        guard let selected = seats.first(where: { $0.id == currentSeatID }) else { return }
+        for (eye, offset) in [(leftCamera, Float(-0.032)),
+                              (rightCamera, Float(0.032))] {
+            eye.camera?.fieldOfView = immersiveScreen ? 68 : 75
+            let target = SCNVector3(selected.cameraPosition.x + offset,
+                                    selected.cameraPosition.y,
+                                    selected.cameraPosition.z)
+            eye.removeAction(forKey: "cinemaSeatTravel")
+            if animated {
+                let move = SCNAction.move(to: target, duration: 0.72)
+                move.timingMode = .easeInEaseOut
+                eye.runAction(move, forKey: "cinemaSeatTravel")
+            } else {
+                eye.position = target
+            }
+        }
+    }
+
+    func setSeatSelectionMode(_ enabled: Bool) {
+        seatSelectionMode = enabled
+        for marker in seatMarkers.values { marker.isHidden = !enabled }
+        revealControls()
+    }
+
+    func toggleSeatSelection() {
+        setSeatSelectionMode(!seatSelectionMode)
+    }
+
+    /// Raycast ignores the auditorium's normal geometry, so hitting an
+    /// indicator works even if a seat back lies between it and the camera.
+    @discardableResult
+    func chooseSeat(at viewportPoint: CGPoint, in view: SCNView? = nil,
+                    tryGazeCenter: Bool = false) -> Bool {
+        guard seatSelectionMode, let renderer = view ?? leftSceneView else { return false }
+        let options: [SCNHitTestOption: Any] = [
+            .categoryBitMask: 8,
+            .firstFoundOnly: true
+        ]
+        let hit = renderer.hitTest(viewportPoint, options: options).first ??
+            (tryGazeCenter ? renderer.hitTest(
+                CGPoint(x: renderer.bounds.midX, y: renderer.bounds.midY),
+                options: options).first : nil)
+        guard let name = hit?.node.name,
+              name.hasPrefix("seat-indicator-"),
+              let seatID = Int(name.replacingOccurrences(of: "seat-indicator-", with: ""))
+        else { return false }
+        return selectSeat(seatID)
+    }
+
+    @discardableResult
+    private func selectSeat(_ seatID: Int) -> Bool {
+        guard let seat = seats.first(where: { $0.id == seatID }) else { return false }
+        currentSeatID = seatID
+        currentSeatLabel = seat.label
+        refreshSeatMarkerColors()
+        // Lock the new chair position but reset the head's look direction
+        // so the next camera frame faces the enormous screen naturally.
+        if let q = motion.deviceMotion?.attitude.quaternion {
+            motionReference = simd_normalize(simd_quatf(
+                ix: Float(q.x), iy: Float(q.y),
+                iz: Float(q.z), r: Float(q.w)))
+        } else if let pose = lastARPose {
+            initialOrientation = simd_quatf(pose.transform)
+        }
+        leftCamera.simdOrientation = simd_quatf()
+        rightCamera.simdOrientation = simd_quatf()
+        updateSeatPosition(animated: true)
+        setSeatSelectionMode(false)
+        return true
+    }
+
+    private func refreshSeatMarkerColors() {
+        for (id, marker) in seatMarkers {
+            let selected = id == currentSeatID
+            let tint = selected
+                ? UIColor(red: 1, green: 0.78, blue: 0.28, alpha: 1)
+                : UIColor(red: 0.24, green: 0.85, blue: 1, alpha: 1)
+            marker.geometry?.firstMaterial?.diffuse.contents = tint
+            marker.geometry?.firstMaterial?.emission.contents = tint
+        }
     }
 
     func toggleEyeOrder() {
@@ -512,37 +611,101 @@ final class CinemaModel: ObservableObject {
                                    13.55, 0, gold, glow: amber))
         }
 
-        // Seat prototype: fabric cushion, highlighted back, curved-feeling
-        // chamfered arms, back shell, foot and cupholder. SceneKit shares the
-        // prototype geometry across each clone for a small rendering cost.
-        let seatPrototype = SCNNode()
-        func seatPart(_ w: CGFloat, _ h: CGFloat, _ d: CGFloat,
-                      _ x: Float, _ y: Float, _ z: Float, _ color: UIColor,
-                      chamfer: CGFloat = 0.07) {
-            let node = SCNNode(geometry: SCNBox(width: w, height: h, length: d,
-                                                 chamferRadius: chamfer))
-            node.geometry?.firstMaterial?.diffuse.contents = color
-            node.position = SCNVector3(x, y, z)
-            seatPrototype.addChildNode(node)
+        // 72 recliners in six staggered, raised rows. The centre aisle is
+        // intentionally wide enough to see and select the front chairs.
+        // Shared prototype geometry and materials keep the stereo draw cost low.
+        let chairPrototype = SCNNode()
+        let fabric = UIColor(red: 0.40, green: 0.022, blue: 0.073, alpha: 1)
+        let fabricHighlight = UIColor(red: 0.53, green: 0.07, blue: 0.11, alpha: 1)
+        let shell = UIColor(red: 0.045, green: 0.036, blue: 0.053, alpha: 1)
+        let armTop = UIColor(red: 0.145, green: 0.11, blue: 0.13, alpha: 1)
+        let stitching = UIColor(red: 0.69, green: 0.31, blue: 0.31, alpha: 1)
+
+        func chairBox(_ w: CGFloat, _ h: CGFloat, _ d: CGFloat,
+                      x: Float, y: Float, z: Float,
+                      tint: UIColor, radius: CGFloat = 0.09) {
+            let geometry = SCNBox(width: w, height: h, length: d,
+                                  chamferRadius: radius)
+            geometry.firstMaterial?.diffuse.contents = tint
+            let part = SCNNode(geometry: geometry)
+            part.position = SCNVector3(x, y, z)
+            chairPrototype.addChildNode(part)
         }
-        seatPart(1.65, 0.31, 1.42, 0, 0.81, -0.12, velvetHighlight)
-        seatPart(1.64, 1.68, 0.32, 0, 1.64, 0.54, velvet)
-        seatPart(1.39, 0.30, 0.08, 0, 2.33, 0.34, velvetHighlight)
-        seatPart(1.76, 1.86, 0.14, 0, 1.55, 0.77, blackLeather)
-        seatPart(0.21, 0.78, 1.65, -0.93, 0.96, -0.10, blackLeather)
-        seatPart(0.21, 0.78, 1.65, 0.93, 0.96, -0.10, blackLeather)
-        seatPart(0.98, 0.42, 0.75, 0, 0.39, 0.15, blackLeather)
-        for row in 0..<5 {
-            let z = Float(row) * 4.2 - 11.7
-            for column in 0..<4 {
-                for side: Float in [-1, 1] {
-                    let instance = seatPrototype.clone()
-                    instance.position = SCNVector3(side * (4.2 + Float(column) * 2.15),
-                                                   0, z)
-                    scene.rootNode.addChildNode(instance)
+
+        // Raised armchairs: the rigid back shell frames two padded cushions.
+        chairBox(1.79, 1.85, 0.26, x: 0, y: 1.56, z: 0.69,
+                 tint: shell, radius: 0.13)
+        chairBox(1.55, 1.35, 0.24, x: 0, y: 1.65, z: 0.48,
+                 tint: fabric, radius: 0.17)
+        chairBox(1.47, 0.35, 0.19, x: 0, y: 2.34, z: 0.46,
+                 tint: fabricHighlight, radius: 0.12)
+        chairBox(1.45, 0.34, 1.35, x: 0, y: 0.83, z: -0.17,
+                 tint: fabricHighlight, radius: 0.16)
+        chairBox(1.42, 0.30, 0.66, x: 0, y: 0.49, z: -0.75,
+                 tint: fabric, radius: 0.12)  // folding foot rest
+        chairBox(1.60, 0.28, 1.38, x: 0, y: 0.55, z: -0.10,
+                 tint: shell, radius: 0.09)
+        for side in [Float(-1), Float(1)] {
+            chairBox(0.22, 0.78, 1.60, x: side * 0.90, y: 0.97, z: 0,
+                     tint: shell, radius: 0.08)
+            chairBox(0.23, 0.15, 1.30, x: side * 0.90, y: 1.37, z: -0.08,
+                     tint: armTop, radius: 0.065)
+            chairBox(0.11, 1.31, 0.055, x: side * 0.69, y: 1.65, z: 0.33,
+                     tint: stitching, radius: 0.025)
+            let metal = SCNCylinder(radius: 0.12, height: 0.016)
+            metal.firstMaterial?.diffuse.contents = gold
+            let cupRing = SCNNode(geometry: metal)
+            cupRing.position = SCNVector3(side * 0.90, 1.46, -0.43)
+            chairPrototype.addChildNode(cupRing)
+            let insert = SCNCylinder(radius: 0.074, height: 0.021)
+            insert.firstMaterial?.diffuse.contents = UIColor.black
+            let hole = SCNNode(geometry: insert)
+            hole.position = SCNVector3(side * 0.90, 1.472, -0.43)
+            chairPrototype.addChildNode(hole)
+        }
+        chairBox(0.82, 0.45, 0.79, x: 0, y: 0.30, z: 0.15,
+                 tint: shell, radius: 0.09)
+
+        for row in 0..<6 {
+            let rowZ = Float(row) * 4.2 - 11.7
+            let rise = Float(row) * 0.33
+            if row > 0 {
+                box(27.9, CGFloat(rise), 4.02, 0, rise / 2 - 0.01,
+                    rowZ, darkCarpet)
+            }
+            for sideIndex in 0..<2 {
+                let side: Float = sideIndex == 0 ? -1 : 1
+                for column in 0..<6 {
+                    let seatID = row * 12 + sideIndex * 6 + column
+                    let x = side * (2.45 + Float(column) * 2.08)
+                    let seatOrigin = SCNVector3(x, rise, rowZ)
+                    let seat = CinemaSeat(id: seatID, row: row,
+                                          column: sideIndex * 6 + column,
+                                          position: seatOrigin)
+                    seats.append(seat)
+
+                    let chair = chairPrototype.clone()
+                    chair.position = seatOrigin
+                    scene.rootNode.addChildNode(chair)
+
+                    // Neon selection pin. No physics: only rendered when the
+                    // seat picker is explicitly open, never during the movie.
+                    let orb = SCNSphere(radius: 0.26)
+                    orb.segmentCount = 12
+                    let orbMaterial = SCNMaterial()
+                    orbMaterial.lightingModel = .constant
+                    orb.firstMaterial = orbMaterial
+                    let marker = SCNNode(geometry: orb)
+                    marker.name = "seat-indicator-\(seatID)"
+                    marker.categoryBitMask = 8
+                    marker.position = SCNVector3(x, rise + 2.93, rowZ - 0.10)
+                    marker.isHidden = true
+                    scene.rootNode.addChildNode(marker)
+                    seatMarkers[seatID] = marker
                 }
             }
         }
+        refreshSeatMarkerColors()
 
         // Four pooled dynamic lights: emissive strips provide decorative glow
         // without dozens of costly per-pixel light sources.
@@ -578,7 +741,7 @@ final class CinemaModel: ObservableObject {
         // Two independent eyes, 64-mm interpupillary separation.
         for (index, eye) in [leftCamera, rightCamera].enumerated() {
             eye.camera = SCNCamera()
-            eye.camera?.categoryBitMask = index == 0 ? (1 | 2) : (1 | 4)
+            eye.camera?.categoryBitMask = index == 0 ? (1 | 2 | 8) : (1 | 4 | 8)
             eye.camera?.fieldOfView = 75
             eye.camera?.zNear = 0.05
             eye.camera?.zFar = 90
@@ -593,6 +756,26 @@ private struct CinemaSceneView: UIViewRepresentable {
     let runtime: VRRuntime
     let rightEye: Bool
 
+    func makeCoordinator() -> Coordinator {
+        Coordinator(cinema: cinema)
+    }
+
+    final class Coordinator: NSObject {
+        let cinema: CinemaModel
+
+        init(cinema: CinemaModel) { self.cinema = cinema }
+
+        @objc func handleTap(_ recognizer: UITapGestureRecognizer) {
+            guard recognizer.state == .ended,
+                  let view = recognizer.view as? SCNView else { return }
+            if cinema.seatSelectionMode &&
+               cinema.chooseSeat(at: recognizer.location(in: view), in: view) {
+                return
+            }
+            if !cinema.controlsVisible { cinema.revealControls() }
+        }
+    }
+
     func makeUIView(context: Context) -> SCNView {
         let view = SCNView(frame: .zero)
         view.scene = cinema.scene
@@ -601,6 +784,9 @@ private struct CinemaSceneView: UIViewRepresentable {
         view.isPlaying = true
         view.rendersContinuously = true
         view.antialiasingMode = .multisampling2X
+        if !rightEye { cinema.leftSceneView = view }
+        view.addGestureRecognizer(UITapGestureRecognizer(
+            target: context.coordinator, action: #selector(Coordinator.handleTap(_:))))
         return view
     }
 
@@ -650,7 +836,21 @@ struct CinemaEyeView: View {
                                             in: Capsule())
                         }
                         .buttonStyle(.plain)
-                        Spacer()
+                        Spacer(minLength: 3)
+                        Button {
+                            cinema.toggleSeatSelection()
+                        } label: {
+                            Label(cinema.seatSelectionMode ? "Fechar assentos" : "Assentos",
+                                  systemImage: "chair.lounge.fill")
+                                .font(.system(size: 9, weight: .bold))
+                                .padding(.horizontal, 9)
+                                .padding(.vertical, 7)
+                                .background(cinema.seatSelectionMode
+                                    ? Color.blue.opacity(0.84) : .black.opacity(0.75),
+                                    in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        Spacer(minLength: 3)
                         Button { onExit() } label: {
                             Image(systemName: "xmark")
                                 .font(.system(size: 11, weight: .bold))
@@ -664,6 +864,28 @@ struct CinemaEyeView: View {
                     Spacer()
                 }
                 .foregroundStyle(.white)
+                if cinema.seatSelectionMode {
+                    Circle()
+                        .strokeBorder(.cyan.opacity(0.88), lineWidth: 1.7)
+                        .frame(width: 29, height: 29)
+                        .position(x: geometry.size.width / 2,
+                                  y: geometry.size.height / 2)
+                        .allowsHitTesting(false)
+                    VStack {
+                        Spacer()
+                        Text("Olhe para a bolinha da poltrona e faça pinça ou toque")
+                            .font(.system(size: 9, weight: .semibold))
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.7)
+                            .foregroundStyle(.white)
+                            .padding(8)
+                            .background(.black.opacity(0.78),
+                                        in: RoundedRectangle(cornerRadius: 8))
+                            .padding(.horizontal, 10)
+                            .padding(.bottom, 101)
+                    }
+                    .allowsHitTesting(false)
+                }
                 if cinema.controlsVisible {
                     VStack(spacing: 0) {
                         HStack(spacing: 5) {
@@ -708,7 +930,7 @@ struct CinemaEyeView: View {
                     }
                     .padding(.horizontal, 7)
                     .padding(.top, 4)
-                    Text(cinema.headTrackingStatus)
+                    Text(cinema.headTrackingStatus + " · " + cinema.currentSeatLabel)
                         .font(.system(size: 9, weight: .medium))
                         .foregroundStyle(.green.opacity(0.95))
                         .padding(.top, 3)
@@ -798,7 +1020,12 @@ struct CinemaEyeView: View {
             .onReceive(runtime.$hand) { hand in
                 guard !rightEye else { return }
                 if hand.visible && hand.pinching && !lastPinch {
-                    if !cinema.controlsVisible {
+                    if cinema.seatSelectionMode {
+                        // First try the fingertip; aim at a seat marker with
+                        // the centre reticle as a fallback for the VR Box.
+                        _ = cinema.chooseSeat(at: handPoint(size: geometry.size),
+                                              tryGazeCenter: true)
+                    } else if !cinema.controlsVisible {
                         // First pinch brings the controls back without
                         // accidentally pausing or exiting the movie.
                         cinema.revealControls()
