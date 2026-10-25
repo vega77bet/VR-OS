@@ -266,7 +266,7 @@ final class CinemaModel: ObservableObject {
             let node = SCNNode(geometry: SCNBox(width: w, height: h, length: d,
                                                  chamferRadius: chamfer))
             node.geometry?.firstMaterial?.diffuse.contents = color
-            node.position = SCNVector3(_x, _y, _z)
+            node.position = SCNVector3(x, y, z)
             seatPrototype.addChildNode(node)
         }
         seatPart(1.65, 0.31, 1.42, 0, 0.81, -0.12, velvetHighlight)
