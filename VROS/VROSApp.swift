@@ -193,7 +193,14 @@ struct VRHomeView: View {
             UIDevice.current.isBatteryMonitoringEnabled = true
             runtime.setCameraPreviewEnabled(selectedTheme == .graphite)
             runtime.setCinemaMode(cinemaOpen)
-            runtime.start()
+            if ultraWideMode {
+                // A reappearing root view must not restart ARKit while the
+                // physical ultrawide lens is owned by AVCapture.
+                runtime.stop()
+                ultraWide.start()
+            } else {
+                runtime.start()
+            }
             Task { await updates.check() }
         }
         .onChange(of: selectedTheme) { theme in
