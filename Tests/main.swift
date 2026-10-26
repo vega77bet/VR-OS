@@ -179,3 +179,135 @@ ultraPinch.reset()
 verify(!ultraPinch.pinching,
        "Vision camera reset must clear the last held pinch")
 print("PASS: ultrawide Vision pinch debouncing, release, hysteresis and reset")
+
+
+// V20: optical centres measured on the supplied VR headset screenshot.
+// Apertures are positioned against the FULL landscape screen, not 50/50 split.
+let screenshotSize = CGSize(width: 1536, height: 735)
+let reference = VRLensSettings().placement(in: screenshotSize)
+verify(abs(reference.aperture.width - 438) < 2,
+       "Reference lens width should match the example camera viewport")
+verify(abs(reference.aperture.height - 441) < 2,
+       "Reference lens height should match the example camera viewport")
+verify(abs(reference.left.x - 538) < 2 &&
+       abs(reference.right.x - 998) < 2,
+       "Reference lenses must sit near 35% and 65% of whole screen width")
+verify(abs(reference.left.y - 459) < 2,
+       "Reference lens should sit about 63% down the screen")
+verify(reference.gap >= 3, "Reference optical apertures must not overlap")
+
+for screen in [CGSize(width: 852, height: 393),
+               CGSize(width: 1536, height: 735),
+               CGSize(width: 667, height: 375)] {
+    for profile in VRLensProfile.allCases {
+        for scale in [CGFloat(0.75), 1.0, 1.4] {
+            for ipd in [CGFloat(-0.075), 0, 0.12] {
+                var settings = VRLensSettings()
+                settings.profile = profile
+                settings.scale = scale
+                settings.spacing = ipd
+                let placement = settings.placement(in: screen)
+                let size = placement.aperture
+                verify(size.width > 0 && size.height > 0,
+                       "A lens must be nonempty")
+                verify(placement.left.x - size.width / 2 >= 0 &&
+                       placement.right.x + size.width / 2 <= screen.width,
+                       "Both apertures must remain horizontally on display")
+                verify(placement.left.y - size.height / 2 >= 0 &&
+                       placement.left.y + size.height / 2 <= screen.height,
+                       "Both apertures must remain vertically on display")
+                verify(placement.right.x - size.width / 2 >
+                       placement.left.x + size.width / 2,
+                       "No overlapping lenses even with extreme IPD/scale")
+                verify(abs(placement.left.y - placement.right.y) < 0.0001,
+                       "Left and right eyes must have aligned horizontal axes")
+
+                let viewport = placement.aperture
+                let menu = VRLensMenuGeometry.rect(in: viewport)
+                let menuScale = menu.height / VRLensMenuGeometry.height
+                let minus = CGPoint(x: menu.maxX - 77 * menuScale,
+                                    y: menu.minY +
+                                    (VRLensMenuGeometry.controlY + 12) * menuScale)
+                let plus = CGPoint(x: menu.maxX - 20 * menuScale,
+                                   y: menu.minY +
+                                   (VRLensMenuGeometry.controlY + 12) * menuScale)
+                verify(VRLensMenuGeometry.action(
+                    at: minus, viewport: viewport) ==
+                    .adjust(row: 0, direction: -1),
+                    "The first lens settings minus button must match pinch")
+                verify(VRLensMenuGeometry.action(
+                    at: plus, viewport: viewport) ==
+                    .adjust(row: 0, direction: 1),
+                    "The first lens settings plus button must match pinch")
+                let close = CGPoint(x: menu.maxX - 20 * menuScale,
+                                    y: menu.minY + 20 * menuScale)
+                verify(VRLensMenuGeometry.action(
+                    at: close, viewport: viewport) == .close,
+                    "The lens calibration X must match pinch")
+            }
+        }
+    }
+}
+print("PASS: screenshot-matched dual optical apertures, IPD/size/height bounds")
+print("      and visor calibration +/- pinch targets")
+
+for screen in [CGSize(width: 243, height: 236),
+               CGSize(width: 304, height: 342),
+               CGSize(width: 426, height: 393)] {
+    for warning in [false, true] {
+        let count = 7
+        let perPage = VRGestureGeometry.compactAppRows(
+            viewport: screen, warning: warning, count: count)
+        let pages = VRGestureGeometry.compactAppPageCount(
+            viewport: screen, warning: warning, count: count)
+        let menuHeight = VRGestureGeometry.compactAppMenuHeight(
+            viewport: screen, warning: warning, count: count)
+        verify(menuHeight <= screen.height * 0.94,
+               "The 7-app launcher must never extend past an aperture")
+        verify(pages * perPage >= count, "All web apps must stay reachable")
+        let firstRowTop = (screen.height - menuHeight) / 2 + 10 +
+            VRGestureGeometry.appHeaderHeight + VRGestureGeometry.appRowGap +
+            VRGestureGeometry.appZoomHeight + VRGestureGeometry.appRowGap +
+            (warning ? VRGestureGeometry.appWarningHeight +
+                VRGestureGeometry.appRowGap : 0) +
+            VRGestureGeometry.compactAppPagerHeight + VRGestureGeometry.appRowGap
+
+        for page in 0..<pages {
+            for row in 0..<perPage {
+                let index = page * perPage + row
+                guard index < count else { continue }
+                let pointer = CGPoint(
+                    x: screen.width / 2,
+                    y: firstRowTop + CGFloat(row) *
+                       (VRGestureGeometry.appRowHeight +
+                        VRGestureGeometry.appRowGap) +
+                       VRGestureGeometry.appRowHeight / 2)
+                verify(VRGestureGeometry.compactAppRow(
+                    at: pointer, viewport: screen, count: count,
+                    warning: warning, page: page) == index,
+                    "Paginated VR app \(index) must map to its actual row")
+            }
+        }
+        let width = VRGestureGeometry.appMenuWidth(viewport: screen)
+        let left = (screen.width - width) / 2
+        let pagerY = (screen.height - menuHeight) / 2 + 10 +
+            VRGestureGeometry.appHeaderHeight + VRGestureGeometry.appRowGap +
+            VRGestureGeometry.appZoomHeight + VRGestureGeometry.appRowGap +
+            (warning ? VRGestureGeometry.appWarningHeight +
+                VRGestureGeometry.appRowGap : 0) +
+            VRGestureGeometry.compactAppPagerHeight / 2
+        verify(VRGestureGeometry.compactAppPageDelta(
+            at: CGPoint(x: left + width / 6, y: pagerY),
+            viewport: screen, count: count, warning: warning) == -1,
+            "Previous-page VR pinch hit")
+        verify(VRGestureGeometry.compactAppPageDelta(
+            at: CGPoint(x: left + width * 5 / 6, y: pagerY),
+            viewport: screen, count: count, warning: warning) == 1,
+            "Next-page VR pinch hit")
+        verify(VRGestureGeometry.compactAppPageDelta(
+            at: CGPoint(x: left + width / 2, y: pagerY),
+            viewport: screen, count: count, warning: warning) == nil,
+            "Page indicator should not advance on pinch")
+    }
+}
+print("PASS: small-aperture 7-app pagination, pinch controls, warnings")

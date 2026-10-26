@@ -54,6 +54,96 @@ enum VRGestureGeometry {
         return max(0, min(1, (x - 110) / max(1, width - 157)))
     }
 
+    // V20: lens-shaped viewports are smaller than the old half-screen.
+    // Paginate 7 web apps instead of clipping the launcher above the visor.
+    static let compactAppPagerHeight: CGFloat = 20
+
+    static func compactAppRows(viewport: CGSize, warning: Bool,
+                               count: Int) -> Int {
+        let fixed: CGFloat = 20 + appHeaderHeight + appZoomHeight +
+            compactAppPagerHeight + 2 * appRowGap +
+            (warning ? appWarningHeight + appRowGap : 0)
+        let room = max(0, viewport.height * 0.94 - fixed)
+        return min(max(1, count),
+                   max(1, Int(room / (appRowHeight + appRowGap))))
+    }
+
+    static func compactAppPageCount(viewport: CGSize, warning: Bool,
+                                    count: Int) -> Int {
+        let rows = compactAppRows(viewport: viewport, warning: warning,
+                                  count: count)
+        return max(1, (count + rows - 1) / rows)
+    }
+
+    static func compactAppMenuHeight(viewport: CGSize, warning: Bool,
+                                     count: Int) -> CGFloat {
+        let rows = CGFloat(compactAppRows(viewport: viewport,
+                                         warning: warning, count: count))
+        return 20 + appHeaderHeight + appZoomHeight + compactAppPagerHeight +
+            rows * appRowHeight + appRowGap * (rows + 2) +
+            (warning ? appWarningHeight + appRowGap : 0)
+    }
+
+    private static func compactMenuTop(viewport: CGSize, warning: Bool,
+                                       count: Int) -> CGFloat {
+        (viewport.height - compactAppMenuHeight(
+            viewport: viewport, warning: warning, count: count)) / 2
+    }
+
+    static func compactAppRow(at point: CGPoint, viewport: CGSize, count: Int,
+                              warning: Bool, page: Int) -> Int? {
+        guard count > 0 else { return nil }
+        let width = appMenuWidth(viewport: viewport)
+        let left = (viewport.width - width) / 2
+        guard point.x >= left, point.x <= left + width else { return nil }
+        let top = compactMenuTop(viewport: viewport, warning: warning,
+                                 count: count)
+        let warningHeight = warning ? appWarningHeight + appRowGap : 0
+        let firstRowTop = top + 10 + appHeaderHeight + appRowGap +
+            appZoomHeight + appRowGap + warningHeight +
+            compactAppPagerHeight + appRowGap
+        let y = point.y - firstRowTop
+        guard y >= 0 else { return nil }
+        let rows = compactAppRows(viewport: viewport, warning: warning,
+                                  count: count)
+        let row = Int(y / (appRowHeight + appRowGap))
+        guard row >= 0, row < rows,
+              y - CGFloat(row) * (appRowHeight + appRowGap) <= appRowHeight
+        else { return nil }
+        let index = max(0, page) * rows + row
+        return index < count ? index : nil
+    }
+
+    static func compactAppZoomFraction(at point: CGPoint, viewport: CGSize,
+                                       count: Int, warning: Bool) -> CGFloat? {
+        let width = appMenuWidth(viewport: viewport)
+        let left = (viewport.width - width) / 2
+        let top = compactMenuTop(viewport: viewport, warning: warning,
+                                 count: count) + 10 +
+            appHeaderHeight + appRowGap
+        let x = point.x - left
+        guard x >= 0, x <= width,
+              point.y >= top, point.y <= top + appZoomHeight else { return nil }
+        return max(0, min(1, (x - 110) / max(1, width - 157)))
+    }
+
+    static func compactAppPageDelta(at point: CGPoint, viewport: CGSize,
+                                    count: Int, warning: Bool) -> Int? {
+        let width = appMenuWidth(viewport: viewport)
+        let left = (viewport.width - width) / 2
+        let top = compactMenuTop(viewport: viewport, warning: warning,
+                                 count: count) + 10 + appHeaderHeight +
+            appRowGap + appZoomHeight + appRowGap +
+            (warning ? appWarningHeight + appRowGap : 0)
+        guard point.x >= left, point.x <= left + width,
+              point.y >= top, point.y <= top + compactAppPagerHeight
+        else { return nil }
+        let localX = point.x - left
+        if localX < width / 3 { return -1 }
+        if localX > width * 2 / 3 { return 1 }
+        return nil
+    }
+
     static func webToolbarSlot(localX: CGFloat, width: CGFloat,
                                count: Int = 7) -> Int {
         guard count > 0 else { return 0 }

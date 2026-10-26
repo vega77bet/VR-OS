@@ -119,11 +119,14 @@ struct VRHomeView: View {
     @State private var ultraPanelDirections: [UUID: SIMD3<Float>] = [:]
     @State private var ultraDrag: UltraWideDrag?
     @State private var eyeViewport = CGSize(width: 200, height: 390)
+    @State private var lens = VRLensSettings.load()
+    @State private var lensMenuOpen = false
     @StateObject private var updates = LiveUpdateManager()
     @State private var nextRemoteTemplateIndex = 0
     @State private var selectedTheme: VRTheme = .graphite
     @State private var themeMenuOpen = false
     @State private var appsOpen = false
+    @State private var appsPage = 0
     @State private var dockExpanded = true
     @State private var webSessions: [UUID: VRWebSession] = [:]
     @State private var noteSessions: [UUID: VRNoteSession] = [:]
@@ -145,23 +148,28 @@ struct VRHomeView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let eyeSize = CGSize(width: geometry.size.width / 2, height: geometry.size.height)
-            HStack(spacing: 0) {
-                if cinemaOpen {
-                    CinemaEyeView(rightEye: false, runtime: runtime, cinema: cinema, updates: updates,
-                                  onExit: { exitCinema() })
-                    CinemaEyeView(rightEye: true, runtime: runtime, cinema: cinema, updates: updates,
-                                  onExit: { exitCinema() })
-                } else {
-                    eyeView(right: false, size: eyeSize)
-                    eyeView(right: true, size: eyeSize)
-                }
+            let placement = lens.placement(in: geometry.size)
+            let eyeSize = placement.aperture
+            ZStack {
+                Color.black
+                // Eye centres are not forced to 25%/75% of the screen.
+                // Both live in the full landscape coordinate space, like
+                // the supplied VR headset reference screenshot.
+                lensEye(right: false, size: eyeSize)
+                    .frame(width: eyeSize.width, height: eyeSize.height)
+                    .clipShape(VRLensAperture(curvature: lens.curvature))
+                    // Mask visual pixels AND interactive touches outside the lens.
+                    .contentShape(VRLensAperture(curvature: lens.curvature))
+                    .position(placement.left)
+                lensEye(right: true, size: eyeSize)
+                    .frame(width: eyeSize.width, height: eyeSize.height)
+                    .clipShape(VRLensAperture(curvature: lens.curvature))
+                    // Mask visual pixels AND interactive touches outside the lens.
+                    .contentShape(VRLensAperture(curvature: lens.curvature))
+                    .position(placement.right)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
-            .background(Color.black)
-            .overlay(alignment: .center) {
-                Rectangle().fill(.black).frame(width: 3).allowsHitTesting(false)
-            }
+            .background(.black)
             .onReceive(runtime.$camera) { pose in
                 guard let pose = pose else { return }
                 anchorPendingPanels(pose: pose, size: eyeSize)
@@ -174,8 +182,11 @@ struct VRHomeView: View {
             }
             .onAppear { eyeViewport = eyeSize }
             .onChange(of: geometry.size) { nextSize in
-                eyeViewport = CGSize(width: nextSize.width / 2,
-                                     height: nextSize.height)
+                eyeViewport = lens.placement(in: nextSize).aperture
+            }
+            .onChange(of: lens) { newSettings in
+                newSettings.save()
+                eyeViewport = newSettings.placement(in: geometry.size).aperture
             }
             .onReceive(updates.$manifest) { remote in
                 applyRemoteWindowContent(remote)
@@ -240,6 +251,17 @@ struct VRHomeView: View {
         }
     }
 
+    @ViewBuilder
+    private func lensEye(right: Bool, size: CGSize) -> some View {
+        if cinemaOpen {
+            CinemaEyeView(rightEye: right, runtime: runtime,
+                          cinema: cinema, updates: updates,
+                          onExit: { exitCinema() })
+        } else {
+            eyeView(right: right, size: size)
+        }
+    }
+
     private func toggleUltraWide() {
         guard !cameraTransitioning, !cinemaOpen else { return }
         cameraTransitioning = true
@@ -249,6 +271,7 @@ struct VRHomeView: View {
         notePinchGesture = nil
         appsOpen = false
         themeMenuOpen = false
+        lensMenuOpen = false
         if ultraWideMode {
             // Wait for AVCapture to release the physical lens before ARKit resumes.
             ultraWide.stop { [self] in
@@ -323,12 +346,14 @@ struct VRHomeView: View {
                             .resizable()
                             .scaledToFit()
                             .frame(width: w, height: h)
+                            .scaleEffect(lens.cameraZoom)
                             .allowsHitTesting(false)
                     } else {
                         Image(decorative: frame, scale: 1, orientation: .up)
                             .resizable()
                             .scaledToFill()
                             .frame(width: w, height: h)
+                            .scaleEffect(lens.cameraZoom)
                             .clipped()
                             .allowsHitTesting(false)
                     }
@@ -351,6 +376,7 @@ struct VRHomeView: View {
                     .resizable()
                     .scaledToFill()
                     .frame(width: w, height: h)
+                    .scaleEffect(lens.cameraZoom)
                     .clipped()
                     .allowsHitTesting(false)
             } else {
@@ -392,10 +418,15 @@ struct VRHomeView: View {
                 if appsOpen {
                     appsLauncher(size: size).position(x: w / 2, y: h / 2)
                 }
+                if lensMenuOpen {
+                    lensCalibrationPanel(size: size)
+                        .position(x: w / 2, y: h / 2)
+                        .zIndex(10)
+                }
 
                 dock(size: size)
-                    .position(x: dockExpanded ? w / 2 : 24,
-                              y: dockExpanded ? dockCenterY(size) : h - 24)
+                    .position(x: dockExpanded ? w / 2 : max(32, w * 0.16),
+                              y: dockCenterY(size))
             }
 
             if ultraWideMode {
@@ -506,12 +537,41 @@ struct VRHomeView: View {
     }
 
     // The menu lives above the edge of the camera view so hands can reach it.
-    private func dockCenterY(_ size: CGSize) -> CGFloat { size.height * 0.91 }
+    private func dockCenterY(_ size: CGSize) -> CGFloat {
+        // Lens-shaped clipping would otherwise cut off the dock's last row.
+        min(size.height - 33, size.height * 0.82)
+    }
+
+    /// Adjust the OPTICAL viewport, not the physical 0.5x camera.
+    /// Changes apply identically to both eyes and persist across app launches.
+    private func adjustLens(row: Int, direction: Int) {
+        var next = lens
+        let step = CGFloat(direction)
+        switch row {
+        case 0: next.scale = max(0.75, min(1.40, next.scale + step * 0.05))
+        case 1: next.spacing = max(-0.075, min(0.12, next.spacing + step * 0.012))
+        case 2:
+            next.verticalOffset = max(-0.16, min(0.16,
+                                               next.verticalOffset + step * 0.015))
+        case 3:
+            next.cameraZoom = max(0.80, min(1.30,
+                                          next.cameraZoom + step * 0.05))
+        case 4:
+            next.curvature = max(0, min(1, next.curvature + step * 0.125))
+        default: return
+        }
+        lens = next
+    }
+
+    private func lensCalibrationPanel(size: CGSize) -> some View {
+        VRLensCalibrationView(lens: $lens, isOpen: $lensMenuOpen,
+                              viewport: size)
+    }
 
     private func dock(size: CGSize) -> some View {
         Group {
             if dockExpanded {
-                HStack(spacing: 3) {
+                HStack(spacing: 2) {
                     dockButton("plus.rectangle.on.rectangle", "Janela", slot: 0, size: size)
                     dockButton("square.grid.2x2.fill", "Apps", slot: 1, size: size)
                     dockButton("film.stack.fill", "Cinema", slot: 2, size: size)
@@ -520,6 +580,7 @@ struct VRHomeView: View {
                     dockButton("scope", "Centro", slot: 5, size: size)
                     dockButton("camera.aperture", ultraWideMode ? "ARKit" : "0,5x",
                                slot: 6, size: size)
+                    dockButton("viewfinder", "Visor", slot: 7, size: size)
                 }
                 .padding(5)
                 .background(selectedTheme.surface.opacity(0.95),
@@ -531,7 +592,7 @@ struct VRHomeView: View {
                     Image(systemName: "square.grid.2x2.fill")
                         .font(.system(size: 15))
                         .foregroundStyle(.white)
-                        .frame(width: 37, height: 37)
+                        .frame(width: 34, height: 34)
                         .background(selectedTheme.surface.opacity(0.93),
                                     in: RoundedRectangle(cornerRadius: 11))
                 }
@@ -552,7 +613,7 @@ struct VRHomeView: View {
                     .lineLimit(1).minimumScaleFactor(0.7)
             }
             .foregroundStyle(.white)
-            .frame(width: max(20, (size.width - 40) / 7), height: 48)
+            .frame(width: max(20, (size.width - 34) / 8), height: 42)
             .background(selectedTheme.accent.opacity(0.15),
                         in: RoundedRectangle(cornerRadius: 11))
         }
@@ -781,7 +842,7 @@ struct VRHomeView: View {
                         }
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 86)
+                        .frame(height: min(86, max(44, (size.height - 94) / 2)))
                         .background(theme.surface, in: RoundedRectangle(cornerRadius: 12))
                         .overlay(RoundedRectangle(cornerRadius: 12)
                             .stroke(theme == selectedTheme ? theme.accent : Color.white.opacity(0.25),
@@ -859,9 +920,9 @@ struct VRHomeView: View {
         }
         let iw = CGFloat(image.width)
         let ih = CGFloat(image.height)
-        let scale = ultraWideMode && ultraFullFrame
+        let scale = (ultraWideMode && ultraFullFrame
             ? min(size.width / iw, size.height / ih)
-            : max(size.width / iw, size.height / ih)
+            : max(size.width / iw, size.height / ih)) * lens.cameraZoom
         return CGPoint(x: raw.x * iw * scale + (size.width - iw * scale) / 2,
                        y: raw.y * ih * scale + (size.height - ih * scale) / 2)
     }
@@ -995,6 +1056,23 @@ struct VRHomeView: View {
     }
 
     private func beganPinch(_ pointer: CGPoint, hand: TrackedHand, size: CGSize) {
+        if lensMenuOpen {
+            // Vision pinch never triggers SwiftUI Button.touchUpInside, so
+            // menu hit positions must match VRLensMenuGeometry exactly.
+            if let action = VRLensMenuGeometry.action(at: pointer, viewport: size) {
+                switch action {
+                case .close:
+                    lensMenuOpen = false
+                case let .profile(index):
+                    if let selected = VRLensProfile(rawValue: index) {
+                        lens.choose(selected)
+                    }
+                case let .adjust(row, direction):
+                    adjustLens(row: row, direction: direction)
+                }
+            }
+            return
+        }
         // A real hand pinch can also reach ultrawide's lens/headset switches.
         if ultraWideMode && pointer.y <= 44 {
             let quarter = size.width / 4
@@ -1020,18 +1098,24 @@ struct VRHomeView: View {
         if appsOpen {
             let count = VRWebApp.allCases.count
             let warning = appsWarning != nil
-            if let index = VRGestureGeometry.appRow(
+            let pageCount = VRGestureGeometry.compactAppPageCount(
+                viewport: size, warning: warning, count: count)
+            if let direction = VRGestureGeometry.compactAppPageDelta(
                 at: pointer, viewport: size, count: count, warning: warning) {
+                appsPage = max(0, min(pageCount - 1, appsPage + direction))
+            } else if let index = VRGestureGeometry.compactAppRow(
+                at: pointer, viewport: size, count: count,
+                warning: warning, page: appsPage) {
                 openWebApp(VRWebApp.allCases[index])
-            } else if let fraction = VRGestureGeometry.appZoomFraction(
+            } else if let fraction = VRGestureGeometry.compactAppZoomFraction(
                 at: pointer, viewport: size, count: count, warning: warning) {
                 webWindowZoom = 0.65 + fraction * 0.90
             } else {
-                // A pinch outside the launcher closes it so the dock is usable.
+                // Tap outside to dismiss, but never select an invisible row.
                 let width = VRGestureGeometry.appMenuWidth(viewport: size)
                 let left = (size.width - width) / 2
-                let height = VRGestureGeometry.appMenuHeight(
-                    count: count, warning: warning)
+                let height = VRGestureGeometry.compactAppMenuHeight(
+                    viewport: size, warning: warning, count: count)
                 if pointer.x < left || pointer.x > left + width ||
                    abs(pointer.y - size.height / 2) > height / 2 {
                     appsOpen = false
@@ -1053,18 +1137,21 @@ struct VRHomeView: View {
         // When hidden, the dock shrinks to a small bottom-left launcher.
         // Otherwise its large touch area blocked the website grab handle.
         if !dockExpanded {
-            if pointer.x < 49 && abs(pointer.y - (size.height - 24)) < 26 {
+            let collapsedX = max(32, size.width * 0.16)
+            if abs(pointer.x - collapsedX) < 28 &&
+               abs(pointer.y - dockCenterY(size)) < 28 {
                 dockExpanded = true
                 return
             }
         } else {
-            let dockWidth = max(20, (size.width - 40) / 7) * 7 + 3 * 6 + 10
+            let cellWidth = max(20, (size.width - 34) / 8)
+            let dockWidth = cellWidth * 8 + 2 * 7 + 10
             let dockLeft = (size.width - dockWidth) / 2
-            if abs(pointer.y - dockCenterY(size)) <= 37 &&
-               pointer.x >= dockLeft - 8 &&
-               pointer.x <= dockLeft + dockWidth + 8 {
-                let cell = max(20, (size.width - 40) / 7) + 3
-                let slot = min(6, max(0, Int((pointer.x - dockLeft - 5) / cell)))
+            if abs(pointer.y - dockCenterY(size)) <= 29 &&
+               pointer.x >= dockLeft &&
+               pointer.x <= dockLeft + dockWidth {
+                let cell = cellWidth + 2
+                let slot = min(7, max(0, Int((pointer.x - dockLeft - 5) / cell)))
                 activateDock(slot)
                 dockExpanded = false
                 return
@@ -1376,7 +1463,16 @@ struct VRHomeView: View {
     }
 
     private func appsLauncher(size: CGSize) -> some View {
-        VStack(spacing: 7) {
+        let count = VRWebApp.allCases.count
+        let warning = appsWarning != nil
+        let rows = VRGestureGeometry.compactAppRows(
+            viewport: size, warning: warning, count: count)
+        let pages = VRGestureGeometry.compactAppPageCount(
+            viewport: size, warning: warning, count: count)
+        let page = min(max(0, appsPage), pages - 1)
+        let visibleApps = Array(VRWebApp.allCases.dropFirst(page * rows)
+            .prefix(rows))
+        return VStack(spacing: VRGestureGeometry.appRowGap) {
             HStack {
                 Image(systemName: "square.grid.2x2.fill")
                 Text("CENTRAL DE APPS").tracking(0.7)
@@ -1406,7 +1502,23 @@ struct VRHomeView: View {
                     .minimumScaleFactor(0.75)
                     .frame(height: VRGestureGeometry.appWarningHeight)
             }
-            ForEach(VRWebApp.allCases) { app in
+            HStack(spacing: 2) {
+                Button { appsPage = max(0, page - 1) } label: {
+                    Text("◀ Ant.")
+                        .frame(maxWidth: .infinity)
+                }
+                .disabled(page == 0)
+                Text("\(page + 1)/\(pages)")
+                    .frame(maxWidth: .infinity)
+                Button { appsPage = min(pages - 1, page + 1) } label: {
+                    Text("Próx. ▶")
+                        .frame(maxWidth: .infinity)
+                }
+                .disabled(page >= pages - 1)
+            }
+            .font(.system(size: 9, weight: .semibold))
+            .frame(height: VRGestureGeometry.compactAppPagerHeight)
+            ForEach(visibleApps) { app in
                 Button { openWebApp(app) } label: {
                     HStack(spacing: 8) {
                         Image(systemName: app.symbol)
@@ -1475,7 +1587,11 @@ struct VRHomeView: View {
             if let newPanel = panels.last { registerUltraWindow(newPanel) }
         case 1:
             appsOpen.toggle()
-            if appsOpen { themeMenuOpen = false }
+            if appsOpen {
+                appsPage = 0
+                themeMenuOpen = false
+                lensMenuOpen = false
+            }
         case 2:
             if ultraWideMode {
                 ultraNotice = "Cinema usa ARKit · volte ao modo normal"
@@ -1486,6 +1602,7 @@ struct VRHomeView: View {
             webPinchGesture = nil
             appsOpen = false
             themeMenuOpen = false
+            lensMenuOpen = false
             runtime.setCinemaMode(true)
             cinema.enter(camera: runtime.camera)
             cinemaOpen = true
@@ -1494,7 +1611,7 @@ struct VRHomeView: View {
             Task { await updates.check() }
         case 4:
             themeMenuOpen.toggle()
-            if themeMenuOpen { appsOpen = false }
+            if themeMenuOpen { appsOpen = false; lensMenuOpen = false }
         case 5:
             if ultraWideMode {
                 recenterUltraWide()
@@ -1507,6 +1624,12 @@ struct VRHomeView: View {
             }
         case 6:
             toggleUltraWide()
+        case 7:
+            lensMenuOpen.toggle()
+            if lensMenuOpen {
+                appsOpen = false
+                themeMenuOpen = false
+            }
         default:
             break
         }
