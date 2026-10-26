@@ -562,8 +562,10 @@ struct VRHomeView: View {
             }
 
             if focusedWebPanelID == nil {
-                if settings.showHUD { statusBar(size: size) }
-                    .position(x: w / 2, y: ultraWideMode ? 76 : 28)
+                if settings.showHUD {
+                    statusBar(size: size)
+                        .position(x: w / 2, y: ultraWideMode ? 76 : 28)
+                }
 
                 if themeMenuOpen {
                     themePicker(size: size).position(x: w / 2, y: h / 2)
@@ -1326,7 +1328,7 @@ struct VRHomeView: View {
                     lensMenuOpen = false
                 case let .profile(index):
                     if let selected = VRLensProfile(rawValue: index) {
-                        lens.choose(selected)
+                        settings.lens.choose(selected)
                     }
                 case let .adjust(row, direction):
                     adjustLens(row: row, direction: direction)
