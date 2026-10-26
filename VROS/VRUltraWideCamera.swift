@@ -57,15 +57,22 @@ final class VRUltraWideCamera: NSObject, ObservableObject,
         visionQueue.async { [weak self] in self?.pinchSensitivity = next }
     }
 
-    func start() {
+    func start(completion: ((Bool) -> Void)? = nil) {
         guard AVCaptureDevice.authorizationStatus(for: .video) == .authorized else {
             status = "Permita o acesso à câmera nos Ajustes"
+            completion?(false)
             return
         }
         status = "Ligando lente 0,5x e sensores…"
         queue.async { [weak self] in
-            guard let self = self else { return }
-            if !self.configured && !self.configure() { return }
+            guard let self = self else {
+                DispatchQueue.main.async { completion?(false) }
+                return
+            }
+            if !self.configured && !self.configure() {
+                DispatchQueue.main.async { completion?(false) }
+                return
+            }
             if !self.capture.isRunning { self.capture.startRunning() }
             let running = self.capture.isRunning
             DispatchQueue.main.async {
@@ -74,6 +81,7 @@ final class VRUltraWideCamera: NSObject, ObservableObject,
                     ? "0,5x real · mãos (Vision) + cabeça (3DoF)"
                     : "Não foi possível iniciar a câmera ultrawide"
                 if running { self.startHeadMotion() }
+                completion?(running)
             }
         }
     }
