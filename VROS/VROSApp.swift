@@ -850,7 +850,21 @@ struct VRHomeView: View {
                 Task { await updates.check() }
                 return
             }
-            // A pinch on the panel itself does not drag it.
+            if panel.kind == .content, let note = noteSessions[panel.id] {
+                if dy > dimensions.height / 2 - 63 &&
+                   dy < dimensions.height / 2 - 24 {
+                    note.scrollBy(dx < 0 ? -95 : 95)
+                    return
+                }
+                if dy > -dimensions.height / 2 + 39 &&
+                   dy < dimensions.height / 2 - 65 {
+                    notePinchGesture = NotePinchGesture(
+                        panelID: panel.id,
+                        initialPointerY: pointer.y,
+                        startScrollY: note.offsetY
+                    )
+                }
+            }
             return
         }
     }
@@ -883,22 +897,32 @@ struct VRHomeView: View {
             }
             return true
         }
-        // WebWindow's second toolbar row: Back, Forward, Reload, Home, Safari.
-        if y >= 76 && y < 110 {
-            let slot = min(4, max(0,
-                Int((x - 12) / max(1, (dims.width - 24) / 5))))
+        // The WebWindow has a navigation row and a second row for scrolling.
+        if y >= 76 && y < 111 {
+            let slot = min(6, max(0,
+                Int((x - 12) / max(1, (dims.width - 24) / 7))))
             switch slot {
             case 0: browser.back()
             case 1: browser.forward()
             case 2: browser.reload()
             case 3: browser.goHome()
-            default: browser.openInSafari()
+            case 4: browser.openInSafari()
+            case 5: browser.adjustPageZoom(-0.15)
+            default: browser.adjustPageZoom(0.15)
+            }
+            return true
+        }
+        if y >= 111 && y < 145 {
+            if x < dims.width * 0.28 {
+                browser.scrollByPage(-1)
+            } else if x > dims.width * 0.72 {
+                browser.scrollByPage(1)
             }
             return true
         }
 
-        let contentTop = top + 112
-        let contentBottom = top + dims.height - 43
+        let contentTop = top + 150
+        let contentBottom = top + dims.height - 30
         guard pointer.y >= contentTop && pointer.y <= contentBottom,
               dims.height > 180 else { return true }
         webPinchGesture = WebPinchGesture(
