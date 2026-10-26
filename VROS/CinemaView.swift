@@ -94,8 +94,7 @@ final class CinemaModel: ObservableObject {
     @Published var invertTracking = false
     private var screenPitchOffset: Float = 0
     private var screenYawOffset: Float = 0
-    private let screenCentre = SIMD3<Float>(0, 7.05, -15.66)
-    private var screenAimOrientation = simd_quatf()
+     private var screenAimOrientation = simd_quatf()
     private var lastMotionTimestamp: TimeInterval = 0
     private var roomLights: [SCNLight] = []
     private var ambientLight: SCNLight?
@@ -290,20 +289,15 @@ final class CinemaModel: ObservableObject {
         let eye = SIMD3<Float>(seat.cameraPosition.x,
                                seat.cameraPosition.y,
                                seat.cameraPosition.z)
-        let toScreen = simd_normalize(screenCentre - eye)
-        let neutral = simd_quatf(
-            from: SIMD3<Float>(0, 0, -1),
-            to: toScreen
-        )
+        let neutral = VRCinemaGeometry.lookRotation(from: eye)
         let extraYaw = simd_quatf(angle: screenYawOffset,
                                   axis: SIMD3<Float>(0, 1, 0))
         let extraPitch = simd_quatf(angle: screenPitchOffset,
                                     axis: SIMD3<Float>(1, 0, 0))
         screenAimOrientation = simd_normalize(neutral * extraYaw * extraPitch)
-        screenPitchDegrees = atan2(toScreen.y,
-                                   hypot(toScreen.x, toScreen.z)) * 180 / .pi +
+        screenPitchDegrees = VRCinemaGeometry.pitchDegrees(from: eye) +
                              screenPitchOffset * 180 / .pi
-        screenYawDegrees = atan2(-toScreen.x, -toScreen.z) * 180 / .pi +
+        screenYawDegrees = VRCinemaGeometry.yawDegrees(from: eye) +
                            screenYawOffset * 180 / .pi
         applyHeadOrientation(simd_quatf())
     }
