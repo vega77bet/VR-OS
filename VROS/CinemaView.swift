@@ -692,13 +692,10 @@ final class CinemaModel: ObservableObject {
         controlsTask?.cancel()
         controlsVisible = true
         guard playing && showControlsAutomatically else { return }
-        controlsTask = Task { [weak self] in
+        controlsTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 5_000_000_000)
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                guard let self = self, self.playing else { return }
-                self.controlsVisible = false
-            }
+            guard !Task.isCancelled, let self = self, self.playing else { return }
+            self.controlsVisible = false
         }
     }
 
@@ -747,10 +744,7 @@ final class CinemaModel: ObservableObject {
         let wall = UIColor(red: 0.028, green: 0.030, blue: 0.048, alpha: 1)
         let acoustic = UIColor(red: 0.067, green: 0.069, blue: 0.084, alpha: 1)
         let darkCarpet = UIColor(red: 0.060, green: 0.023, blue: 0.038, alpha: 1)
-        let velvet = UIColor(red: 0.32, green: 0.022, blue: 0.058, alpha: 1)
-        let velvetHighlight = UIColor(red: 0.43, green: 0.060, blue: 0.088, alpha: 1)
-        let blackLeather = UIColor(red: 0.045, green: 0.039, blue: 0.050, alpha: 1)
-        let gold = UIColor(red: 0.68, green: 0.43, blue: 0.17, alpha: 1)
+         let gold = UIColor(red: 0.68, green: 0.43, blue: 0.17, alpha: 1)
         let amber = UIColor(red: 0.90, green: 0.53, blue: 0.20, alpha: 1)
         let aisleBlue = UIColor(red: 0.09, green: 0.26, blue: 0.74, alpha: 1)
 
