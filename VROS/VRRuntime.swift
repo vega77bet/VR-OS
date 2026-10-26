@@ -62,6 +62,8 @@ final class VRRuntime: NSObject, ObservableObject, ARSessionDelegate {
 
     private var filteredJoints: [CGPoint?] = Array(repeating: nil, count: 21)
     private var filteredDepth: Float?
+    // Vision-queue only. Updated safely by settings on the same serial queue.
+    private var pinchSensitivity: CGFloat = 0.5
     private var pinchLatched = false
     private var pinchFrames = 0
     private var missingFrames = 0
@@ -71,6 +73,11 @@ final class VRRuntime: NSObject, ObservableObject, ARSessionDelegate {
         request.maximumHandCount = 1
         session.delegate = self
         session.delegateQueue = frameQueue
+    }
+
+    func setPinchSensitivity(_ raw: CGFloat) {
+        let next = max(0, min(1, raw))
+        visionQueue.async { [weak self] in self?.pinchSensitivity = next }
     }
 
     func start() {
@@ -267,7 +274,9 @@ final class VRRuntime: NSObject, ObservableObject, ARSessionDelegate {
             let palm = palmSpan(next)
             let pinchSize = max(palm, 0.04)
             let pinchRatio = hypot(index.x - thumb.x, index.y - thumb.y) / pinchSize
-            let target = pinchLatched ? pinchRatio < 0.63 : pinchRatio < 0.42
+            let engage = 0.42 + (pinchSensitivity - 0.5) * 0.18
+            let release = 0.63 + (pinchSensitivity - 0.5) * 0.16
+            let target = pinchLatched ? pinchRatio < release : pinchRatio < engage
             if target == pinchLatched {
                 pinchFrames = 0
             } else {
