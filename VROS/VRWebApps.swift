@@ -93,6 +93,11 @@ final class VRWebSession: ObservableObject {
             : nil
     }
 
+    func clearFavorites() {
+        favorites.removeAll()
+        UserDefaults.standard.removeObject(forKey: favoritesKey)
+    }
+
     func navigate() {
         let input = address.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !input.isEmpty else { return }
