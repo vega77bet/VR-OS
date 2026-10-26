@@ -12,6 +12,18 @@ options:
   deploymentTarget:
     iOS: "16.0"
 targets:
+  VROSRegressionHost:
+    type: application
+    platform: iOS
+    sources:
+      - RegressionHost
+    settings:
+      base:
+        SWIFT_VERSION: "5.0"
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGNING_ALLOWED: NO
+        TARGETED_DEVICE_FAMILY: "1"
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
   VROSRegressionTests:
     type: bundle.unit-test
     platform: iOS
@@ -19,11 +31,15 @@ targets:
       - path: VROS
         excludes: [VROSApp.swift]
       - RegressionTests
+    dependencies:
+      - target: VROSRegressionHost
     settings:
       base:
         SWIFT_VERSION: "5.0"
         GENERATE_INFOPLIST_FILE: YES
         CODE_SIGNING_ALLOWED: NO
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/VROSRegressionHost.app/VROSRegressionHost"
+        BUNDLE_LOADER: "$(TEST_HOST)"
   VROS:
     type: application
     platform: iOS

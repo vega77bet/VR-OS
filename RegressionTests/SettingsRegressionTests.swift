@@ -2,8 +2,65 @@ import XCTest
 import SwiftUI
 import UIKit
 import SceneKit
+import AVFoundation
 
 final class SettingsRegressionTests: XCTestCase {
+    @MainActor
+    func testDemoMovieImportsAsHalfSBS() async throws {
+        let url = try XCTUnwrap(Bundle(for: Self.self)
+            .url(forResource: "VR-OS-demo-H-SBS", withExtension: "mp4"))
+        let asset = AVURLAsset(url: url)
+        let playable = try await asset.load(.isPlayable)
+        XCTAssertTrue(playable)
+        let cinema = CinemaModel()
+        cinema.loadMovie(url)
+        for _ in 0..<30 {
+            if cinema.movieTitle == "VR-OS-demo-H-SBS" { break }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        XCTAssertEqual(cinema.movieTitle, "VR-OS-demo-H-SBS")
+        XCTAssertEqual(cinema.selectedMode, .halfSBS)
+        XCTAssertNil(cinema.errorMessage)
+        cinema.exit()
+        XCTAssertFalse(cinema.playing)
+    }
+
+    @MainActor
+    func testMountedStereoTablesFollowSearchAndNavigation() async throws {
+        let session = VRSettingsSession()
+        let root = HStack(spacing: 0) {
+            VRSettingsScreen(session: session, rightEye: false, onClose: {})
+            VRSettingsScreen(session: session, rightEye: true, onClose: {})
+        }.frame(width: 600, height: 300)
+        let host = UIHostingController(rootView: root)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 600, height: 300))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        host.view.layoutIfNeeded()
+        try await Task.sleep(nanoseconds: 100_000_000)
+        let left = try XCTUnwrap(session.primaryTable)
+        let right = try XCTUnwrap(session.secondaryTable)
+        session.searchText = "PINCA"
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(left.numberOfSections, right.numberOfSections)
+        XCTAssertEqual(left.numberOfRows(inSection: 0), 1)
+        XCTAssertEqual(right.numberOfRows(inSection: 0), 1)
+        let row = try XCTUnwrap(session.sections.first?.rows.first)
+        session.perform(row)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(session.page, .hands)
+        XCTAssertEqual(left.numberOfSections, right.numberOfSections)
+        for section in 0..<left.numberOfSections {
+            XCTAssertEqual(left.numberOfRows(inSection: section),
+                           right.numberOfRows(inSection: section))
+        }
+        session.back()
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(session.page, .home)
+        XCTAssertEqual(left.contentOffset.y, right.contentOffset.y, accuracy: 0.01)
+    }
+
     @MainActor
     func testCinemaCropsUseSeparateEyeHalvesAndCanSwap() throws {
         let cinema = CinemaModel()
