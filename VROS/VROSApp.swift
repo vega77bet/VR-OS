@@ -593,7 +593,10 @@ struct VRHomeView: View {
     }
 
     private func lensCalibrationPanel(size: CGSize) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
+        let menuBounds = VRLensMenuGeometry.rect(in: size)
+        let interfaceScale = max(0.01,
+                                 menuBounds.height / VRLensMenuGeometry.height)
+        return VStack(alignment: .leading, spacing: 3) {
             HStack {
                 Image(systemName: "viewfinder")
                 Text("AJUSTE DO VISOR")
@@ -646,7 +649,7 @@ struct VRHomeView: View {
                 .frame(maxWidth: .infinity, height: 14)
         }
         .padding(8)
-        .frame(width: VRLensMenuGeometry.rect(in: size).width,
+        .frame(width: menuBounds.width / interfaceScale,
                height: VRLensMenuGeometry.height)
         .foregroundStyle(.white)
         .background(Color(white: 0.065).opacity(0.97),
@@ -654,6 +657,9 @@ struct VRHomeView: View {
         .overlay(RoundedRectangle(cornerRadius: 11)
             .stroke(.cyan.opacity(0.65), lineWidth: 1))
         .shadow(color: .black.opacity(0.7), radius: 8)
+        // Entire menu stays inside even the minimum-size curved lens.
+        // Hit detection applies exactly the same UI scaling.
+        .scaleEffect(interfaceScale)
     }
 
     private func dock(size: CGSize) -> some View {
