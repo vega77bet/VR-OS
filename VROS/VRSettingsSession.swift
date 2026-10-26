@@ -359,16 +359,32 @@ final class VRSettingsSession: ObservableObject {
             let direction = point.x < viewport.width - 55 ? -1 : 1
             perform(row, direction: direction)
         } else if row.kind == .slider {
-            setNormalized(row.id, fraction: sliderFraction(x: point.x,
-                                                            width: viewport.width))
+            setNormalized(row.id, fraction: sliderFraction(
+                x: point.x, width: viewport.width,
+                localY: point.y - topInset))
         } else {
             perform(row)
         }
         return true
     }
 
-    func sliderFraction(x: CGFloat, width: CGFloat) -> CGFloat {
-        // Matches the slider's active x interval in VRSettingsTableCell.
-        max(0, min(1, (x - (width - 114)) / 92))
+    func sliderFraction(x: CGFloat, width: CGFloat,
+                        localY: CGFloat? = nil) -> CGFloat {
+        // Hit the UISlider's REAL visible track, including grouped cell
+        // margins; do not assume that cell.width == headset viewport.width.
+        if let y = localY, let table = primaryTable {
+            let contentY = y + table.contentOffset.y
+            if let indexPath = table.indexPathForRow(
+                at: CGPoint(x: x, y: contentY)),
+               let cell = table.cellForRow(at: indexPath)
+                   as? VRSettingsTableCell {
+                let rect = cell.slider.convert(cell.slider.bounds, to: table)
+                let start = rect.minX + 11
+                let length = max(1, rect.width - 22)
+                return max(0, min(1, (x - start) / length))
+            }
+        }
+        // Fallback while UIKit is still mounting the primary eye.
+        return max(0, min(1, (x - (width - 114)) / 92))
     }
 }
