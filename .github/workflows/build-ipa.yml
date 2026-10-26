@@ -4,7 +4,7 @@ on:
   push:
     branches: [main, vr-os-2-handtracking, vr-os-3-full-hand, vr-os-3-spatial-depth, vr-os-3-online-updates, vr-os-3-space-360, vr-os-3-depth-fix, vr-os-4-four-themes, vr-os-4-pinch-stability, vr-os-4-pinch-lock, vr-os-4-dock-depth-fix, vr-os-4-external-z-reachable-dock, vr-os-5-spatial-grab-handle, vr-os-6-imax-cinema, vr-os-7-imax-ultra-v2, vr-os-8-stereo-3d-cinema, vr-os-9-photos-internet-updates, vr-os-10-cinema-head-controls-fix, vr-os-11-cinema-seat-selection, vr-os-12-floating-web-apps, vr-os-13-web-fov-fix, vr-os-14-cinema-camera-fix, vr-os-15-cinema-tracking-calibration, vr-os-16-stability-immersive-fixes, vr-os-17-window-scroll-audit, vr-os-18-real-ultrawide-camera, vr-os-19-ultrawide-hand-head-tracking, vr-os-20-lens-viewports-reference, vr-os-21-native-settings-app]
   pull_request:
-    branches: [main]
+    branches: [main, vr-os-20-lens-viewports-reference]
 
 jobs:
   build:
@@ -33,3 +33,4 @@ jobs:
           name: VR-OS-21-Native-Settings-unsigned-IPA
           path: VR-OS-21-Native-Settings-unsigned.ipa
           retention-days: 14
+
