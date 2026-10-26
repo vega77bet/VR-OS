@@ -97,6 +97,7 @@ struct VRHomeView: View {
     @State private var appsOpen = false
     @State private var dockExpanded = true
     @State private var webSessions: [UUID: VRWebSession] = [:]
+    @State private var appsWarning: String?
     @State private var webWindowZoom: CGFloat = 1.0
     @State private var focusedWebPanelID: UUID?
     @State private var webPinchGesture: WebPinchGesture?
@@ -875,6 +876,7 @@ struct VRHomeView: View {
     private func close(_ id: UUID) {
         panels.removeAll { $0.id == id }
         webSessions.removeValue(forKey: id)
+        if webSessions.count < 3 { appsWarning = nil }
         if drag?.panelID == id { drag = nil }
         if webPinchGesture?.panelID == id { webPinchGesture = nil }
         if focusedWebPanelID == id { focusedWebPanelID = nil }
@@ -923,6 +925,14 @@ struct VRHomeView: View {
     }
 
     private func openWebApp(_ app: VRWebApp) {
+        // Each web app uses one WKWebView per eye. Keep a small cap so five
+        // streaming apps cannot exhaust an iPhone's memory in the headset.
+        guard webSessions.count < 3 else {
+            appsWarning = "Limite de 3 apps abertos. Feche uma janela para continuar."
+            appsOpen = true
+            return
+        }
+        appsWarning = nil
         let browser = VRWebSession(app: app)
         let offset = webSessions.count % 3
         let newPanel = VRPanel(
@@ -961,6 +971,12 @@ struct VRHomeView: View {
                 Text("\(Int(webWindowZoom * 100))%")
                     .font(.system(size: 10, weight: .bold))
                     .frame(width: 35)
+            }
+            if let warning = appsWarning {
+                Text(warning)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.yellow)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             ForEach(VRWebApp.allCases) { app in
                 Button { openWebApp(app) } label: {
