@@ -1,6 +1,7 @@
 import ARKit
 import SwiftUI
 import UIKit
+import simd
 
 @main
 struct VROSApp: App {
@@ -95,6 +96,14 @@ private struct NotePinchGesture {
     let startScrollY: CGFloat
 }
 
+/// In 0.5x mode we can drag angular window positions in two dimensions
+/// even though ARKit world translation is unavailable.
+private struct UltraWideDrag {
+    let panelID: UUID
+    let initialPointer: CGPoint
+    let initialCentre: CGPoint
+}
+
 struct VRHomeView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var wasBackgrounded = false
@@ -102,6 +111,11 @@ struct VRHomeView: View {
     @StateObject private var ultraWide = VRUltraWideCamera()
     @State private var ultraWideMode = false
     @State private var cameraTransitioning = false
+    @State private var ultraFullFrame = false
+    @State private var ultraNotice: String?
+    @State private var ultraPanelDirections: [UUID: SIMD3<Float>] = [:]
+    @State private var ultraDrag: UltraWideDrag?
+    @State private var eyeViewport = CGSize(width: 200, height: 390)
     @StateObject private var updates = LiveUpdateManager()
     @State private var nextRemoteTemplateIndex = 0
     @State private var selectedTheme: VRTheme = .graphite
@@ -151,6 +165,14 @@ struct VRHomeView: View {
             }
             .onReceive(runtime.$hand) { hand in
                 if !ultraWideMode { processGesture(hand, size: eyeSize) }
+            }
+            .onReceive(ultraWide.$hand) { hand in
+                if ultraWideMode { processGesture(hand, size: eyeSize) }
+            }
+            .onAppear { eyeViewport = eyeSize }
+            .onChange(of: geometry.size) { nextSize in
+                eyeViewport = CGSize(width: nextSize.width / 2,
+                                     height: nextSize.height)
             }
             .onReceive(updates.$manifest) { remote in
                 applyRemoteWindowContent(remote)
@@ -218,17 +240,50 @@ struct VRHomeView: View {
             // Wait for AVCapture to release the physical lens before ARKit resumes.
             ultraWide.stop { [self] in
                 ultraWideMode = false
+                ultraPanelDirections.removeAll()
+                ultraDrag = nil
+                ultraNotice = nil
                 runtime.setCameraPreviewEnabled(selectedTheme == .graphite)
                 runtime.resume()
                 cameraTransitioning = false
             }
         } else {
-            // ARKit and AVCapture cannot simultaneously own the rear camera.
+            // Snapshot the ARKit window screen positions before suspending it.
+            // In ultrawide mode, those points become ANGULAR bearings (3DoF)
+            // so head turns can keep windows in approximately fixed directions.
+            ultraPanelDirections.removeAll()
+            for panel in panels {
+                let location = windowCenter(panel, size: eyeViewport, right: false)
+                    ?? CGPoint(x: eyeViewport.width / 2,
+                               y: eyeViewport.height / 2)
+                ultraPanelDirections[panel.id] =
+                    VRUltraWideWindowProjection.screenRay(
+                        at: location, viewport: eyeViewport)
+            }
             runtime.stop()
             ultraWideMode = true
+            ultraNotice = nil
+            dockExpanded = false
             ultraWide.start()
             cameraTransitioning = false
         }
+    }
+
+    private func recenterUltraWide() {
+        guard ultraWideMode else { return }
+        // Rebase window directions to their CURRENT screen positions before
+        // changing the gyro origin, preventing a sudden position jump.
+        var newDirections: [UUID: SIMD3<Float>] = [:]
+        for panel in panels {
+            if let position = ultraWindowCenter(panel, size: eyeViewport,
+                                                right: false) {
+                newDirections[panel.id] = VRUltraWideWindowProjection.screenRay(
+                    at: position, viewport: eyeViewport)
+            }
+        }
+        ultraPanelDirections = newDirections
+        ultraWide.recenterMotion()
+        ultraNotice = "Mira 3DoF recentralizada"
     }
 
     private func eyeView(right: Bool, size: CGSize) -> some View {
