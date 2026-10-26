@@ -423,6 +423,19 @@ final class VRSettingsTableCell: UITableViewCell {
         setNeedsLayout()
     }
 
+    /// Finds the exact visible +/- button under a Vision fingertip.
+    /// Never infer its direction from the eye's screen width, because
+    /// insetGrouped cell margins change with headset aperture size.
+    func stepperDirection(at contentPoint: CGPoint,
+                          in table: UITableView) -> Int? {
+        guard let row = row, row.kind == .stepper else { return nil }
+        let negative = minus.convert(minus.bounds, to: table)
+        let positive = plus.convert(plus.bounds, to: table)
+        if negative.insetBy(dx: -4, dy: -6).contains(contentPoint) { return -1 }
+        if positive.insetBy(dx: -4, dy: -6).contains(contentPoint) { return 1 }
+        return nil
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         guard let row = row else { return }
