@@ -1,58 +1,52 @@
-# VR-OS 3.0 — ancoragem espacial + estimativa monocular de profundidade
+# VR-OS 4.3 — Cinema, janelas e apps web em VR para iPhone
 
-Protótipo **experimental** de realidade mista para iPhone 15 (não Pro) + VR Box.
+Aplicativo **experimental de realidade mista** para iPhone em modo paisagem, pensado para uso sentado com um headset simples tipo VR Box. **Não substitui o iOS** e não instala aplicativos iOS dentro das janelas.
 
-## O que mudou nesta branch
-- Uma única **ARSession** fornece os quadros da câmera. O mesmo CGImage é mostrado nos dois olhos: evita a dupla camada de prévia que podia deixar o olho esquerdo preto.
-- **ARKit World Tracking** fornece a pose 6DoF do telefone; cada janela guarda um ponto no **sistema de coordenadas do ARKit** e se mantém naquela posição enquanto a sessão rastreia bem.
-- **Vision** detecta 21 pontos em 2D: pulso e articulações dos cinco dedos. Esqueleto desenhado em ambas as metades.
-- Estimativa **aproximada** de Z da mão usando tamanho aparente da palma e intrínsecos da câmera; filtrada e limitada a 0,30–3,50 m. A largura real da palma é presumida em 8,5 cm, por isso não é medida confiável.
-- Pinça seleciona e move janela em X/Y. Movimento aproximado da mão em Z desloca a janela ao segurar pinça.
-- Barra inferior em cada janela com controle de distância (0,65–4 m). Visual em cinza/grafite, sem azul.
-- A dock cria janelas e recentraliza as existentes diante da pose atual.
+## O que existe na V17
 
-## Limitações importantes
-- O iPhone 15 padrão **não possui LiDAR**. A mão e dedos **não** têm coordenadas 3D individuais reais: há 21 articulações 2D mais **um único Z estimado para a mão**; dedos apontados/rotacionados podem distorcer a estimativa.
-- A câmera traseira é **monocular**. Ambos os olhos veem a mesma imagem real; apenas as janelas têm disparidade estimada para criar profundidade.
-- Os pontos das janelas são locais à sessão, não anchors persistentes em mapa de ambiente; **reiniciar perde as posições**. ARKit pode derivar ou perder tracking em locais sem textura/pouca luz.
-- ARKit e imagem de câmera são assumidos na orientação paisagem-direita; alinhamento e rotação podem precisar de calibração para modelos de iPhone e VR Box.
-- Decodificar frames de ARKit em CGImage e processar Vision pode aumentar consumo de bateria e latência.
-- O IPA produzido pelo Actions é **sem assinatura**. É preciso assinar/instalar via AltStore ou ferramenta apropriada. **Não é atualização OTA automática**.
-- Não executa aplicativos iOS em janelas.
-- Compilação CI **não substitui validação real no aparelho**. O alinhamento e gestos precisam de testes.
-- Utilize sentado/parado e em local sem obstáculos.
+- **Cinema virtual** com 72 poltronas, telão para arquivos locais MP4/MOV, modos 2D, SBS, H-SBS e OU, um AVPlayer para manter o vídeo dos dois olhos sincronizado, seleção de cadeira por toque, pinça ou **olhar fixamente por 1,5 s** para a bolinha.
+- **Ajustes de Cinema**: Centralizar, Mirar tela, Tela ↑/↓/←/→, FOV horizontal 55°–115°, MAX, inverter direção do movimento e trocar lados 3D. FOV, cadeira e calibração são persistidos localmente.
+- **Home espacial**: janelas em âncoras ARKit com movimento por pinça na linha branca; quatro temas (Grafite, Cosmos, Aurora e Synthwave). Dock minimizável no canto para não obstruir as alças das janelas.
+- **Textos legíveis**: as janelas de notas agora rolam verticalmente por toque, botões ou pinça; A− / A+ ajustam o tamanho da fonte.
+- **Central de Apps**: YouTube, Netflix, Navegador, Wikipedia e Twitch como sites em **WKWebView**, uma página por olho. Suporta Modo Foco, página Zoom +/−, rolagem por setas e pinça, favoritos de até quatro URLs, navegação HTTPS, recarregar, voltar e abrir no Safari.
+- **HUD** com versão instalada, relógio, bateria (quando disponível) e estado da câmera. Conteúdo remoto de janelas é buscado por HTTPS e fica em cache.
+- **Melhorias de desempenho**: ARKit e Vision processam localmente; previews CGImage ficam suspensos em Cinema e temas procedurais; há limite de três apps web abertos ao mesmo tempo.
 
-## Build
-XcodeGen e GitHub Actions em macOS constroem o app iOS e publicam o IPA sem assinatura nos artifacts da execução.
-Bundle ID preservado da versão anterior para facilitar atualização via assinatura com o mesmo identificador.
+## Como controlar
 
-## Segurança / privacidade
-Os quadros de câmera e hand tracking são processados localmente; este protótipo não os envia a servidores.
+1. Coloque o iPhone na horizontal; execute o app e permita câmera/movimento.
+2. **Dock**: Janela, Apps, Cinema, Atualizar, Temas, Centro. Depois de selecionar, o Dock pode virar um botão pequeno no canto inferior esquerdo; toque ou faça pinça nesse botão para reabri-lo.
+3. **Mover janela**: segure a pinça na **linha branca abaixo** do cartão e arraste a mão. A distância usa estimativa monocular e pode variar.
+4. **Nota longa**: role tocando, use ↑/↓ ou segure a pinça sobre o texto e mova a mão. A−/A+ mudam o tamanho da letra.
+5. **Site**: abra Apps, selecione a plataforma; expanda pelo ícone no cabeçalho para Modo Foco. Use setas de scroll, zoom de página, estrelinha para salvar favorito, ou pinça curta em links e pinça prolongada para rolar. Alguns sites exigem toque físico.
+6. **Cinema**: ajuste a mira com Centralizar/Mirar tela, escolha uma poltrona com a mira, toque ou pinça. Teste direção e FOV antes de colocar um vídeo grande; pare se sentir tontura.
 
+## Limites reais
 
-## Conteúdo atualizável pela internet (VR OS 3.1)
+- O iPhone padrão não tem LiDAR; o Z da mão é **estimado pela largura aparente da palma**, não medido com sensor 3D.
+- A câmera real é **monocular** e projetada para os dois olhos; não é passthrough estéreo verdadeiro.
+- O FOV configurável altera a câmera **virtual**, nunca o campo óptico do headset.
+- Netflix e outros provedores podem bloquear vídeo DRM em WKWebView. YouTube, Twitch e conteúdo dinâmico podem apresentar diferenças entre as duas páginas web independentes por olho; clicar por JavaScript não produz toque nativo confiável.
+- A captura da mão pela câmera traseira pode ser bloqueada pelo próprio VR Box. O Cinema oferece seleção de assento por **olhar**, mas Home/apps ainda usam toque ou mão.
+- As posições espaciais não são âncoras persistentes; reiniciar o aplicativo remove as janelas. O tracking do ARKit pode derivar em ambientes escuros.
+- **A compilação e os testes de geometria passam no macOS, mas não garantem calibração, latência, legibilidade, conforto ou compatibilidade de sites no iPhone real.**
+- Use sentado e sem obstáculos. Pare imediatamente em caso de náusea ou desconforto visual.
 
-A nova Central de Atualizações usa um manifesto JSON público hospedado em:
-https://vr-os-content-updates.vercel.app/manifest.json
+## Compilar e instalar
 
-O repositório do app continua privado. O servidor público da Vercel contém apenas configurações de interface, nunca código Swift, frames de câmera, senhas, tokens ou dados pessoais.
+`project.yml` define o target iOS 16+; o CI executa:
+```sh
+brew install xcodegen
+xcodegen generate
+swiftc VROS/VRGestureGeometry.swift VROS/VRCinemaGeometry.swift Tests/main.swift -o /tmp/vros-tests
+/tmp/vros-tests
+xcodebuild -project VROS.xcodeproj -scheme VROS -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
+```
 
-### Como funciona
-- Ao abrir o aplicativo, LiveUpdateManager busca via HTTPS o JSON público usando URLSession.
-- Toque em Atualizar na dock para abrir a central. O botão Buscar atualizações busca de novo.
-- Tema grafite, título do sistema e catálogo Apps (textos, ícones e modelos de janelas) são configuráveis no JSON.
-- Janelas já abertas originadas do catálogo têm título/texto/ícone atualizados sem perder posição ou profundidade.
-- Ao receber resposta válida, o manifesto é salvo no UserDefaults; sem internet, utiliza a última cópia válida ou o fallback incluído no IPA.
-- Versão, schema, número e tamanhos de textos, faixas de cores e URL nativa são validados. O arquivo remoto não é executado; só preenche propriedades da interface.
-- O botão Atualizar da dock também dispara a busca, inclusive por pinça; não é necessário PC para buscar e aplicar essas configurações.
+O workflow `.github/workflows/build-ipa.yml` faz build e publica um **IPA unsigned** em Artifacts. Para instalar, **assine** esse IPA com credenciais e um método compatível com o iPhone. Um IPA unsigned não instala diretamente nem se atualiza por download OTA.
 
-### Publicar outra versão de conteúdo
-Atualize o manifesto JSON no projeto Vercel vr-os-content-updates e faça um novo deployment de produção. A URL estável permanece a mesma. O app irá encontrar a nova versão na próxima abertura ou toque em Buscar. O arquivo de referência no GitHub está em updates/manifest.example.json. Editar apenas o arquivo no GitHub não publica o conteúdo: é necessário publicar o novo JSON na Vercel.
+## Conteúdo remoto
 
-### Limite obrigatório do iOS
-Não há atualização de código nativo em tempo real. Mudanças de ARKit, Vision, SwiftUI, permissões, performance, vídeo, novos gestos nativos ou correção de bugs do app exigem novo IPA assinado e instalado com AltStore ou outra distribuição autorizada. Não coloque links públicos para IPA sem assinatura esperando instalação automática: isso não funciona no iOS.
+O manifesto público `https://vr-os-content-updates.vercel.app/manifest.json` fornece apenas **textos, templates de janelas, algumas cores e metadados de versão**. É validado, mantido em cache local e **não executa Swift nem atualiza recursos nativos**. Novos apps web/gestos/correções de código exigem outra IPA assinada. Os frames de câmera e pontos da mão são processados localmente.
 
-Esta versão precisa de uma instalação manual inicial para adicionar o mecanismo. Depois disso, somente atualizações de interface e catálogo chegam pela rede.
-
-### Estado de teste
-O build automatizado confirma apenas compilação; a rede e a interface não foram validadas no iPhone real. Use em ambiente seguro, parado, sem obstáculos.
+Para ver auditoria, alterações e roteiro de teste, leia `V17_AUDITORIA.md`.
