@@ -78,6 +78,8 @@ final class CinemaModel: ObservableObject {
     private let screenWidth: CGFloat = 27.2
     private let screenHeight: CGFloat = 13.4
     private var player: AVPlayer?
+    private var endPlaybackObserver: NSObjectProtocol?
+    private var importedMovieURL: URL?
     private var movieImportID = UUID()
     private var initialOrientation: simd_quatf?
     private let motion = CMMotionManager()
@@ -92,8 +94,7 @@ final class CinemaModel: ObservableObject {
     @Published var invertTracking = false
     private var screenPitchOffset: Float = 0
     private var screenYawOffset: Float = 0
-    private let screenCentre = SIMD3<Float>(0, 7.05, -15.66)
-    private var screenAimOrientation = simd_quatf()
+     private var screenAimOrientation = simd_quatf()
     private var lastMotionTimestamp: TimeInterval = 0
     private var roomLights: [SCNLight] = []
     private var ambientLight: SCNLight?
@@ -119,11 +120,53 @@ final class CinemaModel: ObservableObject {
     @Published var showPicker = false
 
     init() {
+        // Previous versions copied every imported movie into Documents
+        // without deleting it. No release exposed these internal copies to
+        // the picker; clear them, then use Caches for temporary playback.
+        let fileManager = FileManager.default
+        let oldFolder = fileManager.urls(
+            for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Cinema", isDirectory: true)
+        try? fileManager.removeItem(at: oldFolder)
+        let cacheFolder = fileManager.urls(
+            for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Cinema", isDirectory: true)
+        try? fileManager.removeItem(at: cacheFolder)
+
+        let preferences = UserDefaults.standard
+        let savedFOV = preferences.double(forKey: "vros.cinema.fov.v1")
+        if savedFOV >= 55 && savedFOV <= 115 {
+            cinemaFovDegrees = CGFloat(savedFOV)
+        }
+        invertTracking = preferences.bool(forKey: "vros.cinema.invert.v1")
+        screenPitchOffset = Float(preferences.double(forKey: "vros.cinema.pitch.v1"))
+        screenYawOffset = Float(preferences.double(forKey: "vros.cinema.yaw.v1"))
+        screenPitchOffset = max(-0.50, min(0.50, screenPitchOffset))
+        screenYawOffset = max(-0.50, min(0.50, screenYawOffset))
+
         buildRoom()
+        let savedSeat = preferences.integer(forKey: "vros.cinema.seat.v1")
+        if preferences.object(forKey: "vros.cinema.seat.v1") != nil,
+           let seat = seats.first(where: { $0.id == savedSeat }) {
+            currentSeatID = seat.id
+            currentSeatLabel = seat.label
+            refreshSeatMarkerColors()
+        }
         updateStereoMaterials()
         updateSeatPosition()
         refreshScreenAim()
         updateLighting(animated: false)
+    }
+
+    deinit {
+        motion.stopDeviceMotionUpdates()
+        controlsTask?.cancel()
+        if let observer = endPlaybackObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let url = importedMovieURL {
+            try? FileManager.default.removeItem(at: url)
+        }
     }
 
     func enter(camera: ARCamera?) {
@@ -135,8 +178,6 @@ final class CinemaModel: ObservableObject {
         lastMotionTimestamp = 0
         headTrackingStatus = "Calibrando movimento…"
         controlsVisible = true
-        screenPitchOffset = 0
-        screenYawOffset = 0
         refreshScreenAim()
         startHeadTracking()
     }
@@ -171,6 +212,9 @@ final class CinemaModel: ObservableObject {
             guard let self = self else { return }
             guard let measurement = measurement, error == nil else {
                 self.headTrackingStatus = "Falha nos sensores · usando ARKit"
+                self.initialOrientation = self.lastARPose.map {
+                    simd_quatf($0.transform)
+                }
                 self.motion.stopDeviceMotionUpdates()
                 return
             }
@@ -245,20 +289,15 @@ final class CinemaModel: ObservableObject {
         let eye = SIMD3<Float>(seat.cameraPosition.x,
                                seat.cameraPosition.y,
                                seat.cameraPosition.z)
-        let toScreen = simd_normalize(screenCentre - eye)
-        let neutral = simd_quatf(
-            from: SIMD3<Float>(0, 0, -1),
-            to: toScreen
-        )
+        let neutral = VRCinemaGeometry.lookRotation(from: eye)
         let extraYaw = simd_quatf(angle: screenYawOffset,
                                   axis: SIMD3<Float>(0, 1, 0))
         let extraPitch = simd_quatf(angle: screenPitchOffset,
                                     axis: SIMD3<Float>(1, 0, 0))
         screenAimOrientation = simd_normalize(neutral * extraYaw * extraPitch)
-        screenPitchDegrees = atan2(toScreen.y,
-                                   hypot(toScreen.x, toScreen.z)) * 180 / .pi +
+        screenPitchDegrees = VRCinemaGeometry.pitchDegrees(from: eye) +
                              screenPitchOffset * 180 / .pi
-        screenYawDegrees = atan2(-toScreen.x, -toScreen.z) * 180 / .pi +
+        screenYawDegrees = VRCinemaGeometry.yawDegrees(from: eye) +
                            screenYawOffset * 180 / .pi
         applyHeadOrientation(simd_quatf())
     }
@@ -272,6 +311,8 @@ final class CinemaModel: ObservableObject {
     func adjustScreenHeight(_ direction: Float) {
         screenPitchOffset = max(-0.50, min(0.50,
                                          screenPitchOffset + direction * (.pi / 36)))
+        UserDefaults.standard.set(Double(screenPitchOffset),
+                                  forKey: "vros.cinema.pitch.v1")
         refreshScreenAim()
         recenterHead()
     }
@@ -279,6 +320,8 @@ final class CinemaModel: ObservableObject {
     func adjustScreenHorizontal(_ direction: Float) {
         screenYawOffset = max(-0.50, min(0.50,
                                        screenYawOffset + direction * (.pi / 36)))
+        UserDefaults.standard.set(Double(screenYawOffset),
+                                  forKey: "vros.cinema.yaw.v1")
         refreshScreenAim()
         recenterHead()
     }
@@ -286,12 +329,15 @@ final class CinemaModel: ObservableObject {
     func resetScreenAim() {
         screenPitchOffset = 0
         screenYawOffset = 0
+        UserDefaults.standard.set(0.0, forKey: "vros.cinema.pitch.v1")
+        UserDefaults.standard.set(0.0, forKey: "vros.cinema.yaw.v1")
         refreshScreenAim()
         recenterHead()
     }
 
     func toggleTrackingDirection() {
         invertTracking.toggle()
+        UserDefaults.standard.set(invertTracking, forKey: "vros.cinema.invert.v1")
         recenterHead()
     }
 
@@ -313,7 +359,7 @@ final class CinemaModel: ObservableObject {
             // Security-scoped file access is temporary. Copy into our sandbox
             // before dismissing the document picker so offline viewing works.
             let movieFolder = FileManager.default.urls(
-                for: .documentDirectory, in: .userDomainMask)[0]
+                for: .cachesDirectory, in: .userDomainMask)[0]
                 .appendingPathComponent("Cinema", isDirectory: true)
             try FileManager.default.createDirectory(at: movieFolder,
                                                     withIntermediateDirectories: true)
@@ -321,11 +367,29 @@ final class CinemaModel: ObservableObject {
                 UUID().uuidString + "." + url.pathExtension.lowercased())
             try FileManager.default.copyItem(at: url, to: dest)
             player?.pause()
+            if let previousObserver = endPlaybackObserver {
+                NotificationCenter.default.removeObserver(previousObserver)
+                endPlaybackObserver = nil
+            }
+            if let previousFile = importedMovieURL {
+                try? FileManager.default.removeItem(at: previousFile)
+            }
+            importedMovieURL = dest
             let movie = AVPlayer(url: dest)
             movie.actionAtItemEnd = .pause
             leftScreenMaterial.diffuse.contents = movie
             rightScreenMaterial.diffuse.contents = movie
             player = movie
+            endPlaybackObserver = NotificationCenter.default.addObserver(
+                forName: .AVPlayerItemDidPlayToEndTime,
+                object: movie.currentItem,
+                queue: .main
+            ) { [weak self] _ in
+                guard let self = self else { return }
+                self.playing = false
+                self.updateLighting()
+                self.revealControls()
+            }
             movieTitle = url.deletingPathExtension().lastPathComponent
             let name = movieTitle.lowercased()
             if name.contains("h-sbs") || name.contains("hsbs") ||
@@ -423,6 +487,8 @@ final class CinemaModel: ObservableObject {
 
     func adjustCinemaFOV(_ delta: CGFloat) {
         cinemaFovDegrees = min(115, max(55, cinemaFovDegrees + delta))
+        UserDefaults.standard.set(Double(cinemaFovDegrees),
+                                  forKey: "vros.cinema.fov.v1")
         updateSeatPosition()
         revealControls()
     }
@@ -501,6 +567,7 @@ final class CinemaModel: ObservableObject {
         guard let seat = seats.first(where: { $0.id == seatID }) else { return false }
         currentSeatID = seatID
         currentSeatLabel = seat.label
+        UserDefaults.standard.set(seatID, forKey: "vros.cinema.seat.v1")
         refreshSeatMarkerColors()
         // Lock the new chair position but reset the head's look direction
         // so the next camera frame faces the enormous screen naturally.
@@ -586,8 +653,19 @@ final class CinemaModel: ObservableObject {
 
     func togglePlayback() {
         guard let player = player else { showPicker = true; return }
-        if playing { player.pause() } else { player.play() }
-        playing.toggle()
+        if playing {
+            player.pause()
+            playing = false
+        } else {
+            let endTime = player.currentItem?.duration.seconds ?? .nan
+            let current = player.currentTime().seconds
+            if endTime.isFinite && endTime > 0 && current.isFinite &&
+               current >= endTime - 0.2 {
+                player.seek(to: .zero)
+            }
+            player.play()
+            playing = true
+        }
         updateLighting()
         revealControls()
     }
@@ -596,7 +674,10 @@ final class CinemaModel: ObservableObject {
         guard let player = player else { return }
         let seconds = player.currentTime().seconds
         guard seconds.isFinite else { return }
-        player.seek(to: CMTime(seconds: max(0, seconds + delta),
+        let duration = player.currentItem?.duration.seconds ?? .nan
+        let end = duration.isFinite && duration > 0
+            ? duration : Double.greatestFiniteMagnitude
+        player.seek(to: CMTime(seconds: min(end, max(0, seconds + delta)),
                               preferredTimescale: 600))
         revealControls()
     }
@@ -605,13 +686,10 @@ final class CinemaModel: ObservableObject {
         controlsTask?.cancel()
         controlsVisible = true
         guard playing && showControlsAutomatically else { return }
-        controlsTask = Task { [weak self] in
+        controlsTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 5_000_000_000)
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                guard let self = self, self.playing else { return }
-                self.controlsVisible = false
-            }
+            guard !Task.isCancelled, let self = self, self.playing else { return }
+            self.controlsVisible = false
         }
     }
 
@@ -660,10 +738,7 @@ final class CinemaModel: ObservableObject {
         let wall = UIColor(red: 0.028, green: 0.030, blue: 0.048, alpha: 1)
         let acoustic = UIColor(red: 0.067, green: 0.069, blue: 0.084, alpha: 1)
         let darkCarpet = UIColor(red: 0.060, green: 0.023, blue: 0.038, alpha: 1)
-        let velvet = UIColor(red: 0.32, green: 0.022, blue: 0.058, alpha: 1)
-        let velvetHighlight = UIColor(red: 0.43, green: 0.060, blue: 0.088, alpha: 1)
-        let blackLeather = UIColor(red: 0.045, green: 0.039, blue: 0.050, alpha: 1)
-        let gold = UIColor(red: 0.68, green: 0.43, blue: 0.17, alpha: 1)
+         let gold = UIColor(red: 0.68, green: 0.43, blue: 0.17, alpha: 1)
         let amber = UIColor(red: 0.90, green: 0.53, blue: 0.20, alpha: 1)
         let aisleBlue = UIColor(red: 0.09, green: 0.26, blue: 0.74, alpha: 1)
 
@@ -1275,11 +1350,15 @@ struct CinemaEyeView: View {
 
     private func handPoint(size: CGSize) -> CGPoint {
         let raw = runtime.hand.point
-        guard let image = runtime.cameraImage else {
+        // Cinema skips CGImage generation for performance, so use ARKit's
+        // native image resolution to preserve the correct fingertip crop.
+        let iw = runtime.camera?.imageResolution.width ??
+                 CGFloat(runtime.cameraImage?.width ?? 0)
+        let ih = runtime.camera?.imageResolution.height ??
+                 CGFloat(runtime.cameraImage?.height ?? 0)
+        guard iw > 0, ih > 0 else {
             return CGPoint(x: raw.x * size.width, y: raw.y * size.height)
         }
-        let iw = CGFloat(image.width)
-        let ih = CGFloat(image.height)
         let scale = max(size.width / iw, size.height / ih)
         return CGPoint(x: raw.x * iw * scale - (iw * scale - size.width) / 2,
                        y: raw.y * ih * scale - (ih * scale - size.height) / 2)

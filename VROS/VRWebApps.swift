@@ -71,6 +71,11 @@ final class VRWebSession: ObservableObject {
     @Published private(set) var canGoForward = false
     @Published var loading = false
     @Published var message: String?
+    @Published private(set) var pageZoom: CGFloat = 1.15
+    @Published private(set) var favorites: [URL] = []
+
+    private let favoritesKey = "vros.web.favorites.v1"
+    var currentIsFavorite: Bool { favorites.contains(requestedURL) }
 
     weak var primary: WKWebView?
     weak var secondary: WKWebView?
@@ -79,6 +84,10 @@ final class VRWebSession: ObservableObject {
         self.app = app
         requestedURL = app.startURL
         address = app.startURL.absoluteString
+        favorites = Array((UserDefaults.standard.stringArray(forKey: favoritesKey) ?? [])
+            .compactMap(URL.init(string:))
+            .filter { $0.scheme == "https" }
+            .suffix(4))
         message = app == .netflix
             ? "Filmes protegidos podem não tocar aqui. Use Safari se necessário."
             : nil
@@ -111,17 +120,13 @@ final class VRWebSession: ObservableObject {
     }
 
     func back() {
-        if primary?.canGoBack == true {
-            primary?.goBack()
-            if secondary?.canGoBack == true { secondary?.goBack() }
-        }
+        // The secondary web view is a mirror, not an independent history.
+        // Going back twice used to desynchronize the stereo eye histories.
+        if primary?.canGoBack == true { primary?.goBack() }
     }
 
     func forward() {
-        if primary?.canGoForward == true {
-            primary?.goForward()
-            if secondary?.canGoForward == true { secondary?.goForward() }
-        }
+        if primary?.canGoForward == true { primary?.goForward() }
     }
 
     func reload() {
@@ -143,7 +148,57 @@ final class VRWebSession: ObservableObject {
 
     func mirrorScroll(from offset: CGPoint) {
         guard let secondary = secondary else { return }
-        secondary.scrollView.setContentOffset(offset, animated: false)
+        let scroll = secondary.scrollView
+        let insets = scroll.adjustedContentInset
+        let maxY = max(-insets.top, scroll.contentSize.height -
+                       scroll.bounds.height + insets.bottom)
+        let y = min(maxY, max(-insets.top, offset.y))
+        let maxX = max(0, scroll.contentSize.width - scroll.bounds.width)
+        let x = min(maxX, max(0, offset.x))
+        if abs(scroll.contentOffset.y - y) > 0.5 ||
+           abs(scroll.contentOffset.x - x) > 0.5 {
+            scroll.setContentOffset(CGPoint(x: x, y: y), animated: false)
+        }
+    }
+
+    func toggleFavorite() {
+        let url = primary?.url ?? requestedURL
+        guard url.scheme == "https" else { return }
+        if favorites.contains(url) {
+            favorites.removeAll { $0 == url }
+            message = "Favorito removido."
+        } else {
+            if favorites.count >= 4 { favorites.removeFirst() }
+            favorites.append(url)
+            message = "Página salva nos favoritos."
+        }
+        UserDefaults.standard.set(favorites.map(\.absoluteString),
+                                  forKey: favoritesKey)
+    }
+
+    func openFavorite(_ index: Int) {
+        guard favorites.indices.contains(index) else { return }
+        let url = favorites[index]
+        address = url.absoluteString
+        message = nil
+        requestedURL = url
+    }
+
+    func setPageZoom(_ zoom: CGFloat) {
+        pageZoom = max(0.75, min(2.50, zoom))
+        primary?.pageZoom = pageZoom
+        secondary?.pageZoom = pageZoom
+    }
+
+    func adjustPageZoom(_ delta: CGFloat) {
+        setPageZoom(pageZoom + delta)
+    }
+
+    func scrollByPage(_ direction: CGFloat) {
+        guard let primary = primary else { return }
+        let scroll = primary.scrollView
+        scrollFromPinch(startY: scroll.contentOffset.y,
+                        fingerDeltaY: -direction * scroll.bounds.height * 0.64)
     }
 
     func openInSafari() {
@@ -214,7 +269,13 @@ private struct VRWebSurface: UIViewRepresentable {
             let script = """
             (() => {
               const mute = () => document.querySelectorAll('video,audio')
-                .forEach(el => { el.muted = true; el.volume = 0; });
+                .forEach(el => {
+                  try {
+                    el.muted = true;
+                    el.defaultMuted = true;
+                    el.volume = 0;
+                  } catch (_) {}
+                });
               document.addEventListener('DOMContentLoaded', () => {
                 mute();
                 new MutationObserver(mute).observe(document.documentElement,
@@ -235,6 +296,7 @@ private struct VRWebSurface: UIViewRepresentable {
         view.isOpaque = false
         view.backgroundColor = UIColor.black
         view.scrollView.backgroundColor = UIColor.black
+        view.pageZoom = session.pageZoom
         view.isUserInteractionEnabled = !rightEye
         if rightEye {
             session.secondary = view
@@ -254,6 +316,9 @@ private struct VRWebSurface: UIViewRepresentable {
     }
 
     func updateUIView(_ view: WKWebView, context: Context) {
+        if abs(view.pageZoom - session.pageZoom) > 0.001 {
+            view.pageZoom = session.pageZoom
+        }
         guard context.coordinator.loadedURL != session.requestedURL else { return }
         context.coordinator.loadedURL = session.requestedURL
         if view.url != session.requestedURL {
@@ -277,12 +342,18 @@ private struct VRWebSurface: UIViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            session.didLoad(webView)
+            if rightEye {
+                session.mirrorScroll(
+                    from: session.primary?.scrollView.contentOffset ?? .zero)
+            } else {
+                session.didLoad(webView)
+            }
         }
 
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!,
                      withError error: Error) {
             guard !rightEye else { return }
+            if (error as NSError).code == NSURLErrorCancelled { return }
             session.loading = false
             session.message = "Site indisponível: " + error.localizedDescription
         }
@@ -290,6 +361,7 @@ private struct VRWebSurface: UIViewRepresentable {
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!,
                      withError error: Error) {
             guard !rightEye else { return }
+            if (error as NSError).code == NSURLErrorCancelled { return }
             session.loading = false
             session.message = error.localizedDescription
         }
@@ -327,7 +399,11 @@ struct VRWebWindow: View {
                     .frame(height: 30)
                     .background(Color.white.opacity(0.11),
                                 in: RoundedRectangle(cornerRadius: 7))
+                navButton(session.currentIsFavorite ? "star.fill" : "star",
+                          disabled: false) { session.toggleFavorite() }
+                    .frame(width: 29)
                 navButton("arrow.right", disabled: false) { session.navigate() }
+                    .frame(width: 29)
             }
             HStack(spacing: 4) {
                 navButton("chevron.left", disabled: !session.canGoBack) {
@@ -339,9 +415,50 @@ struct VRWebWindow: View {
                 navButton("arrow.clockwise", disabled: false) { session.reload() }
                 navButton("house.fill", disabled: false) { session.goHome() }
                 navButton("safari", disabled: false) { session.openInSafari() }
-                if session.loading { ProgressView().scaleEffect(0.65) }
+                navButton("minus.magnifyingglass", disabled: false) {
+                    session.adjustPageZoom(-0.15)
+                }
+                navButton("plus.magnifyingglass", disabled: false) {
+                    session.adjustPageZoom(0.15)
+                }
             }
-            .frame(height: 27)
+            .frame(height: 28)
+            HStack(spacing: 4) {
+                navButton("arrow.up", disabled: false) { session.scrollByPage(-1) }
+                Text("Página \(Int(session.pageZoom * 100))%")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.8))
+                    .frame(maxWidth: .infinity)
+                if session.loading {
+                    ProgressView().scaleEffect(0.7)
+                }
+                navButton("arrow.down", disabled: false) { session.scrollByPage(1) }
+            }
+            .frame(height: 25)
+            if !session.favorites.isEmpty {
+                HStack(spacing: 4) {
+                    Image(systemName: "star.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.yellow)
+                    ForEach(Array(session.favorites.enumerated()), id: \.offset) { index, url in
+                        Button {
+                            session.openFavorite(index)
+                        } label: {
+                            Text(url.host?.replacingOccurrences(of: "www.", with: "")
+                                 ?? "Favorito")
+                                .font(.system(size: 9))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.7)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 23)
+                                .background(.white.opacity(0.12),
+                                            in: RoundedRectangle(cornerRadius: 5))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .frame(height: 24)
+            }
 
             VRWebSurface(session: session, rightEye: rightEye)
                 .background(Color.black)
@@ -355,7 +472,7 @@ struct VRWebWindow: View {
             } else {
                 Text(session.app == .netflix
                      ? "Reprodução protegida pode exigir Safari"
-                     : "Toque para navegar · alça branca para mover")
+                     : "Pinça: clicar/rolar · setas: scroll · alça: mover")
                     .font(.system(size: 9))
                     .foregroundStyle(.white.opacity(0.67))
                     .lineLimit(1)

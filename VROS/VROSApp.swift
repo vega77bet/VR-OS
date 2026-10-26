@@ -1,5 +1,6 @@
 import ARKit
 import SwiftUI
+import UIKit
 
 @main
 struct VROSApp: App {
@@ -88,7 +89,15 @@ private struct WebPinchGesture {
     var moved = false
 }
 
+private struct NotePinchGesture {
+    let panelID: UUID
+    let initialPointerY: CGFloat
+    let startScrollY: CGFloat
+}
+
 struct VRHomeView: View {
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var wasBackgrounded = false
     @StateObject private var runtime = VRRuntime()
     @StateObject private var updates = LiveUpdateManager()
     @State private var nextRemoteTemplateIndex = 0
@@ -97,6 +106,8 @@ struct VRHomeView: View {
     @State private var appsOpen = false
     @State private var dockExpanded = true
     @State private var webSessions: [UUID: VRWebSession] = [:]
+    @State private var noteSessions: [UUID: VRNoteSession] = [:]
+    @State private var notePinchGesture: NotePinchGesture?
     @State private var appsWarning: String?
     @State private var webWindowZoom: CGFloat = 1.0
     @State private var focusedWebPanelID: UUID?
@@ -149,13 +160,37 @@ struct VRHomeView: View {
             let savedWebZoom = UserDefaults.standard.double(forKey: "vros.webZoom.v1")
             webWindowZoom = savedWebZoom > 0
                 ? min(1.55, max(0.65, CGFloat(savedWebZoom))) : 1.0
+            UIDevice.current.isBatteryMonitoringEnabled = true
+            runtime.setCameraPreviewEnabled(selectedTheme == .graphite)
+            runtime.setCinemaMode(cinemaOpen)
             runtime.start()
             Task { await updates.check() }
         }
+        .onChange(of: selectedTheme) { theme in
+            runtime.setCameraPreviewEnabled(theme == .graphite)
+        }
         .onChange(of: webWindowZoom) { zoom in
             UserDefaults.standard.set(Double(zoom), forKey: "vros.webZoom.v1")
+            // Past 100% the web window has filled its eye viewport. Zoom
+            // the PAGE rather than letting controls disappear offscreen.
+            for browser in webSessions.values {
+                browser.setPageZoom(max(1.0, zoom * 1.15))
+            }
+        }
+        .onChange(of: scenePhase) { phase in
+            if phase == .background {
+                wasBackgrounded = true
+                if cinemaOpen { cinema.exit() }
+                runtime.stop()
+            } else if phase == .active && wasBackgrounded {
+                wasBackgrounded = false
+                runtime.setCinemaMode(cinemaOpen)
+                runtime.resume()
+                if cinemaOpen { cinema.enter(camera: runtime.camera) }
+            }
         }
         .onDisappear {
+            if cinemaOpen { cinema.exit() }
             runtime.setCinemaMode(false)
             runtime.stop()
         }
@@ -252,9 +287,24 @@ struct VRHomeView: View {
                 Circle()
                     .fill(runtime.spatialTracking ? Color.white : Color.gray)
                     .frame(width: 5, height: 5)
-                Text(updates.manifest.headline)
-                    .tracking(1.0)
+                Text("VR OS " + (Bundle.main.infoDictionary?["CFBundleShortVersionString"]
+                    as? String ?? "4.3"))
+                    .tracking(0.5)
                     .font(.system(size: 10, weight: .semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                Spacer(minLength: 1)
+                TimelineView(.periodic(from: .now, by: 30)) { timeline in
+                    HStack(spacing: 3) {
+                        Text(timeline.date, format: .dateTime.hour().minute())
+                        if UIDevice.current.batteryLevel >= 0 {
+                            Image(systemName: "battery.100percent")
+                            Text("\(Int(UIDevice.current.batteryLevel * 100))%")
+                        }
+                    }
+                    .font(.system(size: 9, weight: .medium))
+                    .fixedSize(horizontal: true, vertical: false)
+                }
             }
             Text(runtime.cameraStatus)
                 .font(.system(size: 10))
@@ -390,12 +440,38 @@ struct VRHomeView: View {
                     .disabled(updates.isChecking)
                     .buttonStyle(.plain)
                 }
+            } else if let note = noteSessions[panel.id] {
+                VStack(spacing: 3) {
+                    VRNoteScrollSurface(session: note, rightEye: right)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    HStack(spacing: 6) {
+                        Button { note.adjustFontSize(-1) } label: {
+                            Text("A−").frame(maxWidth: .infinity)
+                        }
+                        Button { note.scrollBy(-90) } label: {
+                            Image(systemName: "arrow.up")
+                                .frame(maxWidth: .infinity)
+                        }
+                        Button { note.scrollBy(90) } label: {
+                            Image(systemName: "arrow.down")
+                                .frame(maxWidth: .infinity)
+                        }
+                        Button { note.adjustFontSize(1) } label: {
+                            Text("A+").frame(maxWidth: .infinity)
+                        }
+                    }
+                    .font(.system(size: 10, weight: .medium))
+                    .buttonStyle(.plain)
+                    .padding(.vertical, 3)
+                    .background(.white.opacity(0.13),
+                                in: RoundedRectangle(cornerRadius: 7))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 Text(panel.text)
                     .font(.system(size: 11, weight: .regular))
                     .foregroundStyle(.white.opacity(0.86))
-                    .lineLimit(4)
-                    .minimumScaleFactor(0.7)
+                    .lineLimit(nil)
             }
 
             if panel.kind != .web { Spacer(minLength: 0) }
@@ -417,15 +493,22 @@ struct VRHomeView: View {
         .overlay(RoundedRectangle(cornerRadius: 16)
             .stroke(selectedTheme.accent.opacity(0.45), lineWidth: 1))
         .shadow(color: .black.opacity(0.50), radius: 11, y: 5)
+        .onAppear {
+            if panel.kind == .content && noteSessions[panel.id] == nil {
+                noteSessions[panel.id] = VRNoteSession(text: panel.text)
+            }
+        }
     }
 
     private func displayedPanelSize(_ panel: VRPanel, size: CGSize) -> CGSize {
-        if focusedWebPanelID == panel.id {
-            return CGSize(width: size.width * 0.995, height: size.height * 0.99)
-        }
-        let scale = windowScale(panel)
-        return CGSize(width: panelWidth(panel, size: size) * scale,
-                      height: panelHeight(panel, size: size) * scale)
+        VRGestureGeometry.visiblePanelSize(
+            original: CGSize(width: panelWidth(panel, size: size),
+                             height: panelHeight(panel, size: size)),
+            scale: windowScale(panel),
+            viewport: size,
+            isWeb: panel.kind == .web,
+            isFocused: focusedWebPanelID == panel.id
+        )
     }
 
     private func displayedPanelCenter(_ panel: VRPanel, size: CGSize,
@@ -447,13 +530,13 @@ struct VRHomeView: View {
 
     /// The handle is only a white line, without a track, numbers, or thumb.
     private func grabHandleWidth(_ panel: VRPanel, size: CGSize) -> CGFloat {
-        min(size.width * 0.72, max(70, panelWidth(panel, size: size) * windowScale(panel) * 0.68))
+        min(size.width * 0.72, max(70, displayedPanelSize(panel, size: size).width * 0.68))
     }
 
     private func grabHandleCenter(_ center: CGPoint, panel: VRPanel,
                                   size: CGSize) -> CGPoint {
         CGPoint(x: center.x,
-                y: center.y + panelHeight(panel, size: size) * windowScale(panel) / 2 + 22)
+                y: center.y + displayedPanelSize(panel, size: size).height / 2 + 22)
     }
 
     private func grabHandle(_ panel: VRPanel, size: CGSize) -> some View {
@@ -572,6 +655,7 @@ struct VRHomeView: View {
             lastPinch = false
             drag = nil
             webPinchGesture = nil
+            notePinchGesture = nil
             return
         }
 
@@ -591,11 +675,16 @@ struct VRHomeView: View {
                     startY: webGesture.startScrollY, fingerDeltaY: dy)
             }
             webPinchGesture = webGesture
+        } else if hand.pinching, let noteGesture = notePinchGesture {
+            noteSessions[noteGesture.panelID]?.scrollFromPinch(
+                startY: noteGesture.startScrollY,
+                fingerDeltaY: pointer.y - noteGesture.initialPointerY)
         } else if !hand.pinching {
             if lastPinch, let gesture = webPinchGesture, !gesture.moved {
                 webSessions[gesture.panelID]?.tapFromPinch(x: gesture.x, y: gesture.y)
             }
             webPinchGesture = nil
+            notePinchGesture = nil
             drag = nil
         }
         lastPinch = hand.pinching
@@ -674,33 +763,24 @@ struct VRHomeView: View {
             return
         }
         if appsOpen {
-            // Use the same rows/spacing as appsLauncher, including the
-            // zoom slider and newly installed site entries. Previously the
-            // hardcoded 3-row map opened the WRONG app after V13.
-            let width = min(size.width * 0.89, 330)
-            let menuLeft = (size.width - width) / 2
-            let warningHeight: CGFloat = appsWarning == nil ? 0 : 32
-            let menuHeight = 20 + 17 + 22 +
-                CGFloat(VRWebApp.allCases.count) * 49 +
-                CGFloat(VRWebApp.allCases.count + 1) * 7 + warningHeight
-            let menuTop = (size.height - menuHeight) / 2
-            let zoomTop = menuTop + 10 + 17 + 7
-            let firstRowTop = zoomTop + 22 + 7 + warningHeight
-            let localX = pointer.x - menuLeft
-            if localX >= 0 && localX <= width {
-                let localRowY = pointer.y - firstRowTop
-                if localRowY >= 0 {
-                    let index = Int(localRowY / 56)
-                    if index >= 0 && index < VRWebApp.allCases.count &&
-                       localRowY - CGFloat(index) * 56 <= 49 {
-                        openWebApp(VRWebApp.allCases[index])
-                    }
-                } else if pointer.y >= zoomTop && pointer.y < zoomTop + 22 {
-                    let fraction = max(0, min(1, (localX - 110) / max(1, width - 157)))
-                    webWindowZoom = 0.65 + fraction * 0.90
-                }
+            let count = VRWebApp.allCases.count
+            let warning = appsWarning != nil
+            if let index = VRGestureGeometry.appRow(
+                at: pointer, viewport: size, count: count, warning: warning) {
+                openWebApp(VRWebApp.allCases[index])
+            } else if let fraction = VRGestureGeometry.appZoomFraction(
+                at: pointer, viewport: size, count: count, warning: warning) {
+                webWindowZoom = 0.65 + fraction * 0.90
             } else {
-                appsOpen = false
+                // A pinch outside the launcher closes it so the dock is usable.
+                let width = VRGestureGeometry.appMenuWidth(viewport: size)
+                let left = (size.width - width) / 2
+                let height = VRGestureGeometry.appMenuHeight(
+                    count: count, warning: warning)
+                if pointer.x < left || pointer.x > left + width ||
+                   abs(pointer.y - size.height / 2) > height / 2 {
+                    appsOpen = false
+                }
             }
             return
         }
@@ -798,7 +878,29 @@ struct VRHomeView: View {
                 Task { await updates.check() }
                 return
             }
-            // A pinch on the panel itself does not drag it.
+            if panel.kind == .content, let note = noteSessions[panel.id] {
+                if dy > dimensions.height / 2 - 63 &&
+                   dy < dimensions.height / 2 - 24 {
+                    let localX = dx + dimensions.width / 2 - 12
+                    let cellWidth = max(1, (dimensions.width - 24) / 4)
+                    let slot = max(0, min(3, Int(localX / cellWidth)))
+                    switch slot {
+                    case 0: note.adjustFontSize(-1)
+                    case 1: note.scrollBy(-95)
+                    case 2: note.scrollBy(95)
+                    default: note.adjustFontSize(1)
+                    }
+                    return
+                }
+                if dy > -dimensions.height / 2 + 39 &&
+                   dy < dimensions.height / 2 - 65 {
+                    notePinchGesture = NotePinchGesture(
+                        panelID: panel.id,
+                        initialPointerY: pointer.y,
+                        startScrollY: note.offsetY
+                    )
+                }
+            }
             return
         }
     }
@@ -831,22 +933,52 @@ struct VRHomeView: View {
             }
             return true
         }
-        // WebWindow's second toolbar row: Back, Forward, Reload, Home, Safari.
-        if y >= 76 && y < 110 {
-            let slot = min(4, max(0,
-                Int((x - 12) / max(1, (dims.width - 24) / 5))))
+        // Header includes a bookmark star and address-Go shortcut.
+        if y >= 43 && y < 77 {
+            if x >= dims.width - 49 {
+                browser.navigate()
+            } else if x >= dims.width - 83 {
+                browser.toggleFavorite()
+            }
+            return true
+        }
+
+        // The WebWindow has a navigation row and a second row for scrolling.
+        if y >= 76 && y < 111 {
+            let slot = VRGestureGeometry.webToolbarSlot(
+                localX: x, width: dims.width)
             switch slot {
             case 0: browser.back()
             case 1: browser.forward()
             case 2: browser.reload()
             case 3: browser.goHome()
-            default: browser.openInSafari()
+            case 4: browser.openInSafari()
+            case 5: browser.adjustPageZoom(-0.15)
+            default: browser.adjustPageZoom(0.15)
+            }
+            return true
+        }
+        if y >= 111 && y < 145 {
+            if x < dims.width * 0.28 {
+                browser.scrollByPage(-1)
+            } else if x > dims.width * 0.72 {
+                browser.scrollByPage(1)
             }
             return true
         }
 
-        let contentTop = top + 112
-        let contentBottom = top + dims.height - 43
+        if !browser.favorites.isEmpty && y >= 144 && y < 177 {
+            if let index = VRGestureGeometry.webFavoriteSlot(
+                localX: x, width: dims.width,
+                count: browser.favorites.count) {
+                browser.openFavorite(index)
+            }
+            return true
+        }
+
+        let contentTop = top + VRGestureGeometry.webContentTop(
+            hasFavorites: !browser.favorites.isEmpty)
+        let contentBottom = top + dims.height - 30
         guard pointer.y >= contentTop && pointer.y <= contentBottom,
               dims.height > 180 else { return true }
         webPinchGesture = WebPinchGesture(
@@ -877,7 +1009,9 @@ struct VRHomeView: View {
     private func close(_ id: UUID) {
         panels.removeAll { $0.id == id }
         webSessions.removeValue(forKey: id)
+        noteSessions.removeValue(forKey: id)
         if webSessions.count < 3 { appsWarning = nil }
+        if notePinchGesture?.panelID == id { notePinchGesture = nil }
         if drag?.panelID == id { drag = nil }
         if webPinchGesture?.panelID == id { webPinchGesture = nil }
         if focusedWebPanelID == id { focusedWebPanelID = nil }
@@ -891,6 +1025,7 @@ struct VRHomeView: View {
             panels[index].title = template.title
             panels[index].icon = template.symbol
             panels[index].text = template.text
+            noteSessions[panels[index].id]?.text = template.text
             // Keep user's chosen depth / anchor: live content updates should not
             // teleport already-placed windows.
         }
@@ -935,7 +1070,7 @@ struct VRHomeView: View {
         }
         appsWarning = nil
         let browser = VRWebSession(app: app)
-        let offset = webSessions.count % 3
+        browser.setPageZoom(max(1.0, webWindowZoom * 1.15))
         let newPanel = VRPanel(
             title: app.title, icon: app.symbol,
             text: app.description,
@@ -964,6 +1099,7 @@ struct VRHomeView: View {
                 .buttonStyle(.plain)
             }
             .font(.system(size: 11, weight: .bold))
+            .frame(height: VRGestureGeometry.appHeaderHeight)
             HStack(spacing: 8) {
                 Text("Tamanho das janelas")
                     .font(.system(size: 10))
@@ -973,11 +1109,14 @@ struct VRHomeView: View {
                     .font(.system(size: 10, weight: .bold))
                     .frame(width: 35)
             }
+            .frame(height: VRGestureGeometry.appZoomHeight)
             if let warning = appsWarning {
                 Text(warning)
                     .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(.yellow)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.75)
+                    .frame(height: VRGestureGeometry.appWarningHeight)
             }
             ForEach(VRWebApp.allCases) { app in
                 Button { openWebApp(app) } label: {
@@ -999,7 +1138,7 @@ struct VRHomeView: View {
                             .foregroundStyle(.white.opacity(0.75))
                     }
                     .frame(maxWidth: .infinity)
-                    .frame(height: 49)
+                    .frame(height: VRGestureGeometry.appRowHeight)
                     .padding(.horizontal, 7)
                     .background(.white.opacity(0.08),
                                 in: RoundedRectangle(cornerRadius: 10))
@@ -1030,9 +1169,18 @@ struct VRHomeView: View {
             let count = panels.count + 1
             panels.append(VRPanel(
                 title: "Janela \(count)", icon: "macwindow",
-                text: "Janela ancorada com ARKit.\n"
-                    + "Pegue a linha branca abaixo para mover em 3D.\n"
-                    + "Use Cinema para assistir aos seus arquivos MP4.",
+                text: "GUIA RÁPIDO DO VR-OS V17\n\n"
+                    + "1. Pinça na linha branca: arraste a janela pelo ambiente.\n\n"
+                    + "2. Segure a pinça sobre este texto e mova a mão para ROLAR a janela.\n\n"
+                    + "3. Use as setas ↑/↓ para subir e descer. A−/A+ deixam o texto menor ou maior.\n\n"
+                    + "4. Apps: YouTube, Netflix, Navegador, Twitch e Wikipedia. "
+                    + "A estrela salva favoritos, a lupa ajusta zoom e o ícone de expandir abre o Modo Foco.\n\n"
+                    + "5. Cinema: poltronas selecionadas por olhar por 1,5 s. "
+                    + "Use Centralizar e Mirar tela antes de testar os movimentos.\n\n"
+                    + "6. A dock vira um botão no canto para liberar a visão. "
+                    + "Toque nesse botão para reabrir as ferramentas.\n\n"
+                    + "7. O campo óptico depende das lentes do headset; "
+                    + "se sentir desconforto, pare e ajuste o encaixe.",
                 x: CGFloat((count % 3) - 1) * 0.15,
                 y: CGFloat(count % 2 == 0 ? -0.38 : -0.28),
                 depth: 1.6))
