@@ -8,6 +8,7 @@ import UIKit
 @MainActor
 final class VRNoteSession: ObservableObject {
     @Published var text: String
+    @Published private(set) var fontSize: CGFloat = 13
 
     weak var primary: UITextView?
     weak var secondary: UITextView?
@@ -15,6 +16,14 @@ final class VRNoteSession: ObservableObject {
 
     init(text: String) {
         self.text = text
+        let saved = UserDefaults.standard.double(forKey: "vros.note.fontSize.v1")
+        if saved >= 11 && saved <= 22 { fontSize = CGFloat(saved) }
+    }
+
+    func adjustFontSize(_ delta: CGFloat) {
+        fontSize = min(22, max(11, fontSize + delta))
+        UserDefaults.standard.set(Double(fontSize),
+                                  forKey: "vros.note.fontSize.v1")
     }
 
     func scrollBy(_ delta: CGFloat) {
@@ -67,7 +76,7 @@ struct VRNoteScrollSurface: UIViewRepresentable {
         let view = UITextView(frame: .zero)
         view.backgroundColor = .clear
         view.textColor = .white
-        view.font = .systemFont(ofSize: 12)
+        view.font = .systemFont(ofSize: session.fontSize)
         view.text = session.text
         view.isEditable = false
         view.isSelectable = false
@@ -91,6 +100,9 @@ struct VRNoteScrollSurface: UIViewRepresentable {
     func updateUIView(_ view: UITextView, context: Context) {
         if view.text != session.text {
             view.text = session.text
+        }
+        if abs((view.font?.pointSize ?? 0) - session.fontSize) > 0.1 {
+            view.font = .systemFont(ofSize: session.fontSize)
         }
         if abs(view.contentOffset.y - session.offsetY) > 1 {
             view.setContentOffset(CGPoint(x: 0, y: session.offsetY),
