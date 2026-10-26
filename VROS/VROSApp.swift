@@ -104,6 +104,52 @@ private struct UltraWideDrag {
     let initialCentre: CGPoint
 }
 
+private struct VRSettingsPinch {
+    let start: CGPoint
+    let startingScroll: CGFloat
+    var moved = false
+    var sliderID: String?
+}
+
+private enum VRLauncherApp: Identifiable {
+    case web(VRWebApp)
+    case settings
+    static var all: [VRLauncherApp] {
+        VRWebApp.allCases.map { .web($0) } + [.settings]
+    }
+    var id: String {
+        switch self {
+        case let .web(app): return app.rawValue
+        case .settings: return "settings"
+        }
+    }
+    var title: String {
+        switch self {
+        case let .web(app): return app.title
+        case .settings: return "Ajustes"
+        }
+    }
+    var subtitle: String {
+        switch self {
+        case let .web(app): return app.description
+        case .settings: return "Configurações do VR-OS"
+        }
+    }
+    var symbol: String {
+        switch self {
+        case let .web(app): return app.symbol
+        case .settings: return "gearshape.fill"
+        }
+    }
+    var accent: Color {
+        switch self {
+        case let .web(app): return app.accent
+        case .settings: return Color(white: 0.72)
+        }
+    }
+}
+
+
 struct VRHomeView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var wasBackgrounded = false
@@ -119,7 +165,9 @@ struct VRHomeView: View {
     @State private var ultraPanelDirections: [UUID: SIMD3<Float>] = [:]
     @State private var ultraDrag: UltraWideDrag?
     @State private var eyeViewport = CGSize(width: 200, height: 390)
-    @State private var lens = VRLensSettings.load()
+    @StateObject private var settings = VRSettingsSession()
+    @State private var settingsOpen = false
+    @State private var settingsGesture: VRSettingsPinch?
     @State private var lensMenuOpen = false
     @StateObject private var updates = LiveUpdateManager()
     @State private var nextRemoteTemplateIndex = 0
@@ -148,7 +196,7 @@ struct VRHomeView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let placement = lens.placement(in: geometry.size)
+            let placement = settings.lens.placement(in: geometry.size)
             let eyeSize = placement.aperture
             ZStack {
                 Color.black
@@ -157,15 +205,15 @@ struct VRHomeView: View {
                 // the supplied VR headset reference screenshot.
                 lensEye(right: false, size: eyeSize)
                     .frame(width: eyeSize.width, height: eyeSize.height)
-                    .clipShape(VRLensAperture(curvature: lens.curvature))
+                    .clipShape(VRLensAperture(curvature: settings.lens.curvature))
                     // Mask visual pixels AND interactive touches outside the lens.
-                    .contentShape(VRLensAperture(curvature: lens.curvature))
+                    .contentShape(VRLensAperture(curvature: settings.lens.curvature))
                     .position(placement.left)
                 lensEye(right: true, size: eyeSize)
                     .frame(width: eyeSize.width, height: eyeSize.height)
-                    .clipShape(VRLensAperture(curvature: lens.curvature))
+                    .clipShape(VRLensAperture(curvature: settings.lens.curvature))
                     // Mask visual pixels AND interactive touches outside the lens.
-                    .contentShape(VRLensAperture(curvature: lens.curvature))
+                    .contentShape(VRLensAperture(curvature: settings.lens.curvature))
                     .position(placement.right)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
@@ -182,9 +230,9 @@ struct VRHomeView: View {
             }
             .onAppear { eyeViewport = eyeSize }
             .onChange(of: geometry.size) { nextSize in
-                eyeViewport = lens.placement(in: nextSize).aperture
+                eyeViewport = settings.lens.placement(in: nextSize).aperture
             }
-            .onChange(of: lens) { newSettings in
+            .onChange(of: settings.lens) { newSettings in
                 newSettings.save()
                 eyeViewport = newSettings.placement(in: geometry.size).aperture
             }
@@ -346,14 +394,14 @@ struct VRHomeView: View {
                             .resizable()
                             .scaledToFit()
                             .frame(width: w, height: h)
-                            .scaleEffect(lens.cameraZoom)
+                            .scaleEffect(settings.lens.cameraZoom)
                             .allowsHitTesting(false)
                     } else {
                         Image(decorative: frame, scale: 1, orientation: .up)
                             .resizable()
                             .scaledToFill()
                             .frame(width: w, height: h)
-                            .scaleEffect(lens.cameraZoom)
+                            .scaleEffect(settings.lens.cameraZoom)
                             .clipped()
                             .allowsHitTesting(false)
                     }
@@ -376,7 +424,7 @@ struct VRHomeView: View {
                     .resizable()
                     .scaledToFill()
                     .frame(width: w, height: h)
-                    .scaleEffect(lens.cameraZoom)
+                    .scaleEffect(settings.lens.cameraZoom)
                     .clipped()
                     .allowsHitTesting(false)
             } else {
@@ -545,7 +593,7 @@ struct VRHomeView: View {
     /// Adjust the OPTICAL viewport, not the physical 0.5x camera.
     /// Changes apply identically to both eyes and persist across app launches.
     private func adjustLens(row: Int, direction: Int) {
-        var next = lens
+        var next = settings.lens
         let step = CGFloat(direction)
         switch row {
         case 0: next.scale = max(0.75, min(1.40, next.scale + step * 0.05))
@@ -560,11 +608,11 @@ struct VRHomeView: View {
             next.curvature = max(0, min(1, next.curvature + step * 0.125))
         default: return
         }
-        lens = next
+        settings.lens = next
     }
 
     private func lensCalibrationPanel(size: CGSize) -> some View {
-        VRLensCalibrationView(lens: $lens, isOpen: $lensMenuOpen,
+        VRLensCalibrationView(lens: $settings.lens, isOpen: $settings.lensMenuOpen,
                               viewport: size)
     }
 
@@ -922,7 +970,7 @@ struct VRHomeView: View {
         let ih = CGFloat(image.height)
         let scale = (ultraWideMode && ultraFullFrame
             ? min(size.width / iw, size.height / ih)
-            : max(size.width / iw, size.height / ih)) * lens.cameraZoom
+            : max(size.width / iw, size.height / ih)) * settings.lens.cameraZoom
         return CGPoint(x: raw.x * iw * scale + (size.width - iw * scale) / 2,
                        y: raw.y * ih * scale + (size.height - ih * scale) / 2)
     }
