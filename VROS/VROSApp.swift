@@ -95,6 +95,7 @@ struct VRHomeView: View {
     @State private var selectedTheme: VRTheme = .graphite
     @State private var themeMenuOpen = false
     @State private var appsOpen = false
+    @State private var dockExpanded = true
     @State private var webSessions: [UUID: VRWebSession] = [:]
     @State private var webWindowZoom: CGFloat = 1.0
     @State private var focusedWebPanelID: UUID?
@@ -216,7 +217,8 @@ struct VRHomeView: View {
                 }
 
                 dock(size: size)
-                    .position(x: w / 2, y: dockCenterY(size))
+                    .position(x: dockExpanded ? w / 2 : 24,
+                              y: dockExpanded ? dockCenterY(size) : h - 24)
             }
 
             if runtime.hand.visible {
@@ -269,19 +271,34 @@ struct VRHomeView: View {
     private func dockCenterY(_ size: CGSize) -> CGFloat { size.height * 0.91 }
 
     private func dock(size: CGSize) -> some View {
-        HStack(spacing: 5) {
-            dockButton("plus.rectangle.on.rectangle", "Janela", slot: 0, size: size)
-            dockButton("square.grid.2x2.fill", "Apps", slot: 1, size: size)
-            dockButton("film.stack.fill", "Cinema", slot: 2, size: size)
-            dockButton("arrow.down.circle", "Atualizar", slot: 3, size: size)
-            dockButton("paintpalette.fill", "Temas", slot: 4, size: size)
-            dockButton("scope", "Centro", slot: 5, size: size)
+        Group {
+            if dockExpanded {
+                HStack(spacing: 5) {
+                    dockButton("plus.rectangle.on.rectangle", "Janela", slot: 0, size: size)
+                    dockButton("square.grid.2x2.fill", "Apps", slot: 1, size: size)
+                    dockButton("film.stack.fill", "Cinema", slot: 2, size: size)
+                    dockButton("arrow.down.circle", "Atualizar", slot: 3, size: size)
+                    dockButton("paintpalette.fill", "Temas", slot: 4, size: size)
+                    dockButton("scope", "Centro", slot: 5, size: size)
+                }
+                .padding(5)
+                .background(selectedTheme.surface.opacity(0.95),
+                            in: RoundedRectangle(cornerRadius: 17))
+                .overlay(RoundedRectangle(cornerRadius: 17)
+                    .stroke(Color.white.opacity(0.15), lineWidth: 1))
+            } else {
+                Button { dockExpanded = true } label: {
+                    Image(systemName: "square.grid.2x2.fill")
+                        .font(.system(size: 15))
+                        .foregroundStyle(.white)
+                        .frame(width: 37, height: 37)
+                        .background(selectedTheme.surface.opacity(0.93),
+                                    in: RoundedRectangle(cornerRadius: 11))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Abrir menu do VR-OS")
+            }
         }
-        .padding(5)
-        .background(selectedTheme.surface.opacity(0.95),
-                    in: RoundedRectangle(cornerRadius: 17))
-        .overlay(RoundedRectangle(cornerRadius: 17)
-            .stroke(Color.white.opacity(0.15), lineWidth: 1))
     }
 
     private func dockButton(_ symbol: String, _ label: String, slot: Int,
@@ -696,16 +713,25 @@ struct VRHomeView: View {
             } else { themeMenuOpen = false }
             return
         }
-        // Dock selection is based on 2D fingertip position, not hand depth.
-        let dockWidth = max(24, (size.width - 50) / 6) * 6 + 5 * 5 + 10
-        let dockLeft = (size.width - dockWidth) / 2
-        if abs(pointer.y - dockCenterY(size)) <= 37 &&
-           pointer.x >= dockLeft - 8 &&
-           pointer.x <= dockLeft + dockWidth + 8 {
-            let cell = max(24, (size.width - 50) / 6) + 5
-            let slot = min(5, max(0, Int((pointer.x - dockLeft - 5) / cell)))
-            activateDock(slot)
-            return
+        // When hidden, the dock shrinks to a small bottom-left launcher.
+        // Otherwise its large touch area blocked the website grab handle.
+        if !dockExpanded {
+            if pointer.x < 49 && abs(pointer.y - (size.height - 24)) < 26 {
+                dockExpanded = true
+                return
+            }
+        } else {
+            let dockWidth = max(24, (size.width - 50) / 6) * 6 + 5 * 5 + 10
+            let dockLeft = (size.width - dockWidth) / 2
+            if abs(pointer.y - dockCenterY(size)) <= 37 &&
+               pointer.x >= dockLeft - 8 &&
+               pointer.x <= dockLeft + dockWidth + 8 {
+                let cell = max(24, (size.width - 50) / 6) + 5
+                let slot = min(5, max(0, Int((pointer.x - dockLeft - 5) / cell)))
+                activateDock(slot)
+                dockExpanded = false
+                return
+            }
         }
 
         // Only the white line is a 3D movement handle. Its hit area is
@@ -912,6 +938,7 @@ struct VRHomeView: View {
         panels.append(newPanel)
         appsOpen = false
         themeMenuOpen = false
+        dockExpanded = false
     }
 
     private func appsLauncher(size: CGSize) -> some View {
@@ -976,6 +1003,7 @@ struct VRHomeView: View {
         cinema.exit()
         cinemaOpen = false
         runtime.setCinemaMode(false)
+        dockExpanded = false
         lastPinch = false
     }
 
