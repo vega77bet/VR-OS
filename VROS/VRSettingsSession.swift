@@ -382,7 +382,11 @@ final class VRSettingsSession: ObservableObject {
         guard let row = row(at: point, topInset: topInset) else { return false }
         if row.kind == .information { return true }
         if row.kind == .stepper {
-            let direction = point.x < viewport.width - 55 ? -1 : 1
+            guard let direction = stepperDirection(at: point,
+                                                   topInset: topInset) else {
+                // Pinching the label does NOT adjust a value.
+                return false
+            }
             perform(row, direction: direction)
         } else if row.kind == .slider {
             guard isSliderHit(at: point, topInset: topInset) else {
@@ -395,6 +399,17 @@ final class VRSettingsSession: ObservableObject {
             perform(row)
         }
         return true
+    }
+
+    func stepperDirection(at point: CGPoint, topInset: CGFloat) -> Int? {
+        guard let table = primaryTable else { return nil }
+        let inTable = CGPoint(x: point.x,
+                              y: point.y - topInset +
+                                 table.contentOffset.y)
+        guard let path = table.indexPathForRow(at: inTable),
+              let cell = table.cellForRow(at: path)
+                  as? VRSettingsTableCell else { return nil }
+        return cell.stepperDirection(at: inTable, in: table)
     }
 
     func sliderFraction(x: CGFloat, width: CGFloat,
