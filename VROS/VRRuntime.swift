@@ -95,12 +95,25 @@ final class VRRuntime: NSObject, ObservableObject, ARSessionDelegate {
         }
     }
 
-    private func runSession() {
+    private func runSession(resuming: Bool = false) {
         let config = ARWorldTrackingConfiguration()
         config.worldAlignment = .gravity
         config.planeDetection = [.horizontal, .vertical]
-        session.run(config, options: [.resetTracking, .removeExistingAnchors])
-        cameraStatus = "ARKit: procurando o ambiente…"
+        // A resumed session should NOT erase all existing world anchors.
+        let options: ARSession.RunOptions = resuming
+            ? [] : [.resetTracking, .removeExistingAnchors]
+        session.run(config, options: options)
+        cameraStatus = resuming
+            ? "ARKit: restaurando rastreamento…"
+            : "ARKit: procurando o ambiente…"
+    }
+
+    func resume() {
+        guard AVCaptureDevice.authorizationStatus(for: .video) == .authorized else {
+            start()
+            return
+        }
+        runSession(resuming: true)
     }
 
     func stop() {
