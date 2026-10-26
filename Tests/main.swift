@@ -311,3 +311,65 @@ for screen in [CGSize(width: 243, height: 236),
     }
 }
 print("PASS: small-aperture 7-app pagination, pinch controls, warnings")
+
+
+// V21: real native Settings catalog navigation, search and stable actions.
+let homeSections = VRSettingsCatalog.sections(for: .home)
+let homeRows = homeSections.flatMap(\.rows)
+verify(VRSettingsCatalog.categories.count == 9,
+       "Settings should expose nine useful configuration categories")
+verify(homeRows.filter {
+    if case .navigate = $0.kind { return true }
+    return false
+}.count == 10, "Main settings must include a top account-style card and all categories")
+for page in VRSettingsPage.allCases {
+    let groups = VRSettingsCatalog.sections(for: page)
+    let rows = groups.flatMap(\.rows)
+    verify(!rows.isEmpty, "Settings page \(page.rawValue) must never be empty")
+    let allIDs = rows.map(\.id)
+    verify(Set(allIDs).count == allIDs.count,
+           "Settings page \(page.rawValue) must not duplicate row identities")
+    for row in rows {
+        verify(!row.title.isEmpty, "Every Settings row needs a visible title")
+        switch row.kind {
+        case let .navigate(destination):
+            verify(destination != .home, "Categories should enter a subpage")
+            verify(!VRSettingsCatalog.sections(for: destination).isEmpty,
+                   "Every navigation destination must have content")
+        case .toggle, .stepper, .slider, .choice, .action, .information:
+            verify(page != .home || row.kind == .information,
+                   "Home is navigation-first rather than a flat settings form")
+        }
+    }
+}
+let searchOne = VRSettingsCatalog.sections(for: .home, search: "camera")
+    .flatMap(\.rows)
+verify(searchOne.contains(where: { $0.id == "open.camera" }),
+       "Settings search must match labels without diacritics")
+let searchTwo = VRSettingsCatalog.sections(for: .home, search: "PINCA")
+    .flatMap(\.rows)
+verify(searchTwo.contains(where: { $0.id == "open.hands" }),
+       "Settings search must match child descriptions, case and accents")
+let searchThree = VRSettingsCatalog.sections(for: .home, search: "IPD")
+    .flatMap(\.rows)
+verify(searchThree.contains(where: { $0.id == "open.visor" }),
+       "Settings search must surface nested lens preferences")
+let searchEmpty = VRSettingsCatalog.sections(for: .home,
+                                               search: "xx_no_result_999")
+    .flatMap(\.rows)
+verify(searchEmpty.count == 1 && searchEmpty[0].id == "search.empty",
+       "Unknown search must show clear empty results, never stale rows")
+let lensSettings = VRSettingsCatalog.sections(for: .visor).flatMap(\.rows)
+verify(lensSettings.filter {
+    if case .stepper = $0.kind { return true }
+    return false
+}.count == 5, "Visor must expose five real numerical controls")
+let cinemaSettings = VRSettingsCatalog.sections(for: .cinema)
+    .flatMap(\.rows)
+verify(cinemaSettings.contains(where: { $0.id == "cinema.fov" &&
+    $0.kind == .slider }), "Cinema FOV must have a real slider row")
+verify(VRSettingsCatalog.sections(for: .internet)
+    .flatMap(\.rows).contains(where: { $0.id == "web.clear" &&
+        $0.kind == .action }), "Favorites cleanup should be explicit")
+print("PASS: Apple-inspired native Settings navigation, nested searchable")
+print("      categories, stable row IDs, toggles, sliders and actions")
