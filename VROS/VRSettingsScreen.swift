@@ -153,6 +153,10 @@ struct VRSettingsTable: UIViewRepresentable {
 
     func updateUIView(_ table: UITableView, context: Context) {
         let coordinator = context.coordinator
+        // Prevent UIKit contentOffset corrections during reload from
+        // publishing State mutations inside SwiftUI updateUIView.
+        coordinator.updatingView = true
+        defer { coordinator.updatingView = false }
         let sections = session.sections
         // Never reload on every new scroll offset: doing that would interrupt
         // native inertia, destroy UIKit cells and desynchronize the two eyes.
@@ -204,6 +208,7 @@ struct VRSettingsTable: UIViewRepresentable {
         let rightEye: Bool
         var sections: [VRSettingsSection] = []
         var signature = ""
+        var updatingView = false
         var valuesSignature = ""
         var search = ""
         var page: VRSettingsPage = .home
@@ -282,6 +287,7 @@ struct VRSettingsTable: UIViewRepresentable {
         }
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
+            guard !updatingView else { return }
             session.updateScroll(scrollView.contentOffset.y,
                                  fromRightEye: rightEye)
         }
