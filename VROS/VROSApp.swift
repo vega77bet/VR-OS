@@ -79,6 +79,15 @@ private struct WindowDrag {
     var lastAppliedAnchor: SIMD3<Float>
 }
 
+private struct WebPinchGesture {
+    let panelID: UUID
+    let initialPointer: CGPoint
+    let startScrollY: CGFloat
+    let x: CGFloat
+    let y: CGFloat
+    var moved = false
+}
+
 struct VRHomeView: View {
     @StateObject private var runtime = VRRuntime()
     @StateObject private var updates = LiveUpdateManager()
@@ -88,6 +97,8 @@ struct VRHomeView: View {
     @State private var appsOpen = false
     @State private var webSessions: [UUID: VRWebSession] = [:]
     @State private var webWindowZoom: CGFloat = 1.0
+    @State private var focusedWebPanelID: UUID?
+    @State private var webPinchGesture: WebPinchGesture?
     @State private var cinemaOpen = false
     @StateObject private var cinema = CinemaModel()
     @State private var panels = [
@@ -105,9 +116,9 @@ struct VRHomeView: View {
             HStack(spacing: 0) {
                 if cinemaOpen {
                     CinemaEyeView(rightEye: false, runtime: runtime, cinema: cinema, updates: updates,
-                                  onExit: { cinema.exit(); cinemaOpen = false })
+                                  onExit: { exitCinema() })
                     CinemaEyeView(rightEye: true, runtime: runtime, cinema: cinema, updates: updates,
-                                  onExit: { cinema.exit(); cinemaOpen = false })
+                                  onExit: { exitCinema() })
                 } else {
                     eyeView(right: false, size: eyeSize)
                     eyeView(right: true, size: eyeSize)
@@ -133,10 +144,19 @@ struct VRHomeView: View {
         .onAppear {
             selectedTheme = VRTheme(rawValue:
                 UserDefaults.standard.integer(forKey: "vros.selectedTheme.v1")) ?? .graphite
+            let savedWebZoom = UserDefaults.standard.double(forKey: "vros.webZoom.v1")
+            webWindowZoom = savedWebZoom > 0
+                ? min(1.55, max(0.65, CGFloat(savedWebZoom))) : 1.0
             runtime.start()
             Task { await updates.check() }
         }
-        .onDisappear { runtime.stop() }
+        .onChange(of: webWindowZoom) { zoom in
+            UserDefaults.standard.set(Double(zoom), forKey: "vros.webZoom.v1")
+        }
+        .onDisappear {
+            runtime.setCinemaMode(false)
+            runtime.stop()
+        }
     }
 
     private func eyeView(right: Bool, size: CGSize) -> some View {
@@ -171,29 +191,33 @@ struct VRHomeView: View {
             }
 
             ForEach(panels) { panel in
-                if let center = windowCenter(panel, size: size, right: right) {
-                    let scale = windowScale(panel)
+                if focusedWebPanelID == nil || focusedWebPanelID == panel.id,
+                   let center = displayedPanelCenter(panel, size: size, right: right) {
+                    let dimensions = displayedPanelSize(panel, size: size)
                     panelView(panel, size: size, right: right)
-                        .frame(width: panelWidth(panel, size: size) * scale,
-                               height: panelHeight(panel, size: size) * scale)
+                        .frame(width: dimensions.width, height: dimensions.height)
                         .position(center)
-                    grabHandle(panel, size: size)
-                        .position(grabHandleCenter(center, panel: panel, size: size))
+                    if focusedWebPanelID != panel.id {
+                        grabHandle(panel, size: size)
+                            .position(grabHandleCenter(center, panel: panel, size: size))
+                    }
                 }
             }
 
-            statusBar(size: size)
-                .position(x: w / 2, y: 28)
+            if focusedWebPanelID == nil {
+                statusBar(size: size)
+                    .position(x: w / 2, y: 28)
 
-            if themeMenuOpen {
-                themePicker(size: size).position(x: w / 2, y: h / 2)
-            }
-            if appsOpen {
-                appsLauncher(size: size).position(x: w / 2, y: h / 2)
-            }
+                if themeMenuOpen {
+                    themePicker(size: size).position(x: w / 2, y: h / 2)
+                }
+                if appsOpen {
+                    appsLauncher(size: size).position(x: w / 2, y: h / 2)
+                }
 
-            dock(size: size)
-                .position(x: w / 2, y: dockCenterY(size))
+                dock(size: size)
+                    .position(x: w / 2, y: dockCenterY(size))
+            }
 
             if runtime.hand.visible {
                 HandSkeletonOverlay(hand: runtime.hand) { joint in
@@ -288,9 +312,24 @@ struct VRHomeView: View {
                     .font(.system(size: 14, weight: .semibold))
                     .lineLimit(1)
                 Spacer(minLength: 0)
-                Image(systemName: "pin.fill")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.white.opacity(0.55))
+                if panel.kind == .web {
+                    Button {
+                        focusedWebPanelID = focusedWebPanelID == panel.id ? nil : panel.id
+                        appsOpen = false
+                        themeMenuOpen = false
+                    } label: {
+                        Image(systemName: focusedWebPanelID == panel.id
+                              ? "arrow.down.right.and.arrow.up.left"
+                              : "arrow.up.left.and.arrow.down.right")
+                            .font(.system(size: 14))
+                            .foregroundStyle(.cyan)
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.white.opacity(0.55))
+                }
                 Button {
                     close(panel.id)
                 } label: {
@@ -342,10 +381,14 @@ struct VRHomeView: View {
             }
 
             if panel.kind != .web { Spacer(minLength: 0) }
-            Text("Pegue a linha branca abaixo para mover em 3D")
-                .font(.system(size: 9))
-                .foregroundStyle(.white.opacity(0.66))
-                .lineLimit(2)
+            if focusedWebPanelID != panel.id {
+                Text(panel.kind == .web
+                     ? "Pinça: tocar e rolar o site · linha branca: mover"
+                     : "Pegue a linha branca abaixo para mover em 3D")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.white.opacity(0.66))
+                    .lineLimit(2)
+            }
         }
         .padding(12)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -356,6 +399,23 @@ struct VRHomeView: View {
         .overlay(RoundedRectangle(cornerRadius: 16)
             .stroke(selectedTheme.accent.opacity(0.45), lineWidth: 1))
         .shadow(color: .black.opacity(0.50), radius: 11, y: 5)
+    }
+
+    private func displayedPanelSize(_ panel: VRPanel, size: CGSize) -> CGSize {
+        if focusedWebPanelID == panel.id {
+            return CGSize(width: size.width * 0.995, height: size.height * 0.99)
+        }
+        let scale = windowScale(panel)
+        return CGSize(width: panelWidth(panel, size: size) * scale,
+                      height: panelHeight(panel, size: size) * scale)
+    }
+
+    private func displayedPanelCenter(_ panel: VRPanel, size: CGSize,
+                                      right: Bool) -> CGPoint? {
+        if focusedWebPanelID == panel.id {
+            return CGPoint(x: size.width / 2, y: size.height / 2)
+        }
+        return windowCenter(panel, size: size, right: right)
     }
 
     /// The web windows are larger than note cards so sites can be used.
@@ -493,6 +553,7 @@ struct VRHomeView: View {
         guard hand.visible else {
             lastPinch = false
             drag = nil
+            webPinchGesture = nil
             return
         }
 
@@ -503,8 +564,20 @@ struct VRHomeView: View {
                   let index = panels.firstIndex(where: { $0.id == held.panelID }) {
             updateSpatialGrab(hand, pointer: pointer, held: &held, panelIndex: index)
             drag = held
+        } else if hand.pinching, var webGesture = webPinchGesture {
+            let dx = pointer.x - webGesture.initialPointer.x
+            let dy = pointer.y - webGesture.initialPointer.y
+            if hypot(dx, dy) > 13 { webGesture.moved = true }
+            if webGesture.moved {
+                webSessions[webGesture.panelID]?.scrollFromPinch(
+                    startY: webGesture.startScrollY, fingerDeltaY: dy)
+            }
+            webPinchGesture = webGesture
         } else if !hand.pinching {
-            // The last world anchor is retained; only the grip state resets.
+            if lastPinch, let gesture = webPinchGesture, !gesture.moved {
+                webSessions[gesture.panelID]?.tapFromPinch(x: gesture.x, y: gesture.y)
+            }
+            webPinchGesture = nil
             drag = nil
         }
         lastPinch = hand.pinching
