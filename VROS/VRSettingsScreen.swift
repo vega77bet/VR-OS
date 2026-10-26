@@ -10,8 +10,8 @@ struct VRSettingsScreen: View {
     let onClose: () -> Void
 
     @FocusState private var searchFocused: Bool
-    static let toolbarHeight: CGFloat = 48
-    static let searchHeight: CGFloat = 44
+    static let toolbarHeight = VRSettingsInputGeometry.toolbarHeight
+    static let searchHeight = VRSettingsInputGeometry.searchHeight
 
     var body: some View {
         VStack(spacing: 0) {
