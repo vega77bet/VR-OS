@@ -373,3 +373,46 @@ verify(VRSettingsCatalog.sections(for: .internet)
         $0.kind == .action }), "Favorites cleanup should be explicit")
 print("PASS: Apple-inspired native Settings navigation, nested searchable")
 print("      categories, stable row IDs, toggles, sliders and actions")
+
+
+for size in [CGSize(width: 243, height: 236),
+             CGSize(width: 308, height: 345),
+             CGSize(width: 426, height: 393)] {
+    for page in VRSettingsPage.allCases {
+        let leftHeader = CGPoint(x: 15, y: 20)
+        let rightHeader = CGPoint(x: size.width - 12, y: 20)
+        verify(VRSettingsInputGeometry.classify(
+            rightHeader, viewport: size, page: page) == .close,
+            "Settings close X must stay pinch-reachable in every eye size")
+        verify(VRSettingsInputGeometry.classify(
+            leftHeader, viewport: size, page: page) ==
+               (page == .home ? .none : .back),
+            "Settings back must only exist on category pages")
+        let belowHeader = CGPoint(
+            x: size.width / 2,
+            y: VRSettingsInputGeometry.toolbarHeight + 12)
+        verify(VRSettingsInputGeometry.classify(
+            belowHeader, viewport: size, page: page) ==
+               (page == .home ? .search : .table),
+            "Search should only intercept the main Settings screen")
+        let rowPoint = CGPoint(
+            x: size.width / 2,
+            y: VRSettingsInputGeometry.tableTop(page: page) + 30)
+        verify(VRSettingsInputGeometry.classify(
+            rowPoint, viewport: size, page: page) == .table,
+            "A valid table row must not be mistaken for the toolbar")
+    }
+    verify(VRSettingsInputGeometry.classify(
+        CGPoint(x: -1, y: 30), viewport: size,
+        page: .home) == .none,
+        "A finger outside the visor must never activate controls")
+}
+let pinchOrigin = CGPoint(x: 100, y: 130)
+verify(!VRSettingsInputGeometry.isScroll(
+    from: pinchOrigin, to: CGPoint(x: 105, y: 134)),
+    "A jittery short pinch should be treated as a click")
+verify(VRSettingsInputGeometry.isScroll(
+    from: pinchOrigin, to: CGPoint(x: 100, y: 146)),
+    "A real 16px hand drag should scroll the Settings list")
+print("PASS: Settings Vision/physical search, back/close, table and scroll")
+print("      hit targets across small/medium/wide headset viewports")
