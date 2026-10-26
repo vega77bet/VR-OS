@@ -56,6 +56,8 @@ final class VRRuntime: NSObject, ObservableObject, ARSessionDelegate {
     // Only touched from frameQueue, except the Vision filters (visionQueue only).
     private var frameNumber = 0
     private var visionBusy = false
+    // Owned exclusively by frameQueue, which is also ARSession's delegate queue.
+    private var cinemaMode = false
 
     private var filteredJoints: [CGPoint?] = Array(repeating: nil, count: 21)
     private var filteredDepth: Float?
@@ -102,6 +104,15 @@ final class VRRuntime: NSObject, ObservableObject, ARSessionDelegate {
 
     func stop() {
         session.pause()
+    }
+
+    /// Cinema renders its own stereo SceneKit scene. Avoid the expensive
+    /// AR camera pixel-buffer to CGImage conversion behind the cinema.
+    /// Continue publishing AR pose (fallback) and hand tracking (pinch).
+    func setCinemaMode(_ enabled: Bool) {
+        frameQueue.async { [weak self] in
+            self?.cinemaMode = enabled
+        }
     }
 
     /// Recenter means put the panels in front of the current camera pose.
@@ -154,11 +165,17 @@ final class VRRuntime: NSObject, ObservableObject, ARSessionDelegate {
         if case .normal = pose.trackingState { reliable = true }
         else { reliable = false }
 
-        // Render at up to ~15 fps to keep the CGImage/SwiftUI path affordable.
-        // Reusing the same immutable CGImage in both eyes prevents a black left preview.
-        if frameIndex % 2 == 0 {
-            let image = CIImage(cvPixelBuffer: frame.capturedImage)
-            let output = ciContext.createCGImage(image, from: image.extent)
+        // Home passthrough ~20 fps; Cinema needs pose but not camera images.
+        // Save CPU, battery and memory bandwidth by skipping CGImage in Cinema.
+        let displayStride = cinemaMode ? 6 : 3
+        if frameIndex % displayStride == 0 {
+            let output: CGImage?
+            if cinemaMode {
+                output = nil
+            } else {
+                let image = CIImage(cvPixelBuffer: frame.capturedImage)
+                output = ciContext.createCGImage(image, from: image.extent)
+            }
             DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
                 if let output = output { self.cameraImage = output }
@@ -170,8 +187,9 @@ final class VRRuntime: NSObject, ObservableObject, ARSessionDelegate {
             }
         }
 
-        // Never build a backlog of expensive Vision requests.
-        if frameIndex % 3 == 0 && !visionBusy {
+        // Hand detection ~15 fps in Home, ~10 in Cinema, without queue buildup.
+        let handStride = cinemaMode ? 6 : 4
+        if frameIndex % handStride == 0 && !visionBusy {
             visionBusy = true
             visionQueue.async { [weak self] in
                 self?.detectHand(in: frame)
