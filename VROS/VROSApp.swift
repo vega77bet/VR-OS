@@ -158,10 +158,14 @@ struct VRHomeView: View {
                 lensEye(right: false, size: eyeSize)
                     .frame(width: eyeSize.width, height: eyeSize.height)
                     .clipShape(VRLensAperture(curvature: lens.curvature))
+                    // Mask visual pixels AND interactive touches outside the lens.
+                    .contentShape(VRLensAperture(curvature: lens.curvature))
                     .position(placement.left)
                 lensEye(right: true, size: eyeSize)
                     .frame(width: eyeSize.width, height: eyeSize.height)
                     .clipShape(VRLensAperture(curvature: lens.curvature))
+                    // Mask visual pixels AND interactive touches outside the lens.
+                    .contentShape(VRLensAperture(curvature: lens.curvature))
                     .position(placement.right)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
