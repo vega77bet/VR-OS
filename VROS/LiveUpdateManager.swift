@@ -30,15 +30,16 @@ struct RemoteManifest: Codable {
     static let fallback = RemoteManifest(
         schema: 1,
         version: "integrada",
-        headline: "VR OS 3.1 · ESPACIAL",
-        message: "Conecte à internet para buscar novos temas e janelas.",
+        headline: "VR OS 4.3 · ESTÁVEL",
+        message: "Janelas e Cinema com rolagem, favoritos, FOV e calibração.",
         theme: RemoteTheme(surfaceGray: 0.19, surfaceOpacity: 0.97, dockGray: 0.19),
         templates: [
             RemoteWindowTemplate(
                 id: "inicio", title: "Início", symbol: "square.grid.2x2",
                 text: "Bem-vindo ao VR OS.\n"
-                    + "Segure a pinça para pegar janelas.\n"
-                    + "Arraste a barra inferior para ajustar o Z.",
+                    + "Segure a linha branca para mover uma janela.\n"
+                    + "Use os botões de subir/descer ou pinça para rolar textos.\n"
+                    + "No navegador, salve favoritos e use o zoom de página.",
                 depth: 1.5
             ),
             RemoteWindowTemplate(
@@ -49,7 +50,7 @@ struct RemoteManifest: Codable {
                 depth: 1.6
             )
         ],
-        latestNativeVersion: "3.1",
+        latestNativeVersion: "4.3",
         nativeReleaseURL: "https://github.com/vega77bet/VR-OS/actions"
     )
 
