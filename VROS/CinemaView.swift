@@ -79,7 +79,9 @@ final class CinemaModel: ObservableObject {
     private var motionReference: simd_quatf?
     private var lastARPose: ARCamera?
     @Published private(set) var headTrackingStatus = "Iniciando sensores…"
-    @Published var showControlsAutomatically = false
+    // Hide the overlay five seconds after movie playback starts so it never
+    // obstructs the screen; tapping the scene or Menu restores controls.
+    @Published var showControlsAutomatically = true
     @Published private(set) var screenPitchDegrees: Float = 0
     @Published private(set) var screenYawDegrees: Float = 0
     @Published var invertTracking = false
