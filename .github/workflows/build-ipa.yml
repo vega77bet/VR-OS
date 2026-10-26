@@ -17,7 +17,7 @@ jobs:
         run: xcodegen generate
       - name: Test gesture and window geometry
         run: |
-          swiftc VROS/VRGestureGeometry.swift Tests/main.swift -o "$RUNNER_TEMP/vros-geometry-tests"
+          swiftc VROS/VRGestureGeometry.swift VROS/VRCinemaGeometry.swift Tests/main.swift -o "$RUNNER_TEMP/vros-geometry-tests"
           "$RUNNER_TEMP/vros-geometry-tests"
       - name: Build unsigned app
         run: |
