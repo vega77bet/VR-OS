@@ -120,3 +120,41 @@ for row in 0..<6 {
 }
 verify(checkedSeatCount == 72, "Every cinema seat must be checked")
 print("PASS: all 72 cinema chairs point at the screen centre to 0.01%")
+
+let ultraViewport = CGSize(width: 196, height: 390)
+let centre = CGPoint(x: ultraViewport.width / 2,
+                     y: ultraViewport.height / 2)
+let identity = simd_quatf()
+let centreRay = VRUltraWideWindowProjection.screenRay(
+    at: centre, viewport: ultraViewport)
+verify(simd_distance(centreRay, SIMD3<Float>(0, 0, -1)) < 0.00001,
+       "0.5x virtual forward ray must be centred")
+for degrees in [-50.0, -20.0, 0.0, 20.0, 50.0] {
+    let rotation = simd_quatf(
+        angle: Float(degrees * .pi / 180),
+        axis: SIMD3<Float>(0, 1, 0))
+    for point in [centre, CGPoint(x: 40, y: 90),
+                  CGPoint(x: 156, y: 310)] {
+        let anchored = VRUltraWideWindowProjection.anchoredDirection(
+            at: point, viewport: ultraViewport, headRotation: rotation)
+        guard let back = VRUltraWideWindowProjection.project(
+            anchored, headRotation: rotation, viewport: ultraViewport) else {
+            verify(false, "3DoF projection must remain visible for a matching bearing")
+            continue
+        }
+        verify(hypot(back.x - point.x, back.y - point.y) < 0.05,
+               "3DoF round trip drifted from its camera-relative input")
+    }
+}
+let fixedRay = VRUltraWideWindowProjection.screenRay(
+    at: centre, viewport: ultraViewport)
+let yaw = simd_quatf(angle: Float.pi / 6, axis: SIMD3<Float>(0, 1, 0))
+let shifted = VRUltraWideWindowProjection.project(
+    fixedRay, headRotation: yaw, viewport: ultraViewport)
+verify(shifted != nil && abs(shifted!.x - centre.x) > 15,
+       "A fixed 3DoF panel should move on screen when the headset turns")
+let behind = VRUltraWideWindowProjection.project(
+    SIMD3<Float>(0, 0, 1), headRotation: identity,
+    viewport: ultraViewport)
+verify(behind == nil, "A 3DoF panel behind the user must not be displayed")
+print("PASS: 0.5x headset 3DoF projection/drag round trips and rotation")
