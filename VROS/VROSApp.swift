@@ -562,7 +562,7 @@ struct VRHomeView: View {
             }
 
             if focusedWebPanelID == nil {
-                statusBar(size: size)
+                if settings.showHUD { statusBar(size: size) }
                     .position(x: w / 2, y: ultraWideMode ? 76 : 28)
 
                 if themeMenuOpen {
@@ -623,12 +623,14 @@ struct VRHomeView: View {
                 .padding(.vertical, 5)
             }
 
-            if shownHand.visible {
+            if shownHand.visible && settings.showSkeleton && !settingsOpen {
                 HandSkeletonOverlay(hand: shownHand) { joint in
                     mappedPoint(joint, size: size)
                 }
                 .allowsHitTesting(false)
+            }
 
+            if shownHand.visible && settings.showCursor && !settingsOpen {
                 let cursor = interactionPoint(shownHand.point, size: size)
                 ZStack {
                     Circle()
@@ -638,8 +640,32 @@ struct VRHomeView: View {
                     Circle().fill(.white).frame(width: 5, height: 5)
                 }
                 .shadow(color: .black, radius: 3)
+                .scaleEffect(settings.cursorSize)
                 .position(cursor)
                 .allowsHitTesting(false)
+            }
+
+            if settingsOpen {
+                VRSettingsScreen(session: settings, rightEye: right,
+                                 onClose: { closeSettings() })
+                    .frame(width: w, height: h)
+                    .zIndex(50)
+                if shownHand.visible && settings.showCursor {
+                    let cursor = interactionPoint(shownHand.point, size: size)
+                    ZStack {
+                        Circle()
+                            .stroke(.white.opacity(0.95),
+                                    lineWidth: shownHand.pinching ? 3 : 2)
+                            .frame(width: shownHand.pinching ? 28 : 22,
+                                   height: shownHand.pinching ? 28 : 22)
+                        Circle().fill(.white).frame(width: 5, height: 5)
+                    }
+                    .scaleEffect(settings.cursorSize)
+                    .shadow(color: .black.opacity(0.9), radius: 4)
+                    .position(cursor)
+                    .allowsHitTesting(false)
+                    .zIndex(51)
+                }
             }
         }
         .frame(width: w, height: h)
@@ -891,7 +917,8 @@ struct VRHomeView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
             (selectedTheme == .graphite ? Color(white: updates.manifest.theme.surfaceGray) : selectedTheme.surface)
-                .opacity(updates.manifest.theme.surfaceOpacity),
+                .opacity(updates.manifest.theme.surfaceOpacity *
+                         settings.windowOpacity),
             in: RoundedRectangle(cornerRadius: 16))
         .overlay(RoundedRectangle(cornerRadius: 16)
             .stroke(selectedTheme.accent.opacity(0.45), lineWidth: 1))
@@ -1091,6 +1118,10 @@ struct VRHomeView: View {
     }
 
     private func processGesture(_ hand: TrackedHand, size: CGSize) {
+        if settingsOpen {
+            processSettingsGesture(hand, size: size)
+            return
+        }
         // Cinema owns pinch gestures while open. Never activate the OS dock
         // behind the movie when changing stereo playback settings.
         guard !cinemaOpen else { return }
