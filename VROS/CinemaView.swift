@@ -1184,7 +1184,7 @@ struct CinemaEyeView: View {
                     cinema.gazeProgress = 0
                 }
                 let elapsed = Date().timeIntervalSince(gazeBeganAt)
-                cinema.gazeProgress = min(1, max(0, elapsed / 1.5))
+                cinema.gazeProgress = CGFloat(min(1, max(0, elapsed / 1.5)))
                 if elapsed >= 1.5 {
                     _ = cinema.chooseSeatByGaze(target)
                     gazeSeatID = nil
