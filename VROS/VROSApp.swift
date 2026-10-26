@@ -1,5 +1,6 @@
 import ARKit
 import SwiftUI
+import UIKit
 
 @main
 struct VROSApp: App {
@@ -157,6 +158,7 @@ struct VRHomeView: View {
             let savedWebZoom = UserDefaults.standard.double(forKey: "vros.webZoom.v1")
             webWindowZoom = savedWebZoom > 0
                 ? min(1.55, max(0.65, CGFloat(savedWebZoom))) : 1.0
+            UIDevice.current.isBatteryMonitoringEnabled = true
             runtime.start()
             Task { await updates.check() }
         }
@@ -266,8 +268,22 @@ struct VRHomeView: View {
                     .fill(runtime.spatialTracking ? Color.white : Color.gray)
                     .frame(width: 5, height: 5)
                 Text(updates.manifest.headline)
-                    .tracking(1.0)
+                    .tracking(0.5)
                     .font(.system(size: 10, weight: .semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                Spacer(minLength: 1)
+                TimelineView(.periodic(from: .now, by: 30)) { timeline in
+                    HStack(spacing: 3) {
+                        Text(timeline.date, format: .dateTime.hour().minute())
+                        if UIDevice.current.batteryLevel >= 0 {
+                            Image(systemName: "battery.100percent")
+                            Text("\(Int(UIDevice.current.batteryLevel * 100))%")
+                        }
+                    }
+                    .font(.system(size: 9, weight: .medium))
+                    .fixedSize(horizontal: true, vertical: false)
+                }
             }
             Text(runtime.cameraStatus)
                 .font(.system(size: 10))
@@ -897,6 +913,16 @@ struct VRHomeView: View {
             }
             return true
         }
+        // Header includes a bookmark star and address-Go shortcut.
+        if y >= 43 && y < 77 {
+            if x >= dims.width - 49 {
+                browser.navigate()
+            } else if x >= dims.width - 83 {
+                browser.toggleFavorite()
+            }
+            return true
+        }
+
         // The WebWindow has a navigation row and a second row for scrolling.
         if y >= 76 && y < 111 {
             let slot = min(6, max(0,
@@ -921,7 +947,20 @@ struct VRHomeView: View {
             return true
         }
 
-        let contentTop = top + 150
+        if !browser.favorites.isEmpty && y >= 144 && y < 177 {
+            let firstButtonX: CGFloat = 28
+            if x >= firstButtonX {
+                let slotWidth = max(1, (dims.width - firstButtonX - 12) /
+                                       CGFloat(browser.favorites.count))
+                let index = Int((x - firstButtonX) / slotWidth)
+                if browser.favorites.indices.contains(index) {
+                    browser.openFavorite(index)
+                }
+            }
+            return true
+        }
+
+        let contentTop = top + 150 + (browser.favorites.isEmpty ? 0 : 29)
         let contentBottom = top + dims.height - 30
         guard pointer.y >= contentTop && pointer.y <= contentBottom,
               dims.height > 180 else { return true }
