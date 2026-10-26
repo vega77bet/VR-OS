@@ -362,6 +362,21 @@ final class VRSettingsSession: ObservableObject {
         return sections[indexPath.section].rows[indexPath.row]
     }
 
+    func isSliderHit(at point: CGPoint, topInset: CGFloat) -> Bool {
+        guard let table = primaryTable,
+              let row = row(at: point, topInset: topInset),
+              row.kind == .slider else { return false }
+        let contentPoint = CGPoint(
+            x: point.x, y: point.y - topInset + table.contentOffset.y)
+        guard let path = table.indexPathForRow(at: contentPoint),
+              let cell = table.cellForRow(at: path)
+                  as? VRSettingsTableCell else { return false }
+        let rect = cell.slider.convert(cell.slider.bounds, to: table)
+        return point.x >= rect.minX - 3 && point.x <= rect.maxX + 3 &&
+               contentPoint.y >= rect.minY - 7 &&
+               contentPoint.y <= rect.maxY + 7
+    }
+
     func handlePinchTap(at point: CGPoint, viewport: CGSize,
                         topInset: CGFloat) -> Bool {
         guard let row = row(at: point, topInset: topInset) else { return false }
@@ -370,6 +385,9 @@ final class VRSettingsSession: ObservableObject {
             let direction = point.x < viewport.width - 55 ? -1 : 1
             perform(row, direction: direction)
         } else if row.kind == .slider {
+            guard isSliderHit(at: point, topInset: topInset) else {
+                return false
+            }
             setNormalized(row.id, fraction: sliderFraction(
                 x: point.x, width: viewport.width,
                 localY: point.y - topInset))
