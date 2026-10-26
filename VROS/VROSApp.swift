@@ -216,6 +216,7 @@ struct VRHomeView: View {
             } else if phase == .active && wasBackgrounded {
                 wasBackgrounded = false
                 if ultraWideMode {
+                    recenterUltraWide()
                     ultraWide.start()
                 } else {
                     runtime.setCinemaMode(cinemaOpen)
@@ -437,7 +438,7 @@ struct VRHomeView: View {
                 }
                 .allowsHitTesting(false)
 
-                let cursor = mappedPoint(shownHand.point, size: size)
+                let cursor = interactionPoint(shownHand.point, size: size)
                 ZStack {
                     Circle()
                         .stroke(.white.opacity(0.9), lineWidth: shownHand.pinching ? 3 : 2)
@@ -858,6 +859,16 @@ struct VRHomeView: View {
                        y: raw.y * ih * scale + (size.height - ih * scale) / 2)
     }
 
+    /// With the complete 0.5x image letterboxed, map the *interaction
+    /// cursor* across the whole eye so headset buttons remain reachable.
+    /// The drawn skeleton stays aligned to the true camera image crop.
+    private func interactionPoint(_ raw: CGPoint, size: CGSize) -> CGPoint {
+        if ultraWideMode && ultraFullFrame {
+            return CGPoint(x: raw.x * size.width, y: raw.y * size.height)
+        }
+        return mappedPoint(raw, size: size)
+    }
+
     private func processGesture(_ hand: TrackedHand, size: CGSize) {
         // Cinema owns pinch gestures while open. Never activate the OS dock
         // behind the movie when changing stereo playback settings.
@@ -871,7 +882,7 @@ struct VRHomeView: View {
             return
         }
 
-        let pointer = mappedPoint(hand.point, size: size)
+        let pointer = interactionPoint(hand.point, size: size)
         if hand.pinching && !lastPinch {
             beganPinch(pointer, hand: hand, size: size)
         } else if hand.pinching, var held = drag,
