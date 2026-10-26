@@ -7,6 +7,7 @@ import CoreTransferable
 import SceneKit
 import SwiftUI
 import UniformTypeIdentifiers
+import UIKit
 
 /// PhotosPicker's file representation is copied while its temporary access is
 /// valid, avoiding loading gigabyte-sized movies into RAM as Data.
@@ -78,10 +79,17 @@ final class CinemaModel: ObservableObject {
     private var motionReference: simd_quatf?
     private var lastARPose: ARCamera?
     @Published private(set) var headTrackingStatus = "Iniciando sensores…"
-    @Published var showControlsAutomatically = false
+    // Hide the overlay five seconds after movie playback starts so it never
+    // obstructs the screen; tapping the scene or Menu restores controls.
+    @Published var showControlsAutomatically = true
     @Published private(set) var screenPitchDegrees: Float = 0
-    @Published var invertTracking = true
+    @Published private(set) var screenYawDegrees: Float = 0
+    @Published var invertTracking = false
     private var screenPitchOffset: Float = 0
+    private var screenYawOffset: Float = 0
+    private let screenCentre = SIMD3<Float>(0, 7.05, -15.66)
+    private var screenAimOrientation = simd_quatf()
+    private var lastMotionTimestamp: TimeInterval = 0
     private var roomLights: [SCNLight] = []
     private var ambientLight: SCNLight?
     private var screenBounceLight: SCNLight?
@@ -97,6 +105,7 @@ final class CinemaModel: ObservableObject {
     @Published var playing = false
     @Published var selectedMode: CinemaVideoMode = .twoD
     @Published var immersiveScreen = true
+    @Published var cinemaFovDegrees: CGFloat = 78
     @Published var swapEyes = false
     @Published var convergence: CGFloat = 0
     @Published var controlsVisible = true
@@ -107,17 +116,22 @@ final class CinemaModel: ObservableObject {
         buildRoom()
         updateStereoMaterials()
         updateSeatPosition()
+        refreshScreenAim()
         updateLighting(animated: false)
     }
 
     func enter(camera: ARCamera?) {
         setSeatSelectionMode(false)
+        motion.stopDeviceMotionUpdates()
         lastARPose = camera
         initialOrientation = camera.map { simd_quatf($0.transform) }
         motionReference = nil
+        lastMotionTimestamp = 0
+        headTrackingStatus = "Calibrando movimento…"
         controlsVisible = true
         screenPitchOffset = 0
-        refreshScreenPitch()
+        screenYawOffset = 0
+        refreshScreenAim()
         startHeadTracking()
     }
 
@@ -125,6 +139,7 @@ final class CinemaModel: ObservableObject {
         setSeatSelectionMode(false)
         motion.stopDeviceMotionUpdates()
         motionReference = nil
+        lastMotionTimestamp = 0
         player?.pause()
         playing = false
         controlsTask?.cancel()
@@ -132,100 +147,141 @@ final class CinemaModel: ObservableObject {
         updateLighting()
     }
 
-    /// CoreMotion does not depend on visible ARKit features, so head tracking
-    /// keeps updating in a dark room and while a fullscreen video is playing.
-    /// Motion callback drives the SceneKit cameras directly at 60 Hz.
+    /// CoreMotion provides a stable reference even when a headset blocks the
+    /// rear camera. Quaternions are calibrated at the user's current pose.
+    /// The neutral view ALWAYS looks at the screen centre from the current seat.
     private func startHeadTracking() {
         guard motion.isDeviceMotionAvailable else {
-            headTrackingStatus = "Sensores indisponíveis · modo AR"
+            headTrackingStatus = "Sensores indisponíveis · usando ARKit"
             return
         }
         motion.deviceMotionUpdateInterval = 1.0 / 60.0
-        let referenceFrame: CMAttitudeReferenceFrame =
-            CMMotionManager.availableAttitudeReferenceFrames()
-                .contains(.xArbitraryCorrectedZVertical)
-                ? .xArbitraryCorrectedZVertical : .xArbitraryZVertical
-        motion.startDeviceMotionUpdates(using: referenceFrame, to: .main) {
+        lastMotionTimestamp = ProcessInfo.processInfo.systemUptime
+        let frames = CMMotionManager.availableAttitudeReferenceFrames()
+        let frame: CMAttitudeReferenceFrame = frames.contains(.xArbitraryZVertical)
+            ? .xArbitraryZVertical : .xArbitraryCorrectedZVertical
+        motion.startDeviceMotionUpdates(using: frame, to: .main) {
             [weak self] measurement, error in
-            guard let self = self, let measurement = measurement, error == nil else { return }
+            guard let self = self else { return }
+            guard let measurement = measurement, error == nil else {
+                self.headTrackingStatus = "Falha nos sensores · usando ARKit"
+                self.motion.stopDeviceMotionUpdates()
+                return
+            }
+            self.lastMotionTimestamp = ProcessInfo.processInfo.systemUptime
             let q = measurement.attitude.quaternion
-            let current = simd_normalize(simd_quatf(ix: Float(q.x), iy: Float(q.y),
-                                                   iz: Float(q.z), r: Float(q.w)))
+            let current = simd_normalize(simd_quatf(
+                ix: Float(q.x), iy: Float(q.y),
+                iz: Float(q.z), r: Float(q.w)
+            ))
             if self.motionReference == nil {
                 self.motionReference = current
                 self.headTrackingStatus = "Cabeça: sensores ativos"
+                self.applyHeadOrientation(simd_quatf())
             }
             guard let baseline = self.motionReference else { return }
-            let relative = simd_inverse(baseline) * current
 
-            // Phone is fixed horizontally in a VR Box. Rotate the motion
-            // basis to match landscape screen axes, before applying to the
-            // two virtual eye cameras in the same shared scene.
-            let landscape = simd_quatf(angle: -.pi / 2,
-                                       axis: SIMD3<Float>(0, 0, 1))
-            let cameraRotation = landscape * relative * simd_inverse(landscape)
-            self.applyHeadOrientation(cameraRotation)
+            // The relative attitude is expressed in the INITIAL DEVICE frame.
+            // Convert it to the actual landscape display axes before sending
+            // it to SceneKit. Old versions hardcoded LandscapeRight even when
+            // iOS showed the other landscape orientation.
+            let deltaDevice = simd_inverse(baseline) * current
+            let basis = self.screenToDeviceRotation()
+            let deltaDisplay = simd_inverse(basis) * deltaDevice * basis
+            self.applyHeadOrientation(simd_normalize(deltaDisplay))
         }
     }
 
+    /// SceneKit camera axes: +X right, +Y up, -Z forward.
+    /// Portrait phone axes are rotated a quarter turn in a landscape holder.
+    /// The specific sign depends on the actual interface orientation.
+    private func screenToDeviceRotation() -> simd_quatf {
+        let orientation = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first(where: { $0.activationState == .foregroundActive })?
+            .interfaceOrientation ?? .landscapeRight
+        let turn: Float = orientation == .landscapeLeft ? -.pi / 2 : .pi / 2
+        return simd_quatf(angle: turn, axis: SIMD3<Float>(0, 0, 1))
+    }
+
     func recenterHead() {
-        if let reading = motion.deviceMotion?.attitude.quaternion {
+        if motion.isDeviceMotionActive,
+           let reading = motion.deviceMotion?.attitude.quaternion {
             motionReference = simd_normalize(simd_quatf(
                 ix: Float(reading.x), iy: Float(reading.y),
                 iz: Float(reading.z), r: Float(reading.w)))
-            applyHeadOrientation(simd_quatf())
         } else if let pose = lastARPose {
             initialOrientation = simd_quatf(pose.transform)
-            applyHeadOrientation(simd_quatf())
-        } else {
-            applyHeadOrientation(simd_quatf())
         }
+        applyHeadOrientation(simd_quatf())
         revealControls()
     }
 
     func updateHead(_ camera: ARCamera?) {
         lastARPose = camera
-        // Use ARKit only if motion sensors cannot run. The ARKit pose may
-        // freeze when a headset blocks environmental features.
-        guard !motion.isDeviceMotionActive, let pose = camera else { return }
+        // If CoreMotion stops or ceases sending updates, don't freeze the
+        // screen forever. Fall back to relative ARKit camera orientation.
+        let recentMotion = motion.isDeviceMotionActive &&
+            ProcessInfo.processInfo.systemUptime - lastMotionTimestamp < 0.6
+        guard !recentMotion, let pose = camera else { return }
         let current = simd_quatf(pose.transform)
         if initialOrientation == nil { initialOrientation = current }
         guard let origin = initialOrientation else { return }
-        let relative = simd_inverse(origin) * current
-        applyHeadOrientation(relative)
+        let delta = simd_normalize(simd_inverse(origin) * current)
+        applyHeadOrientation(delta)
     }
 
-    /// The virtual screen's centre is ~7 m above the auditorium floor.
-    /// Aim the camera at its centre instead of straight ahead at the seats.
-    private func refreshScreenPitch() {
-        let eyeY = seats.first(where: { $0.id == currentSeatID })?
-            .cameraPosition.y ?? 1.70
-        let eyeZ = seats.first(where: { $0.id == currentSeatID })?
-            .cameraPosition.z ?? -2.60
-        let horizontalDistance = max(1, eyeZ + 15.76)
-        let naturalPitch = atan2(Float(7.05) - eyeY, horizontalDistance)
-        screenPitchDegrees = (naturalPitch + screenPitchOffset) * 180 / .pi
+    /// A camera in the left or right section of the auditorium needs BOTH
+    /// yaw and pitch to face the real screen centre. Pitch-only alignment
+    /// leaves the movie off-centre and looking at chair backs.
+    private func refreshScreenAim() {
+        guard let seat = seats.first(where: { $0.id == currentSeatID }) else { return }
+        let eye = SIMD3<Float>(seat.cameraPosition.x,
+                               seat.cameraPosition.y,
+                               seat.cameraPosition.z)
+        let toScreen = simd_normalize(screenCentre - eye)
+        let neutral = simd_quatf(
+            from: SIMD3<Float>(0, 0, -1),
+            to: toScreen
+        )
+        let extraYaw = simd_quatf(angle: screenYawOffset,
+                                  axis: SIMD3<Float>(0, 1, 0))
+        let extraPitch = simd_quatf(angle: screenPitchOffset,
+                                    axis: SIMD3<Float>(1, 0, 0))
+        screenAimOrientation = simd_normalize(neutral * extraYaw * extraPitch)
+        screenPitchDegrees = atan2(toScreen.y,
+                                   hypot(toScreen.x, toScreen.z)) * 180 / .pi +
+                             screenPitchOffset * 180 / .pi
+        screenYawDegrees = atan2(-toScreen.x, -toScreen.z) * 180 / .pi +
+                           screenYawOffset * 180 / .pi
+        applyHeadOrientation(simd_quatf())
     }
 
-    private func applyHeadOrientation(_ raw: simd_quatf) {
-        let corrected = invertTracking ? simd_inverse(raw) : raw
-        let pitch = simd_quatf(angle: screenPitchDegrees * .pi / 180,
-                               axis: SIMD3<Float>(1, 0, 0))
-        let rotation = simd_normalize(pitch * corrected)
-        leftCamera.simdOrientation = rotation
-        rightCamera.simdOrientation = rotation
+    private func applyHeadOrientation(_ delta: simd_quatf) {
+        let corrected = invertTracking ? simd_inverse(delta) : delta
+        let finalOrientation = simd_normalize(screenAimOrientation * corrected)
+        leftCamera.simdOrientation = finalOrientation
+        rightCamera.simdOrientation = finalOrientation
     }
 
     func adjustScreenHeight(_ direction: Float) {
-        screenPitchOffset = max(-0.65, min(0.65,
+        screenPitchOffset = max(-0.50, min(0.50,
                                          screenPitchOffset + direction * (.pi / 36)))
-        refreshScreenPitch()
+        refreshScreenAim()
+        recenterHead()
+    }
+
+    func adjustScreenHorizontal(_ direction: Float) {
+        screenYawOffset = max(-0.50, min(0.50,
+                                       screenYawOffset + direction * (.pi / 36)))
+        refreshScreenAim()
         recenterHead()
     }
 
     func resetScreenAim() {
         screenPitchOffset = 0
-        refreshScreenPitch()
+        screenYawOffset = 0
+        refreshScreenAim()
         recenterHead()
     }
 
@@ -356,8 +412,13 @@ final class CinemaModel: ObservableObject {
     func toggleImmersive() {
         immersiveScreen.toggle()
         updateSeatPosition()
-        refreshScreenPitch()
         recenterHead()
+        revealControls()
+    }
+
+    func adjustCinemaFOV(_ delta: CGFloat) {
+        cinemaFovDegrees = min(105, max(55, cinemaFovDegrees + delta))
+        updateSeatPosition()
         revealControls()
     }
 
@@ -367,7 +428,10 @@ final class CinemaModel: ObservableObject {
         guard let selected = seats.first(where: { $0.id == currentSeatID }) else { return }
         for (eye, offset) in [(leftCamera, Float(-0.032)),
                               (rightCamera, Float(0.032))] {
-            eye.camera?.fieldOfView = immersiveScreen ? 68 : 75
+            // Wider viewing angle avoids cropping an ultra-wide cinema screen.
+            // The user can tune this for their headset lenses.
+            eye.camera?.fieldOfView = immersiveScreen
+                ? cinemaFovDegrees : min(115, cinemaFovDegrees + 12)
             let target = SCNVector3(selected.cameraPosition.x + offset,
                                     selected.cameraPosition.y,
                                     selected.cameraPosition.z)
@@ -428,10 +492,8 @@ final class CinemaModel: ObservableObject {
         } else if let pose = lastARPose {
             initialOrientation = simd_quatf(pose.transform)
         }
-        leftCamera.simdOrientation = simd_quatf()
-        rightCamera.simdOrientation = simd_quatf()
         updateSeatPosition(animated: true)
-        refreshScreenPitch()
+        refreshScreenAim()
         recenterHead()
         setSeatSelectionMode(false)
         return true
@@ -981,14 +1043,27 @@ struct CinemaEyeView: View {
                     HStack(spacing: 4) {
                         cinemaOption("Tela ↑") { cinema.adjustScreenHeight(1) }
                         cinemaOption("Tela ↓") { cinema.adjustScreenHeight(-1) }
+                        cinemaOption("Tela ←") { cinema.adjustScreenHorizontal(-1) }
+                        cinemaOption("Tela →") { cinema.adjustScreenHorizontal(1) }
                         cinemaOption("Mirar tela") { cinema.resetScreenAim() }
-                        cinemaOption(cinema.invertTracking ? "Eixo invertido" : "Eixo normal") {
-                            cinema.toggleTrackingDirection()
-                        }
                     }
                     .padding(.horizontal, 7)
                     .padding(.top, 3)
-                    Text(cinema.headTrackingStatus + " · " + cinema.currentSeatLabel)
+                    HStack(spacing: 5) {
+                        cinemaOption("FOV −") { cinema.adjustCinemaFOV(-5) }
+                        cinemaOption("FOV +") { cinema.adjustCinemaFOV(5) }
+                        cinemaOption(cinema.invertTracking ? "Mov.: inverso" : "Mov.: normal") {
+                            cinema.toggleTrackingDirection()
+                        }
+                        Text(String(format: "%.0f°", cinema.cinemaFovDegrees))
+                            .font(.system(size: 9, weight: .semibold))
+                            .frame(width: 27)
+                    }
+                    .padding(.horizontal, 7)
+                    .padding(.top, 3)
+                    Text(String(format: "%@ · %@ · Mira ↑%.0f° ↔%.0f°",
+                                cinema.headTrackingStatus, cinema.currentSeatLabel,
+                                cinema.screenPitchDegrees, cinema.screenYawDegrees))
                         .font(.system(size: 9, weight: .medium))
                         .foregroundStyle(.green.opacity(0.95))
                         .padding(.top, 3)

@@ -14,8 +14,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.vega77bet.vros2
         SWIFT_VERSION: "5.0"
-        MARKETING_VERSION: "4.0.0"
-        CURRENT_PROJECT_VERSION: "14"
+        MARKETING_VERSION: "4.1.0"
+        CURRENT_PROJECT_VERSION: "15"
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_NSCameraUsageDescription: "O VR OS usa a câmera traseira para mostrar o ambiente e rastrear as mãos e mapear o ambiente com ARKit."
