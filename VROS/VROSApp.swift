@@ -425,17 +425,19 @@ struct VRHomeView: View {
                     VRNoteScrollSurface(session: note, rightEye: right)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     HStack(spacing: 6) {
-                        Button {
-                            note.scrollBy(-90)
-                        } label: {
-                            Label("Subir", systemImage: "arrow.up")
+                        Button { note.adjustFontSize(-1) } label: {
+                            Text("A−").frame(maxWidth: .infinity)
+                        }
+                        Button { note.scrollBy(-90) } label: {
+                            Image(systemName: "arrow.up")
                                 .frame(maxWidth: .infinity)
                         }
-                        Button {
-                            note.scrollBy(90)
-                        } label: {
-                            Label("Descer", systemImage: "arrow.down")
+                        Button { note.scrollBy(90) } label: {
+                            Image(systemName: "arrow.down")
                                 .frame(maxWidth: .infinity)
+                        }
+                        Button { note.adjustFontSize(1) } label: {
+                            Text("A+").frame(maxWidth: .infinity)
                         }
                     }
                     .font(.system(size: 10, weight: .medium))
@@ -859,7 +861,15 @@ struct VRHomeView: View {
             if panel.kind == .content, let note = noteSessions[panel.id] {
                 if dy > dimensions.height / 2 - 63 &&
                    dy < dimensions.height / 2 - 24 {
-                    note.scrollBy(dx < 0 ? -95 : 95)
+                    let localX = dx + dimensions.width / 2 - 12
+                    let cellWidth = max(1, (dimensions.width - 24) / 4)
+                    let slot = max(0, min(3, Int(localX / cellWidth)))
+                    switch slot {
+                    case 0: note.adjustFontSize(-1)
+                    case 1: note.scrollBy(-95)
+                    case 2: note.scrollBy(95)
+                    default: note.adjustFontSize(1)
+                    }
                     return
                 }
                 if dy > -dimensions.height / 2 + 39 &&
