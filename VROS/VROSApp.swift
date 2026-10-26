@@ -1181,7 +1181,8 @@ struct VRHomeView: View {
                     settings.setNormalized(id, fraction: settings.sliderFraction(
                         x: pointer.x, width: size.width,
                         localY: pointer.y - top))
-                } else if travelled > 11 {
+                } else if VRSettingsInputGeometry.isScroll(
+                    from: gesture.start, to: pointer) {
                     gesture.moved = true
                     let desired = gesture.startingScroll - deltaY
                     settings.scrollBy(desired - settings.scrollOffset)
@@ -1199,26 +1200,22 @@ struct VRHomeView: View {
         settingsGesture = nil
         guard !gesture.moved, gesture.sliderID == nil else { return }
         let pointer = gesture.start
-        if pointer.y < VRSettingsScreen.toolbarHeight {
-            if pointer.x > size.width - 49 {
-                closeSettings()
-            } else if pointer.x < size.width * 0.38 {
-                settings.back()
-            }
-            return
-        }
-        if settings.page == .home &&
-           pointer.y < VRSettingsScreen.toolbarHeight +
-                       VRSettingsScreen.searchHeight {
+        switch VRSettingsInputGeometry.classify(
+            pointer, viewport: size, page: settings.page) {
+        case .close:
+            closeSettings()
+        case .back:
+            settings.back()
+        case .search:
             settings.focusSearchRequest += 1
-            return
+        case .table:
+            _ = settings.handlePinchTap(
+                at: pointer, viewport: size,
+                topInset: VRSettingsInputGeometry.tableTop(
+                    page: settings.page))
+        case .none:
+            break
         }
-        let top = settings.page == .home
-            ? VRSettingsScreen.toolbarHeight +
-              VRSettingsScreen.searchHeight
-            : VRSettingsScreen.toolbarHeight
-        _ = settings.handlePinchTap(at: pointer, viewport: size,
-                                    topInset: top)
     }
 
     private func processGesture(_ hand: TrackedHand, size: CGSize) {
