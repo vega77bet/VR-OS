@@ -482,24 +482,15 @@ struct VRHomeView: View {
     private func dock(size: CGSize) -> some View {
         Group {
             if dockExpanded {
-                HStack(spacing: 5) {
+                HStack(spacing: 3) {
                     dockButton("plus.rectangle.on.rectangle", "Janela", slot: 0, size: size)
                     dockButton("square.grid.2x2.fill", "Apps", slot: 1, size: size)
                     dockButton("film.stack.fill", "Cinema", slot: 2, size: size)
-                    dockButton("arrow.down.circle", "Atualizar", slot: 3, size: size)
+                    dockButton("arrow.down.circle", "Atual.", slot: 3, size: size)
                     dockButton("paintpalette.fill", "Temas", slot: 4, size: size)
                     dockButton("scope", "Centro", slot: 5, size: size)
-                    Button { toggleUltraWide() } label: {
-                        VStack(spacing: 3) {
-                            Image(systemName: "camera.aperture")
-                                .font(.system(size: 17))
-                            Text("0,5x").font(.system(size: 9, weight: .medium))
-                        }
-                        .foregroundStyle(.white)
-                        .frame(minWidth: 34)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(cameraTransitioning)
+                    dockButton("camera.aperture", ultraWideMode ? "ARKit" : "0,5x",
+                               slot: 6, size: size)
                 }
                 .padding(5)
                 .background(selectedTheme.surface.opacity(0.95),
@@ -532,7 +523,7 @@ struct VRHomeView: View {
                     .lineLimit(1).minimumScaleFactor(0.7)
             }
             .foregroundStyle(.white)
-            .frame(width: max(24, (size.width - 50) / 6), height: 48)
+            .frame(width: max(20, (size.width - 40) / 7), height: 48)
             .background(selectedTheme.accent.opacity(0.15),
                         in: RoundedRectangle(cornerRadius: 11))
         }
@@ -1025,13 +1016,13 @@ struct VRHomeView: View {
                 return
             }
         } else {
-            let dockWidth = max(24, (size.width - 50) / 6) * 6 + 5 * 5 + 10
+            let dockWidth = max(20, (size.width - 40) / 7) * 7 + 3 * 6 + 10
             let dockLeft = (size.width - dockWidth) / 2
             if abs(pointer.y - dockCenterY(size)) <= 37 &&
                pointer.x >= dockLeft - 8 &&
                pointer.x <= dockLeft + dockWidth + 8 {
-                let cell = max(24, (size.width - 50) / 6) + 5
-                let slot = min(5, max(0, Int((pointer.x - dockLeft - 5) / cell)))
+                let cell = max(20, (size.width - 40) / 7) + 3
+                let slot = min(6, max(0, Int((pointer.x - dockLeft - 5) / cell)))
                 activateDock(slot)
                 dockExpanded = false
                 return
