@@ -1261,12 +1261,23 @@ struct VRHomeView: View {
         }
     }
 
+    private func registerUltraWindow(_ panel: VRPanel) {
+        guard ultraWideMode else { return }
+        let point = CGPoint(
+            x: eyeViewport.width / 2 + panel.x * eyeViewport.width / 2,
+            y: eyeViewport.height / 2 + panel.y * eyeViewport.height / 2)
+        ultraPanelDirections[panel.id] =
+            VRUltraWideWindowProjection.anchoredDirection(
+                at: point, viewport: eyeViewport,
+                headRotation: ultraWide.motionDelta)
+    }
+
     private func openRemoteWindow() {
         let templates = updates.manifest.templates
         guard !templates.isEmpty else { return }
         let template = templates[nextRemoteTemplateIndex % templates.count]
         nextRemoteTemplateIndex += 1
-        panels.append(VRPanel(
+        let panel = VRPanel(
             title: template.title,
             icon: template.symbol,
             text: template.text,
@@ -1274,12 +1285,14 @@ struct VRHomeView: View {
             y: CGFloat(nextRemoteTemplateIndex % 2 == 0 ? -0.38 : -0.28),
             depth: template.depth,
             templateID: template.id
-        ))
+        )
+        panels.append(panel)
+        registerUltraWindow(panel)
     }
 
     private func openUpdatesWindow() {
         if panels.contains(where: { $0.kind == .updates }) { return }
-        panels.append(VRPanel(
+        let panel = VRPanel(
             title: "Atualizações online",
             icon: "arrow.down.circle",
             text: "",
@@ -1287,7 +1300,9 @@ struct VRHomeView: View {
             y: -0.30,
             depth: 1.3,
             kind: .updates
-        ))
+        )
+        panels.append(panel)
+        registerUltraWindow(panel)
     }
 
     private func openWebApp(_ app: VRWebApp) {
@@ -1312,6 +1327,7 @@ struct VRHomeView: View {
         )
         webSessions[newPanel.id] = browser
         panels.append(newPanel)
+        registerUltraWindow(newPanel)
         appsOpen = false
         themeMenuOpen = false
         dockExpanded = false
@@ -1399,7 +1415,7 @@ struct VRHomeView: View {
             let count = panels.count + 1
             panels.append(VRPanel(
                 title: "Janela \(count)", icon: "macwindow",
-                text: "GUIA RÁPIDO DO VR-OS V17\n\n"
+                text: "GUIA RÁPIDO DO VR-OS V19\n\n"
                     + "1. Pinça na linha branca: arraste a janela pelo ambiente.\n\n"
                     + "2. Segure a pinça sobre este texto e mova a mão para ROLAR a janela.\n\n"
                     + "3. Use as setas ↑/↓ para subir e descer. A−/A+ deixam o texto menor ou maior.\n\n"
@@ -1414,10 +1430,16 @@ struct VRHomeView: View {
                 x: CGFloat((count % 3) - 1) * 0.15,
                 y: CGFloat(count % 2 == 0 ? -0.38 : -0.28),
                 depth: 1.6))
+            if let newPanel = panels.last { registerUltraWindow(newPanel) }
         case 1:
             appsOpen.toggle()
             if appsOpen { themeMenuOpen = false }
         case 2:
+            if ultraWideMode {
+                ultraNotice = "Cinema usa ARKit · volte ao modo normal"
+                dockExpanded = false
+                return
+            }
             drag = nil
             webPinchGesture = nil
             appsOpen = false
@@ -1431,12 +1453,20 @@ struct VRHomeView: View {
         case 4:
             themeMenuOpen.toggle()
             if themeMenuOpen { appsOpen = false }
-        default:
-            for index in panels.indices {
-                panels[index].x = 0
-                panels[index].y = 0
-                panels[index].anchor = nil
+        case 5:
+            if ultraWideMode {
+                recenterUltraWide()
+            } else {
+                for index in panels.indices {
+                    panels[index].x = 0
+                    panels[index].y = 0
+                    panels[index].anchor = nil
+                }
             }
+        case 6:
+            toggleUltraWide()
+        default:
+            break
         }
     }
 }
