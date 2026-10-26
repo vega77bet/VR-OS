@@ -88,7 +88,12 @@ final class CinemaModel: ObservableObject {
     @Published private(set) var headTrackingStatus = "Iniciando sensores…"
     // Hide the overlay five seconds after movie playback starts so it never
     // obstructs the screen; tapping the scene or Menu restores controls.
-    @Published var showControlsAutomatically = true
+    @Published var showControlsAutomatically = true {
+        didSet {
+            UserDefaults.standard.set(showControlsAutomatically,
+                                      forKey: "vros.cinema.autoControls.v1")
+        }
+    }
     @Published private(set) var screenPitchDegrees: Float = 0
     @Published private(set) var screenYawDegrees: Float = 0
     @Published var invertTracking = false
@@ -111,9 +116,18 @@ final class CinemaModel: ObservableObject {
     @Published var movieTitle = "Escolha um filme MP4"
     @Published var playing = false
     @Published var selectedMode: CinemaVideoMode = .twoD
-    @Published var immersiveScreen = true
+    @Published var immersiveScreen = true {
+        didSet {
+            UserDefaults.standard.set(immersiveScreen,
+                                      forKey: "vros.cinema.immersive.v1")
+        }
+    }
     @Published var cinemaFovDegrees: CGFloat = 88
-    @Published var swapEyes = false
+    @Published var swapEyes = false {
+        didSet {
+            UserDefaults.standard.set(swapEyes, forKey: "vros.cinema.swapEyes.v1")
+        }
+    }
     @Published var convergence: CGFloat = 0
     @Published var controlsVisible = true
     @Published var errorMessage: String?
@@ -134,6 +148,16 @@ final class CinemaModel: ObservableObject {
         try? fileManager.removeItem(at: cacheFolder)
 
         let preferences = UserDefaults.standard
+        if preferences.object(forKey: "vros.cinema.autoControls.v1") != nil {
+            showControlsAutomatically =
+                preferences.bool(forKey: "vros.cinema.autoControls.v1")
+        }
+        if preferences.object(forKey: "vros.cinema.immersive.v1") != nil {
+            immersiveScreen = preferences.bool(forKey: "vros.cinema.immersive.v1")
+        }
+        if preferences.object(forKey: "vros.cinema.swapEyes.v1") != nil {
+            swapEyes = preferences.bool(forKey: "vros.cinema.swapEyes.v1")
+        }
         let savedFOV = preferences.double(forKey: "vros.cinema.fov.v1")
         if savedFOV >= 55 && savedFOV <= 115 {
             cinemaFovDegrees = CGFloat(savedFOV)
