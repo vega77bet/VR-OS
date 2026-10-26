@@ -1,5 +1,6 @@
 import Foundation
 import CoreGraphics
+import simd
 
 func verify(_ condition: @autoclosure () -> Bool, _ message: String) {
     guard condition() else {
@@ -88,3 +89,34 @@ verify(focus.width > viewport.width * 0.99,
 
 print("PASS: dynamic 3/5/7-app launcher, zoom targets, 7 web actions,")
 print("      favorites, scroll layout and clamped/focused VR windows")
+
+var checkedSeatCount = 0
+for row in 0..<6 {
+    for sideIndex in 0..<2 {
+        let side: Float = sideIndex == 0 ? -1 : 1
+        for column in 0..<6 {
+            let eye = SIMD3<Float>(
+                side * (2.45 + Float(column) * 2.08),
+                Float(row) * 0.33 + 1.70,
+                Float(row) * 4.2 - 11.7 - 0.13
+            )
+            let rotation = VRCinemaGeometry.lookRotation(from: eye)
+            let rotatedForward = simd_normalize(
+                rotation.act(VRCinemaGeometry.cameraForward))
+            let expectedForward = simd_normalize(
+                VRCinemaGeometry.screenCentre - eye)
+            let alignment = simd_dot(rotatedForward, expectedForward)
+            verify(alignment > 0.9999,
+                   "Seat \(checkedSeatCount) needs a direct screen-centre aim")
+            let pitch = VRCinemaGeometry.pitchDegrees(from: eye)
+            let yaw = VRCinemaGeometry.yawDegrees(from: eye)
+            verify(pitch >= 0 && pitch <= 55,
+                   "Seat \(checkedSeatCount) pitch must be physically plausible")
+            verify(abs(yaw) <= 80,
+                   "Seat \(checkedSeatCount) yaw must face the screen")
+            checkedSeatCount += 1
+        }
+    }
+}
+verify(checkedSeatCount == 72, "Every cinema seat must be checked")
+print("PASS: all 72 cinema chairs point at the screen centre to 0.01%")
