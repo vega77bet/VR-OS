@@ -1,6 +1,15 @@
-# VR-OS 4.6 — visor curvo para VR Box + câmera 0,5x com rastreamento
+# VR-OS 4.7 — Ajustes nativos em cinza + visor curvo, mãos e câmera 0,5x
 
 Aplicativo **experimental de realidade mista** para iPhone em modo paisagem, pensado para uso sentado com um headset simples tipo VR Box. **Não substitui o iOS** e não instala aplicativos iOS dentro das janelas.
+
+## Destaque V21 — aplicativo Ajustes nativo estilo iPhone
+
+- **Ajustes na Central de Apps:** sexto aplicativo, interface nativa em tons de cinza, organizada em **nove categorias** com grupos arredondados, setas de navegação, telas de detalhes e barra de busca.
+- **Rolagem de verdade:** listas grandes em **UITableView**, controle por toque nos dois olhos ou por pinça/arraste da mão, mantendo os dois olhos sincronizados.
+- **Controles funcionais:** UISwitch, UISlider, botões +/− para visor/IPD/altura, câmera 0,5x/ARKit, sensibilidade real da pinça, janelas, temas, Cinema, zoom da web, limpeza de favoritos e restauração.
+- **Tudo salvo:** preferências de visor, câmera, mão, HUD, janelas, Cinema e web persistem no iPhone. Limpar favoritos e restaurar ajustes exigem confirmação em dois passos.
+- **Limite:** é inspirado no design dos Ajustes da Apple, não um clone do aplicativo iOS e não consegue alterar Wi-Fi, Apple ID ou outras opções protegidas do sistema.
+- Detalhes técnicos, navegação e roteiro de testes em [V21_AJUSTES.md](V21_AJUSTES.md).
 
 ## Destaque V20 — dois visores curvos como na imagem de referência
 
@@ -33,7 +42,7 @@ Aplicativo **experimental de realidade mista** para iPhone em modo paisagem, pen
 ## Como controlar
 
 1. Coloque o iPhone na horizontal; execute o app e permita câmera/movimento.
-2. **Dock**: Janela, Apps, Cinema, Atualizar, Temas, Centro, 0,5x/ARKit e Visor. Em Visor, selecione Referência, VR Box + ou Compacto e ajuste IPD visual e tamanho dos dois olhos. Depois de selecionar, o Dock pode virar um botão pequeno no canto inferior esquerdo; toque ou faça pinça nesse botão para reabri-lo.
+2. **Dock**: Janela, Apps, Cinema, Atualizar, Temas, Centro, 0,5x/ARKit e Visor. Em **Apps**, abra o aplicativo **Ajustes** (sexto item) para configurar essas funções com listas, controles nativos, busca e rolagem. Em Visor, selecione Referência, VR Box + ou Compacto e ajuste IPD visual e tamanho dos dois olhos. Depois de selecionar, o Dock pode virar um botão pequeno no canto inferior esquerdo; toque ou faça pinça nesse botão para reabri-lo.
 3. **Mover janela**: segure a pinça na **linha branca abaixo** do cartão e arraste a mão. A distância usa estimativa monocular e pode variar.
 4. **Nota longa**: role tocando, use ↑/↓ ou segure a pinça sobre o texto e mova a mão. A−/A+ mudam o tamanho da letra.
 5. **Site**: abra Apps, selecione a plataforma; expanda pelo ícone no cabeçalho para Modo Foco. Use setas de scroll, zoom de página, estrelinha para salvar favorito, ou pinça curta em links e pinça prolongada para rolar. Alguns sites exigem toque físico.
@@ -56,7 +65,7 @@ Aplicativo **experimental de realidade mista** para iPhone em modo paisagem, pen
 ```sh
 brew install xcodegen
 xcodegen generate
-swiftc VROS/VRGestureGeometry.swift VROS/VRCinemaGeometry.swift VROS/VRUltraWideWindowProjection.swift VROS/VRPinchDetector.swift VROS/VRLensGeometry.swift Tests/main.swift -o /tmp/vros-tests
+swiftc VROS/VRGestureGeometry.swift VROS/VRCinemaGeometry.swift VROS/VRUltraWideWindowProjection.swift VROS/VRPinchDetector.swift VROS/VRLensGeometry.swift VROS/VRSettingsCatalog.swift VROS/VRSettingsInputGeometry.swift Tests/main.swift -o /tmp/vros-tests
 /tmp/vros-tests
 xcodebuild -project VROS.xcodeproj -scheme VROS -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
 ```
@@ -67,4 +76,4 @@ O workflow `.github/workflows/build-ipa.yml` faz build e publica um **IPA unsign
 
 O manifesto público `https://vr-os-content-updates.vercel.app/manifest.json` fornece apenas **textos, templates de janelas, algumas cores e metadados de versão**. É validado, mantido em cache local e **não executa Swift nem atualiza recursos nativos**. Novos apps web/gestos/correções de código exigem outra IPA assinada. Os frames de câmera e pontos da mão são processados localmente.
 
-Para testes de visor e perfis, veja [V20_VISOR_LENTES.md](V20_VISOR_LENTES.md). Para as melhorias anteriores, consulte [V19_RASTREAMENTO_05X.md](V19_RASTREAMENTO_05X.md) e `V17_AUDITORIA.md`.
+Para o aplicativo Ajustes e seus testes, veja [V21_AJUSTES.md](V21_AJUSTES.md). Para visor e perfis, veja [V20_VISOR_LENTES.md](V20_VISOR_LENTES.md). Para as melhorias anteriores, consulte [V19_RASTREAMENTO_05X.md](V19_RASTREAMENTO_05X.md) e `V17_AUDITORIA.md`.
