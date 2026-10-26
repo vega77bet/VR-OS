@@ -266,6 +266,7 @@ struct VRHomeView: View {
         notePinchGesture = nil
         appsOpen = false
         themeMenuOpen = false
+        lensMenuOpen = false
         if ultraWideMode {
             // Wait for AVCapture to release the physical lens before ARKit resumes.
             ultraWide.stop { [self] in
@@ -419,8 +420,8 @@ struct VRHomeView: View {
                 }
 
                 dock(size: size)
-                    .position(x: dockExpanded ? w / 2 : 24,
-                              y: dockExpanded ? dockCenterY(size) : h - 24)
+                    .position(x: dockExpanded ? w / 2 : max(32, w * 0.16),
+                              y: dockCenterY(size))
             }
 
             if ultraWideMode {
@@ -1142,6 +1143,23 @@ struct VRHomeView: View {
     }
 
     private func beganPinch(_ pointer: CGPoint, hand: TrackedHand, size: CGSize) {
+        if lensMenuOpen {
+            // Vision pinch never triggers SwiftUI Button.touchUpInside, so
+            // menu hit positions must match VRLensMenuGeometry exactly.
+            if let action = VRLensMenuGeometry.action(at: pointer, viewport: size) {
+                switch action {
+                case .close:
+                    lensMenuOpen = false
+                case let .profile(index):
+                    if let selected = VRLensProfile(rawValue: index) {
+                        lens.choose(selected)
+                    }
+                case let .adjust(row, direction):
+                    adjustLens(row: row, direction: direction)
+                }
+            }
+            return
+        }
         // A real hand pinch can also reach ultrawide's lens/headset switches.
         if ultraWideMode && pointer.y <= 44 {
             let quarter = size.width / 4
@@ -1200,18 +1218,21 @@ struct VRHomeView: View {
         // When hidden, the dock shrinks to a small bottom-left launcher.
         // Otherwise its large touch area blocked the website grab handle.
         if !dockExpanded {
-            if pointer.x < 49 && abs(pointer.y - (size.height - 24)) < 26 {
+            let collapsedX = max(32, size.width * 0.16)
+            if abs(pointer.x - collapsedX) < 28 &&
+               abs(pointer.y - dockCenterY(size)) < 28 {
                 dockExpanded = true
                 return
             }
         } else {
-            let dockWidth = max(20, (size.width - 40) / 7) * 7 + 3 * 6 + 10
+            let cellWidth = max(20, (size.width - 34) / 8)
+            let dockWidth = cellWidth * 8 + 2 * 7 + 10
             let dockLeft = (size.width - dockWidth) / 2
-            if abs(pointer.y - dockCenterY(size)) <= 37 &&
-               pointer.x >= dockLeft - 8 &&
-               pointer.x <= dockLeft + dockWidth + 8 {
-                let cell = max(20, (size.width - 40) / 7) + 3
-                let slot = min(6, max(0, Int((pointer.x - dockLeft - 5) / cell)))
+            if abs(pointer.y - dockCenterY(size)) <= 29 &&
+               pointer.x >= dockLeft &&
+               pointer.x <= dockLeft + dockWidth {
+                let cell = cellWidth + 2
+                let slot = min(7, max(0, Int((pointer.x - dockLeft - 5) / cell)))
                 activateDock(slot)
                 dockExpanded = false
                 return
@@ -1622,7 +1643,7 @@ struct VRHomeView: View {
             if let newPanel = panels.last { registerUltraWindow(newPanel) }
         case 1:
             appsOpen.toggle()
-            if appsOpen { themeMenuOpen = false }
+            if appsOpen { themeMenuOpen = false; lensMenuOpen = false }
         case 2:
             if ultraWideMode {
                 ultraNotice = "Cinema usa ARKit · volte ao modo normal"
@@ -1633,6 +1654,7 @@ struct VRHomeView: View {
             webPinchGesture = nil
             appsOpen = false
             themeMenuOpen = false
+            lensMenuOpen = false
             runtime.setCinemaMode(true)
             cinema.enter(camera: runtime.camera)
             cinemaOpen = true
@@ -1641,7 +1663,7 @@ struct VRHomeView: View {
             Task { await updates.check() }
         case 4:
             themeMenuOpen.toggle()
-            if themeMenuOpen { appsOpen = false }
+            if themeMenuOpen { appsOpen = false; lensMenuOpen = false }
         case 5:
             if ultraWideMode {
                 recenterUltraWide()
@@ -1654,6 +1676,12 @@ struct VRHomeView: View {
             }
         case 6:
             toggleUltraWide()
+        case 7:
+            lensMenuOpen.toggle()
+            if lensMenuOpen {
+                appsOpen = false
+                themeMenuOpen = false
+            }
         default:
             break
         }
