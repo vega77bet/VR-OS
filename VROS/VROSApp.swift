@@ -266,7 +266,7 @@ struct VRHomeView: View {
     }
 
     // The menu lives above the edge of the camera view so hands can reach it.
-    private func dockCenterY(_ size: CGSize) -> CGFloat { size.height * 0.74 }
+    private func dockCenterY(_ size: CGSize) -> CGFloat { size.height * 0.91 }
 
     private func dock(size: CGSize) -> some View {
         HStack(spacing: 5) {
@@ -647,15 +647,39 @@ struct VRHomeView: View {
     }
 
     private func beganPinch(_ pointer: CGPoint, hand: TrackedHand, size: CGSize) {
+        if let focusedID = focusedWebPanelID {
+            if let panel = panels.first(where: { $0.id == focusedID }) {
+                _ = beginWebPanelPinch(panel, pointer: pointer, size: size)
+            } else {
+                focusedWebPanelID = nil
+            }
+            return
+        }
         if appsOpen {
+            // Use the same rows/spacing as appsLauncher, including the
+            // zoom slider and newly installed site entries. Previously the
+            // hardcoded 3-row map opened the WRONG app after V13.
             let width = min(size.width * 0.89, 330)
-            let localX = pointer.x - (size.width - width) / 2
-            let top = size.height / 2 - 112
-            let localY = pointer.y - top
-            if localX >= 0 && localX <= width &&
-                localY >= 39 && localY < 210 {
-                let index = min(2, max(0, Int((localY - 39) / 57)))
-                openWebApp(VRWebApp.allCases[index])
+            let menuLeft = (size.width - width) / 2
+            let menuHeight = 20 + 17 + 22 +
+                CGFloat(VRWebApp.allCases.count) * 49 +
+                CGFloat(VRWebApp.allCases.count + 1) * 7
+            let menuTop = (size.height - menuHeight) / 2
+            let zoomTop = menuTop + 10 + 17 + 7
+            let firstRowTop = zoomTop + 22 + 7
+            let localX = pointer.x - menuLeft
+            if localX >= 0 && localX <= width {
+                let localRowY = pointer.y - firstRowTop
+                if localRowY >= 0 {
+                    let index = Int(localRowY / 56)
+                    if index >= 0 && index < VRWebApp.allCases.count &&
+                       localRowY - CGFloat(index) * 56 <= 49 {
+                        openWebApp(VRWebApp.allCases[index])
+                    }
+                } else if pointer.y >= zoomTop && pointer.y < zoomTop + 22 {
+                    let fraction = max(0, min(1, (localX - 110) / max(1, width - 157)))
+                    webWindowZoom = 0.65 + fraction * 0.90
+                }
             } else {
                 appsOpen = false
             }
@@ -725,25 +749,87 @@ struct VRHomeView: View {
             return
         }
         for panel in panels.reversed() {
-            guard let center = windowCenter(panel, size: size, right: false) else { continue }
-            let width = panelWidth(panel, size: size) * windowScale(panel)
-            let height = panelHeight(panel, size: size) * windowScale(panel)
+            guard let center = displayedPanelCenter(panel, size: size, right: false)
+            else { continue }
+            let dimensions = displayedPanelSize(panel, size: size)
             let dx = pointer.x - center.x
             let dy = pointer.y - center.y
-            guard abs(dx) < width / 2, abs(dy) < height / 2 else { continue }
-            if dx > width / 2 - 40 && dy < -height / 2 + 40 {
+            guard abs(dx) < dimensions.width / 2,
+                  abs(dy) < dimensions.height / 2 else { continue }
+            if panel.kind == .web {
+                _ = beginWebPanelPinch(panel, pointer: pointer, size: size)
+                return
+            }
+            if dx > dimensions.width / 2 - 40 &&
+               dy < -dimensions.height / 2 + 40 {
                 close(panel.id)
                 return
             }
-            if panel.kind == .updates && dy > -height / 2 + 40 &&
-                dy < height / 2 - 35 {
+            if panel.kind == .updates && dy > -dimensions.height / 2 + 40 &&
+                dy < dimensions.height / 2 - 35 {
                 Task { await updates.check() }
                 return
             }
             // A pinch on the panel itself does not drag it.
-            // Grabbing the white line is the sole 3D movement gesture.
             return
         }
+    }
+
+    /// The website is now usable without touching the iPhone: short pinch
+    /// selects a link/button and a held vertical pinch scrolls the page.
+    /// This is a best-effort WebKit DOM click, not a trusted system tap.
+    @discardableResult
+    private func beginWebPanelPinch(_ panel: VRPanel, pointer: CGPoint,
+                                    size: CGSize) -> Bool {
+        guard panel.kind == .web,
+              let browser = webSessions[panel.id],
+              let center = displayedPanelCenter(panel, size: size, right: false)
+        else { return false }
+        let dims = displayedPanelSize(panel, size: size)
+        let left = center.x - dims.width / 2
+        let top = center.y - dims.height / 2
+        let x = pointer.x - left
+        let y = pointer.y - top
+        guard x >= 0 && x <= dims.width, y >= 0 && y <= dims.height
+        else { return false }
+
+        if y <= 42 {
+            if x >= dims.width - 45 {
+                close(panel.id)
+            } else if x >= dims.width - 98 {
+                focusedWebPanelID = focusedWebPanelID == panel.id ? nil : panel.id
+                appsOpen = false
+                themeMenuOpen = false
+            }
+            return true
+        }
+        // WebWindow's second toolbar row: Back, Forward, Reload, Home, Safari.
+        if y >= 76 && y < 110 {
+            let slot = min(4, max(0,
+                Int((x - 12) / max(1, (dims.width - 24) / 5))))
+            switch slot {
+            case 0: browser.back()
+            case 1: browser.forward()
+            case 2: browser.reload()
+            case 3: browser.goHome()
+            default: browser.openInSafari()
+            }
+            return true
+        }
+
+        let contentTop = top + 112
+        let contentBottom = top + dims.height - 43
+        guard pointer.y >= contentTop && pointer.y <= contentBottom,
+              dims.height > 180 else { return true }
+        webPinchGesture = WebPinchGesture(
+            panelID: panel.id,
+            initialPointer: pointer,
+            startScrollY: browser.primary?.scrollView.contentOffset.y ?? 0,
+            x: max(0.01, min(0.99, (x - 12) / max(1, dims.width - 24))),
+            y: max(0.01, min(0.99,
+                (pointer.y - contentTop) / max(1, contentBottom - contentTop)))
+        )
+        return true
     }
 
     private func adjustDepth(_ id: UUID, to rawValue: Double, size: CGSize,
@@ -764,6 +850,8 @@ struct VRHomeView: View {
         panels.removeAll { $0.id == id }
         webSessions.removeValue(forKey: id)
         if drag?.panelID == id { drag = nil }
+        if webPinchGesture?.panelID == id { webPinchGesture = nil }
+        if focusedWebPanelID == id { focusedWebPanelID = nil }
     }
 
     private func applyRemoteWindowContent(_ manifest: RemoteManifest) {
@@ -884,6 +972,13 @@ struct VRHomeView: View {
             .stroke(Color.white.opacity(0.21), lineWidth: 1))
     }
 
+    private func exitCinema() {
+        cinema.exit()
+        cinemaOpen = false
+        runtime.setCinemaMode(false)
+        lastPinch = false
+    }
+
     private func activateDock(_ slot: Int) {
         switch slot {
         case 0:
@@ -900,6 +995,11 @@ struct VRHomeView: View {
             appsOpen.toggle()
             if appsOpen { themeMenuOpen = false }
         case 2:
+            drag = nil
+            webPinchGesture = nil
+            appsOpen = false
+            themeMenuOpen = false
+            runtime.setCinemaMode(true)
             cinema.enter(camera: runtime.camera)
             cinemaOpen = true
         case 3:
