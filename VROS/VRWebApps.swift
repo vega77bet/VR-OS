@@ -8,6 +8,8 @@ enum VRWebApp: String, CaseIterable, Identifiable {
     case youtube
     case netflix
     case browser
+    case wikipedia
+    case twitch
 
     var id: String { rawValue }
     var title: String {
@@ -15,6 +17,8 @@ enum VRWebApp: String, CaseIterable, Identifiable {
         case .youtube: return "YouTube"
         case .netflix: return "Netflix"
         case .browser: return "Navegador"
+        case .wikipedia: return "Wikipedia"
+        case .twitch: return "Twitch"
         }
     }
     var symbol: String {
@@ -22,6 +26,8 @@ enum VRWebApp: String, CaseIterable, Identifiable {
         case .youtube: return "play.rectangle.fill"
         case .netflix: return "film.stack.fill"
         case .browser: return "globe"
+        case .wikipedia: return "books.vertical.fill"
+        case .twitch: return "video.fill"
         }
     }
     var startURL: URL {
@@ -29,6 +35,8 @@ enum VRWebApp: String, CaseIterable, Identifiable {
         case .youtube: return URL(string: "https://m.youtube.com")!
         case .netflix: return URL(string: "https://www.netflix.com/br/")!
         case .browser: return URL(string: "https://www.google.com")!
+        case .wikipedia: return URL(string: "https://pt.m.wikipedia.org")!
+        case .twitch: return URL(string: "https://m.twitch.tv")!
         }
     }
     var description: String {
@@ -36,6 +44,8 @@ enum VRWebApp: String, CaseIterable, Identifiable {
         case .youtube: return "Vídeos e pesquisas"
         case .netflix: return "Site da plataforma · DRM pode limitar reprodução"
         case .browser: return "Explore qualquer site HTTPS"
+        case .wikipedia: return "Enciclopédia e curiosidades"
+        case .twitch: return "Lives · player pode exigir Safari"
         }
     }
     var accent: Color {
@@ -43,6 +53,8 @@ enum VRWebApp: String, CaseIterable, Identifiable {
         case .youtube: return Color(red: 0.97, green: 0.22, blue: 0.24)
         case .netflix: return Color(red: 0.84, green: 0.12, blue: 0.18)
         case .browser: return Color(red: 0.25, green: 0.67, blue: 1)
+        case .wikipedia: return Color(red: 0.8, green: 0.8, blue: 0.86)
+        case .twitch: return Color(red: 0.63, green: 0.38, blue: 1)
         }
     }
 }
@@ -141,6 +153,45 @@ final class VRWebSession: ObservableObject {
         }
         UIApplication.shared.open(url)
     }
+
+    /// Pinching over the web surface emulates a simple site click. WebKit does
+    /// not expose a public API for trusted synthetic touch events, so protected
+    /// video controls and some login widgets may still need physical touch.
+    func tapFromPinch(x: CGFloat, y: CGFloat) {
+        guard let primary = primary else { return }
+        let px = min(0.99, max(0.01, x))
+        let py = min(0.99, max(0.01, y))
+        let js = """
+        (() => {
+          const x = Math.round(window.innerWidth * \(px));
+          const y = Math.round(window.innerHeight * \(py));
+          let target = document.elementFromPoint(x, y);
+          if (!target) return false;
+          const selectable = target.closest('a,button,input,textarea,select,[role="button"],[onclick]');
+          if (selectable) target = selectable;
+          if (target instanceof HTMLInputElement && target.type !== 'button') {
+            target.focus();
+          } else {
+            target.click();
+          }
+          return true;
+        })();
+        """
+        primary.evaluateJavaScript(js, completionHandler: nil)
+    }
+
+    /// A held pinch scrolls the primary web view. Existing KVO mirrors the
+    /// resulting offset to the secondary, noninteractive stereo eye.
+    func scrollFromPinch(startY: CGFloat, fingerDeltaY: CGFloat) {
+        guard let primary = primary else { return }
+        let scroll = primary.scrollView
+        let minY = -scroll.adjustedContentInset.top
+        let maxY = max(minY, scroll.contentSize.height -
+                       scroll.bounds.height + scroll.adjustedContentInset.bottom)
+        let newY = max(minY, min(maxY, startY - fingerDeltaY * 1.35))
+        scroll.setContentOffset(CGPoint(x: scroll.contentOffset.x, y: newY),
+                                animated: false)
+    }
 }
 
 private struct VRWebSurface: UIViewRepresentable {
@@ -180,6 +231,7 @@ private struct VRWebSurface: UIViewRepresentable {
         view.navigationDelegate = context.coordinator
         view.uiDelegate = context.coordinator
         view.scrollView.bounces = false
+        view.scrollView.contentInsetAdjustmentBehavior = .never
         view.isOpaque = false
         view.backgroundColor = UIColor.black
         view.scrollView.backgroundColor = UIColor.black

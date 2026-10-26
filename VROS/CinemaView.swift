@@ -1,5 +1,6 @@
 import ARKit
 import AVFoundation
+import Combine
 import CoreMotion
 import simd
 import PhotosUI
@@ -61,6 +62,10 @@ private struct CinemaSeat {
 
 final class CinemaModel: ObservableObject {
     let scene = SCNScene()
+    // One rotating head rig keeps the stereo 64-mm separation aligned with
+    // the head direction. Previously each eye was rotated independently at
+    // a fixed WORLD-space X offset, corrupting stereo when looking sideways.
+    private let headRig = SCNNode()
     let leftCamera = SCNNode()
     let rightCamera = SCNNode()
     // Both eyes sample different halves of the same AVPlayer frame. Using
@@ -101,11 +106,12 @@ final class CinemaModel: ObservableObject {
     @Published private(set) var currentSeatID = 30
     @Published private(set) var currentSeatLabel = "F3 · P7"
     @Published var seatSelectionMode = false
+    @Published var gazeProgress: CGFloat = 0
     @Published var movieTitle = "Escolha um filme MP4"
     @Published var playing = false
     @Published var selectedMode: CinemaVideoMode = .twoD
     @Published var immersiveScreen = true
-    @Published var cinemaFovDegrees: CGFloat = 78
+    @Published var cinemaFovDegrees: CGFloat = 88
     @Published var swapEyes = false
     @Published var convergence: CGFloat = 0
     @Published var controlsVisible = true
@@ -260,8 +266,7 @@ final class CinemaModel: ObservableObject {
     private func applyHeadOrientation(_ delta: simd_quatf) {
         let corrected = invertTracking ? simd_inverse(delta) : delta
         let finalOrientation = simd_normalize(screenAimOrientation * corrected)
-        leftCamera.simdOrientation = finalOrientation
-        rightCamera.simdOrientation = finalOrientation
+        headRig.simdOrientation = finalOrientation
     }
 
     func adjustScreenHeight(_ direction: Float) {
@@ -417,37 +422,38 @@ final class CinemaModel: ObservableObject {
     }
 
     func adjustCinemaFOV(_ delta: CGFloat) {
-        cinemaFovDegrees = min(105, max(55, cinemaFovDegrees + delta))
+        cinemaFovDegrees = min(115, max(55, cinemaFovDegrees + delta))
         updateSeatPosition()
         revealControls()
     }
 
-    /// Camera translation is the seat position. MAX changes field of view,
-    /// not the physical seat, so users don't accidentally leave their chair.
+    /// Move the STEREO HEAD RIG as one object; eye offsets stay in its
+    /// local coordinates and therefore rotate correctly with head motion.
     private func updateSeatPosition(animated: Bool = false) {
         guard let selected = seats.first(where: { $0.id == currentSeatID }) else { return }
-        for (eye, offset) in [(leftCamera, Float(-0.032)),
-                              (rightCamera, Float(0.032))] {
-            // Wider viewing angle avoids cropping an ultra-wide cinema screen.
-            // The user can tune this for their headset lenses.
+        for eye in [leftCamera, rightCamera] {
+            // Each eye receives half the landscape display. SceneKit defaults
+            // to VERTICAL FOV; the visible horizontal angle then depends on
+            // the eye viewport aspect ratio. Explicit horizontal FOV makes the
+            // cinema's left-right framing consistent across screen sizes.
+            eye.camera?.projectionDirection = .horizontal
             eye.camera?.fieldOfView = immersiveScreen
-                ? cinemaFovDegrees : min(115, cinemaFovDegrees + 12)
-            let target = SCNVector3(selected.cameraPosition.x + offset,
-                                    selected.cameraPosition.y,
-                                    selected.cameraPosition.z)
-            eye.removeAction(forKey: "cinemaSeatTravel")
-            if animated {
-                let move = SCNAction.move(to: target, duration: 0.72)
-                move.timingMode = .easeInEaseOut
-                eye.runAction(move, forKey: "cinemaSeatTravel")
-            } else {
-                eye.position = target
-            }
+                ? cinemaFovDegrees : min(125, cinemaFovDegrees + 12)
+        }
+        let target = selected.cameraPosition
+        headRig.removeAction(forKey: "cinemaSeatTravel")
+        if animated {
+            let move = SCNAction.move(to: target, duration: 0.72)
+            move.timingMode = .easeInEaseOut
+            headRig.runAction(move, forKey: "cinemaSeatTravel")
+        } else {
+            headRig.position = target
         }
     }
 
     func setSeatSelectionMode(_ enabled: Bool) {
         seatSelectionMode = enabled
+        gazeProgress = 0
         for marker in seatMarkers.values { marker.isHidden = !enabled }
         revealControls()
     }
@@ -456,24 +462,37 @@ final class CinemaModel: ObservableObject {
         setSeatSelectionMode(!seatSelectionMode)
     }
 
-    /// Raycast ignores the auditorium's normal geometry, so hitting an
-    /// indicator works even if a seat back lies between it and the camera.
+    /// Raycast ignores the auditorium's chairs and finds only the glowing
+    /// selection orbs. Used by touch, pinch, and the headset gaze dwell.
+    private func targetedSeat(at point: CGPoint, in view: SCNView) -> Int? {
+        let hit = view.hitTest(point, options: [
+            .categoryBitMask: 8,
+            .firstFoundOnly: true
+        ]).first
+        guard let name = hit?.node.name,
+              name.hasPrefix("seat-indicator-") else { return nil }
+        return Int(name.replacingOccurrences(of: "seat-indicator-", with: ""))
+    }
+
+    func seatAtGazeCenter() -> Int? {
+        guard seatSelectionMode, let view = leftSceneView else { return nil }
+        return targetedSeat(at: CGPoint(x: view.bounds.midX, y: view.bounds.midY),
+                            in: view)
+    }
+
+    @discardableResult
+    func chooseSeatByGaze(_ seatID: Int) -> Bool {
+        guard seatSelectionMode else { return false }
+        return selectSeat(seatID)
+    }
+
     @discardableResult
     func chooseSeat(at viewportPoint: CGPoint, in view: SCNView? = nil,
                     tryGazeCenter: Bool = false) -> Bool {
         guard seatSelectionMode, let renderer = view ?? leftSceneView else { return false }
-        let options: [SCNHitTestOption: Any] = [
-            .categoryBitMask: 8,
-            .firstFoundOnly: true
-        ]
-        let hit = renderer.hitTest(viewportPoint, options: options).first ??
-            (tryGazeCenter ? renderer.hitTest(
-                CGPoint(x: renderer.bounds.midX, y: renderer.bounds.midY),
-                options: options).first : nil)
-        guard let name = hit?.node.name,
-              name.hasPrefix("seat-indicator-"),
-              let seatID = Int(name.replacingOccurrences(of: "seat-indicator-", with: ""))
-        else { return false }
+        let seatID = targetedSeat(at: viewportPoint, in: renderer) ??
+            (tryGazeCenter ? seatAtGazeCenter() : nil)
+        guard let seatID = seatID else { return false }
         return selectSeat(seatID)
     }
 
@@ -848,15 +867,18 @@ final class CinemaModel: ObservableObject {
         screenBounceLight = screenLight.light
         scene.rootNode.addChildNode(screenLight)
 
-        // Two independent eyes, 64-mm interpupillary separation.
+        // One head rig with local ±32-mm eye offsets; unlike world-space
+        // offsets, this preserves IPD direction when the user turns their head.
+        scene.rootNode.addChildNode(headRig)
         for (index, eye) in [leftCamera, rightCamera].enumerated() {
             eye.camera = SCNCamera()
             eye.camera?.categoryBitMask = index == 0 ? (1 | 2 | 8) : (1 | 4 | 8)
-            eye.camera?.fieldOfView = 75
+            eye.camera?.projectionDirection = .horizontal
+            eye.camera?.fieldOfView = cinemaFovDegrees
             eye.camera?.zNear = 0.05
             eye.camera?.zFar = 90
-            eye.position = SCNVector3(index == 0 ? -0.032 : 0.032, 1.68, 3.25)
-            scene.rootNode.addChildNode(eye)
+            eye.position = SCNVector3(index == 0 ? -0.032 : 0.032, 0, 0)
+            headRig.addChildNode(eye)
         }
     }
 }
@@ -912,6 +934,9 @@ struct CinemaEyeView: View {
     @ObservedObject var updates: LiveUpdateManager
     let onExit: () -> Void
     @State private var lastPinch = false
+    @State private var gazeSeatID: Int?
+    @State private var gazeBeganAt = Date()
+    private let gazeTimer = Timer.publish(every: 0.15, on: .main, in: .common).autoconnect()
     @State private var pickedMovie: PhotosPickerItem?
     @State private var pickingPhotoMovie = false
 
@@ -975,15 +1000,23 @@ struct CinemaEyeView: View {
                 }
                 .foregroundStyle(.white)
                 if cinema.seatSelectionMode {
-                    Circle()
-                        .strokeBorder(.cyan.opacity(0.88), lineWidth: 1.7)
-                        .frame(width: 29, height: 29)
-                        .position(x: geometry.size.width / 2,
-                                  y: geometry.size.height / 2)
-                        .allowsHitTesting(false)
+                    ZStack {
+                        Circle()
+                            .strokeBorder(.cyan.opacity(0.88), lineWidth: 1.7)
+                            .frame(width: 29, height: 29)
+                        Circle()
+                            .trim(from: 0, to: cinema.gazeProgress)
+                            .stroke(.yellow, style: StrokeStyle(lineWidth: 3,
+                                                               lineCap: .round))
+                            .frame(width: 37, height: 37)
+                            .rotationEffect(.degrees(-90))
+                    }
+                    .position(x: geometry.size.width / 2,
+                              y: geometry.size.height / 2)
+                    .allowsHitTesting(false)
                     VStack {
                         Spacer()
-                        Text("Olhe para a bolinha da poltrona e faça pinça ou toque")
+                        Text("Olhe 1,5 s para a bolinha, faça pinça ou toque")
                             .font(.system(size: 9, weight: .semibold))
                             .lineLimit(2)
                             .minimumScaleFactor(0.7)
@@ -1132,6 +1165,33 @@ struct CinemaEyeView: View {
                 }
             }
             .animation(.easeInOut(duration: 0.25), value: cinema.controlsVisible)
+            .onReceive(gazeTimer) { _ in
+                // Only left eye runs the gaze timer; the model publishes
+                // progress so both headset eyes display one synchronized ring.
+                guard !rightEye else { return }
+                guard cinema.seatSelectionMode else {
+                    gazeSeatID = nil
+                    if cinema.gazeProgress != 0 { cinema.gazeProgress = 0 }
+                    return
+                }
+                guard let target = cinema.seatAtGazeCenter() else {
+                    gazeSeatID = nil
+                    cinema.gazeProgress = 0
+                    return
+                }
+                if gazeSeatID != target {
+                    gazeSeatID = target
+                    gazeBeganAt = Date()
+                    cinema.gazeProgress = 0
+                }
+                let elapsed = Date().timeIntervalSince(gazeBeganAt)
+                cinema.gazeProgress = CGFloat(min(1, max(0, elapsed / 1.5)))
+                if elapsed >= 1.5 {
+                    _ = cinema.chooseSeatByGaze(target)
+                    gazeSeatID = nil
+                    cinema.gazeProgress = 0
+                }
+            }
             .onChange(of: pickedMovie) { nextItem in
                 guard !rightEye, let nextItem = nextItem else { return }
                 Task {

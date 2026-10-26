@@ -79,6 +79,15 @@ private struct WindowDrag {
     var lastAppliedAnchor: SIMD3<Float>
 }
 
+private struct WebPinchGesture {
+    let panelID: UUID
+    let initialPointer: CGPoint
+    let startScrollY: CGFloat
+    let x: CGFloat
+    let y: CGFloat
+    var moved = false
+}
+
 struct VRHomeView: View {
     @StateObject private var runtime = VRRuntime()
     @StateObject private var updates = LiveUpdateManager()
@@ -86,8 +95,12 @@ struct VRHomeView: View {
     @State private var selectedTheme: VRTheme = .graphite
     @State private var themeMenuOpen = false
     @State private var appsOpen = false
+    @State private var dockExpanded = true
     @State private var webSessions: [UUID: VRWebSession] = [:]
+    @State private var appsWarning: String?
     @State private var webWindowZoom: CGFloat = 1.0
+    @State private var focusedWebPanelID: UUID?
+    @State private var webPinchGesture: WebPinchGesture?
     @State private var cinemaOpen = false
     @StateObject private var cinema = CinemaModel()
     @State private var panels = [
@@ -105,9 +118,9 @@ struct VRHomeView: View {
             HStack(spacing: 0) {
                 if cinemaOpen {
                     CinemaEyeView(rightEye: false, runtime: runtime, cinema: cinema, updates: updates,
-                                  onExit: { cinema.exit(); cinemaOpen = false })
+                                  onExit: { exitCinema() })
                     CinemaEyeView(rightEye: true, runtime: runtime, cinema: cinema, updates: updates,
-                                  onExit: { cinema.exit(); cinemaOpen = false })
+                                  onExit: { exitCinema() })
                 } else {
                     eyeView(right: false, size: eyeSize)
                     eyeView(right: true, size: eyeSize)
@@ -133,10 +146,19 @@ struct VRHomeView: View {
         .onAppear {
             selectedTheme = VRTheme(rawValue:
                 UserDefaults.standard.integer(forKey: "vros.selectedTheme.v1")) ?? .graphite
+            let savedWebZoom = UserDefaults.standard.double(forKey: "vros.webZoom.v1")
+            webWindowZoom = savedWebZoom > 0
+                ? min(1.55, max(0.65, CGFloat(savedWebZoom))) : 1.0
             runtime.start()
             Task { await updates.check() }
         }
-        .onDisappear { runtime.stop() }
+        .onChange(of: webWindowZoom) { zoom in
+            UserDefaults.standard.set(Double(zoom), forKey: "vros.webZoom.v1")
+        }
+        .onDisappear {
+            runtime.setCinemaMode(false)
+            runtime.stop()
+        }
     }
 
     private func eyeView(right: Bool, size: CGSize) -> some View {
@@ -171,29 +193,34 @@ struct VRHomeView: View {
             }
 
             ForEach(panels) { panel in
-                if let center = windowCenter(panel, size: size, right: right) {
-                    let scale = windowScale(panel)
+                if focusedWebPanelID == nil || focusedWebPanelID == panel.id,
+                   let center = displayedPanelCenter(panel, size: size, right: right) {
+                    let dimensions = displayedPanelSize(panel, size: size)
                     panelView(panel, size: size, right: right)
-                        .frame(width: panelWidth(panel, size: size) * scale,
-                               height: panelHeight(panel, size: size) * scale)
+                        .frame(width: dimensions.width, height: dimensions.height)
                         .position(center)
-                    grabHandle(panel, size: size)
-                        .position(grabHandleCenter(center, panel: panel, size: size))
+                    if focusedWebPanelID != panel.id {
+                        grabHandle(panel, size: size)
+                            .position(grabHandleCenter(center, panel: panel, size: size))
+                    }
                 }
             }
 
-            statusBar(size: size)
-                .position(x: w / 2, y: 28)
+            if focusedWebPanelID == nil {
+                statusBar(size: size)
+                    .position(x: w / 2, y: 28)
 
-            if themeMenuOpen {
-                themePicker(size: size).position(x: w / 2, y: h / 2)
-            }
-            if appsOpen {
-                appsLauncher(size: size).position(x: w / 2, y: h / 2)
-            }
+                if themeMenuOpen {
+                    themePicker(size: size).position(x: w / 2, y: h / 2)
+                }
+                if appsOpen {
+                    appsLauncher(size: size).position(x: w / 2, y: h / 2)
+                }
 
-            dock(size: size)
-                .position(x: w / 2, y: dockCenterY(size))
+                dock(size: size)
+                    .position(x: dockExpanded ? w / 2 : 24,
+                              y: dockExpanded ? dockCenterY(size) : h - 24)
+            }
 
             if runtime.hand.visible {
                 HandSkeletonOverlay(hand: runtime.hand) { joint in
@@ -242,22 +269,37 @@ struct VRHomeView: View {
     }
 
     // The menu lives above the edge of the camera view so hands can reach it.
-    private func dockCenterY(_ size: CGSize) -> CGFloat { size.height * 0.74 }
+    private func dockCenterY(_ size: CGSize) -> CGFloat { size.height * 0.91 }
 
     private func dock(size: CGSize) -> some View {
-        HStack(spacing: 5) {
-            dockButton("plus.rectangle.on.rectangle", "Janela", slot: 0, size: size)
-            dockButton("square.grid.2x2.fill", "Apps", slot: 1, size: size)
-            dockButton("film.stack.fill", "Cinema", slot: 2, size: size)
-            dockButton("arrow.down.circle", "Atualizar", slot: 3, size: size)
-            dockButton("paintpalette.fill", "Temas", slot: 4, size: size)
-            dockButton("scope", "Centro", slot: 5, size: size)
+        Group {
+            if dockExpanded {
+                HStack(spacing: 5) {
+                    dockButton("plus.rectangle.on.rectangle", "Janela", slot: 0, size: size)
+                    dockButton("square.grid.2x2.fill", "Apps", slot: 1, size: size)
+                    dockButton("film.stack.fill", "Cinema", slot: 2, size: size)
+                    dockButton("arrow.down.circle", "Atualizar", slot: 3, size: size)
+                    dockButton("paintpalette.fill", "Temas", slot: 4, size: size)
+                    dockButton("scope", "Centro", slot: 5, size: size)
+                }
+                .padding(5)
+                .background(selectedTheme.surface.opacity(0.95),
+                            in: RoundedRectangle(cornerRadius: 17))
+                .overlay(RoundedRectangle(cornerRadius: 17)
+                    .stroke(Color.white.opacity(0.15), lineWidth: 1))
+            } else {
+                Button { dockExpanded = true } label: {
+                    Image(systemName: "square.grid.2x2.fill")
+                        .font(.system(size: 15))
+                        .foregroundStyle(.white)
+                        .frame(width: 37, height: 37)
+                        .background(selectedTheme.surface.opacity(0.93),
+                                    in: RoundedRectangle(cornerRadius: 11))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Abrir menu do VR-OS")
+            }
         }
-        .padding(5)
-        .background(selectedTheme.surface.opacity(0.95),
-                    in: RoundedRectangle(cornerRadius: 17))
-        .overlay(RoundedRectangle(cornerRadius: 17)
-            .stroke(Color.white.opacity(0.15), lineWidth: 1))
     }
 
     private func dockButton(_ symbol: String, _ label: String, slot: Int,
@@ -288,9 +330,24 @@ struct VRHomeView: View {
                     .font(.system(size: 14, weight: .semibold))
                     .lineLimit(1)
                 Spacer(minLength: 0)
-                Image(systemName: "pin.fill")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.white.opacity(0.55))
+                if panel.kind == .web {
+                    Button {
+                        focusedWebPanelID = focusedWebPanelID == panel.id ? nil : panel.id
+                        appsOpen = false
+                        themeMenuOpen = false
+                    } label: {
+                        Image(systemName: focusedWebPanelID == panel.id
+                              ? "arrow.down.right.and.arrow.up.left"
+                              : "arrow.up.left.and.arrow.down.right")
+                            .font(.system(size: 14))
+                            .foregroundStyle(.cyan)
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.white.opacity(0.55))
+                }
                 Button {
                     close(panel.id)
                 } label: {
@@ -342,10 +399,14 @@ struct VRHomeView: View {
             }
 
             if panel.kind != .web { Spacer(minLength: 0) }
-            Text("Pegue a linha branca abaixo para mover em 3D")
-                .font(.system(size: 9))
-                .foregroundStyle(.white.opacity(0.66))
-                .lineLimit(2)
+            if focusedWebPanelID != panel.id {
+                Text(panel.kind == .web
+                     ? "Pinça: tocar e rolar o site · linha branca: mover"
+                     : "Pegue a linha branca abaixo para mover em 3D")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.white.opacity(0.66))
+                    .lineLimit(2)
+            }
         }
         .padding(12)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -356,6 +417,23 @@ struct VRHomeView: View {
         .overlay(RoundedRectangle(cornerRadius: 16)
             .stroke(selectedTheme.accent.opacity(0.45), lineWidth: 1))
         .shadow(color: .black.opacity(0.50), radius: 11, y: 5)
+    }
+
+    private func displayedPanelSize(_ panel: VRPanel, size: CGSize) -> CGSize {
+        if focusedWebPanelID == panel.id {
+            return CGSize(width: size.width * 0.995, height: size.height * 0.99)
+        }
+        let scale = windowScale(panel)
+        return CGSize(width: panelWidth(panel, size: size) * scale,
+                      height: panelHeight(panel, size: size) * scale)
+    }
+
+    private func displayedPanelCenter(_ panel: VRPanel, size: CGSize,
+                                      right: Bool) -> CGPoint? {
+        if focusedWebPanelID == panel.id {
+            return CGPoint(x: size.width / 2, y: size.height / 2)
+        }
+        return windowCenter(panel, size: size, right: right)
     }
 
     /// The web windows are larger than note cards so sites can be used.
@@ -493,6 +571,7 @@ struct VRHomeView: View {
         guard hand.visible else {
             lastPinch = false
             drag = nil
+            webPinchGesture = nil
             return
         }
 
@@ -503,8 +582,20 @@ struct VRHomeView: View {
                   let index = panels.firstIndex(where: { $0.id == held.panelID }) {
             updateSpatialGrab(hand, pointer: pointer, held: &held, panelIndex: index)
             drag = held
+        } else if hand.pinching, var webGesture = webPinchGesture {
+            let dx = pointer.x - webGesture.initialPointer.x
+            let dy = pointer.y - webGesture.initialPointer.y
+            if hypot(dx, dy) > 13 { webGesture.moved = true }
+            if webGesture.moved {
+                webSessions[webGesture.panelID]?.scrollFromPinch(
+                    startY: webGesture.startScrollY, fingerDeltaY: dy)
+            }
+            webPinchGesture = webGesture
         } else if !hand.pinching {
-            // The last world anchor is retained; only the grip state resets.
+            if lastPinch, let gesture = webPinchGesture, !gesture.moved {
+                webSessions[gesture.panelID]?.tapFromPinch(x: gesture.x, y: gesture.y)
+            }
+            webPinchGesture = nil
             drag = nil
         }
         lastPinch = hand.pinching
@@ -574,15 +665,40 @@ struct VRHomeView: View {
     }
 
     private func beganPinch(_ pointer: CGPoint, hand: TrackedHand, size: CGSize) {
+        if let focusedID = focusedWebPanelID {
+            if let panel = panels.first(where: { $0.id == focusedID }) {
+                _ = beginWebPanelPinch(panel, pointer: pointer, size: size)
+            } else {
+                focusedWebPanelID = nil
+            }
+            return
+        }
         if appsOpen {
+            // Use the same rows/spacing as appsLauncher, including the
+            // zoom slider and newly installed site entries. Previously the
+            // hardcoded 3-row map opened the WRONG app after V13.
             let width = min(size.width * 0.89, 330)
-            let localX = pointer.x - (size.width - width) / 2
-            let top = size.height / 2 - 112
-            let localY = pointer.y - top
-            if localX >= 0 && localX <= width &&
-                localY >= 39 && localY < 210 {
-                let index = min(2, max(0, Int((localY - 39) / 57)))
-                openWebApp(VRWebApp.allCases[index])
+            let menuLeft = (size.width - width) / 2
+            let warningHeight: CGFloat = appsWarning == nil ? 0 : 32
+            let menuHeight = 20 + 17 + 22 +
+                CGFloat(VRWebApp.allCases.count) * 49 +
+                CGFloat(VRWebApp.allCases.count + 1) * 7 + warningHeight
+            let menuTop = (size.height - menuHeight) / 2
+            let zoomTop = menuTop + 10 + 17 + 7
+            let firstRowTop = zoomTop + 22 + 7 + warningHeight
+            let localX = pointer.x - menuLeft
+            if localX >= 0 && localX <= width {
+                let localRowY = pointer.y - firstRowTop
+                if localRowY >= 0 {
+                    let index = Int(localRowY / 56)
+                    if index >= 0 && index < VRWebApp.allCases.count &&
+                       localRowY - CGFloat(index) * 56 <= 49 {
+                        openWebApp(VRWebApp.allCases[index])
+                    }
+                } else if pointer.y >= zoomTop && pointer.y < zoomTop + 22 {
+                    let fraction = max(0, min(1, (localX - 110) / max(1, width - 157)))
+                    webWindowZoom = 0.65 + fraction * 0.90
+                }
             } else {
                 appsOpen = false
             }
@@ -599,16 +715,25 @@ struct VRHomeView: View {
             } else { themeMenuOpen = false }
             return
         }
-        // Dock selection is based on 2D fingertip position, not hand depth.
-        let dockWidth = max(24, (size.width - 50) / 6) * 6 + 5 * 5 + 10
-        let dockLeft = (size.width - dockWidth) / 2
-        if abs(pointer.y - dockCenterY(size)) <= 37 &&
-           pointer.x >= dockLeft - 8 &&
-           pointer.x <= dockLeft + dockWidth + 8 {
-            let cell = max(24, (size.width - 50) / 6) + 5
-            let slot = min(5, max(0, Int((pointer.x - dockLeft - 5) / cell)))
-            activateDock(slot)
-            return
+        // When hidden, the dock shrinks to a small bottom-left launcher.
+        // Otherwise its large touch area blocked the website grab handle.
+        if !dockExpanded {
+            if pointer.x < 49 && abs(pointer.y - (size.height - 24)) < 26 {
+                dockExpanded = true
+                return
+            }
+        } else {
+            let dockWidth = max(24, (size.width - 50) / 6) * 6 + 5 * 5 + 10
+            let dockLeft = (size.width - dockWidth) / 2
+            if abs(pointer.y - dockCenterY(size)) <= 37 &&
+               pointer.x >= dockLeft - 8 &&
+               pointer.x <= dockLeft + dockWidth + 8 {
+                let cell = max(24, (size.width - 50) / 6) + 5
+                let slot = min(5, max(0, Int((pointer.x - dockLeft - 5) / cell)))
+                activateDock(slot)
+                dockExpanded = false
+                return
+            }
         }
 
         // Only the white line is a 3D movement handle. Its hit area is
@@ -652,25 +777,87 @@ struct VRHomeView: View {
             return
         }
         for panel in panels.reversed() {
-            guard let center = windowCenter(panel, size: size, right: false) else { continue }
-            let width = panelWidth(panel, size: size) * windowScale(panel)
-            let height = panelHeight(panel, size: size) * windowScale(panel)
+            guard let center = displayedPanelCenter(panel, size: size, right: false)
+            else { continue }
+            let dimensions = displayedPanelSize(panel, size: size)
             let dx = pointer.x - center.x
             let dy = pointer.y - center.y
-            guard abs(dx) < width / 2, abs(dy) < height / 2 else { continue }
-            if dx > width / 2 - 40 && dy < -height / 2 + 40 {
+            guard abs(dx) < dimensions.width / 2,
+                  abs(dy) < dimensions.height / 2 else { continue }
+            if panel.kind == .web {
+                _ = beginWebPanelPinch(panel, pointer: pointer, size: size)
+                return
+            }
+            if dx > dimensions.width / 2 - 40 &&
+               dy < -dimensions.height / 2 + 40 {
                 close(panel.id)
                 return
             }
-            if panel.kind == .updates && dy > -height / 2 + 40 &&
-                dy < height / 2 - 35 {
+            if panel.kind == .updates && dy > -dimensions.height / 2 + 40 &&
+                dy < dimensions.height / 2 - 35 {
                 Task { await updates.check() }
                 return
             }
             // A pinch on the panel itself does not drag it.
-            // Grabbing the white line is the sole 3D movement gesture.
             return
         }
+    }
+
+    /// The website is now usable without touching the iPhone: short pinch
+    /// selects a link/button and a held vertical pinch scrolls the page.
+    /// This is a best-effort WebKit DOM click, not a trusted system tap.
+    @discardableResult
+    private func beginWebPanelPinch(_ panel: VRPanel, pointer: CGPoint,
+                                    size: CGSize) -> Bool {
+        guard panel.kind == .web,
+              let browser = webSessions[panel.id],
+              let center = displayedPanelCenter(panel, size: size, right: false)
+        else { return false }
+        let dims = displayedPanelSize(panel, size: size)
+        let left = center.x - dims.width / 2
+        let top = center.y - dims.height / 2
+        let x = pointer.x - left
+        let y = pointer.y - top
+        guard x >= 0 && x <= dims.width, y >= 0 && y <= dims.height
+        else { return false }
+
+        if y <= 42 {
+            if x >= dims.width - 45 {
+                close(panel.id)
+            } else if x >= dims.width - 98 {
+                focusedWebPanelID = focusedWebPanelID == panel.id ? nil : panel.id
+                appsOpen = false
+                themeMenuOpen = false
+            }
+            return true
+        }
+        // WebWindow's second toolbar row: Back, Forward, Reload, Home, Safari.
+        if y >= 76 && y < 110 {
+            let slot = min(4, max(0,
+                Int((x - 12) / max(1, (dims.width - 24) / 5))))
+            switch slot {
+            case 0: browser.back()
+            case 1: browser.forward()
+            case 2: browser.reload()
+            case 3: browser.goHome()
+            default: browser.openInSafari()
+            }
+            return true
+        }
+
+        let contentTop = top + 112
+        let contentBottom = top + dims.height - 43
+        guard pointer.y >= contentTop && pointer.y <= contentBottom,
+              dims.height > 180 else { return true }
+        webPinchGesture = WebPinchGesture(
+            panelID: panel.id,
+            initialPointer: pointer,
+            startScrollY: browser.primary?.scrollView.contentOffset.y ?? 0,
+            x: max(0.01, min(0.99, (x - 12) / max(1, dims.width - 24))),
+            y: max(0.01, min(0.99,
+                (pointer.y - contentTop) / max(1, contentBottom - contentTop)))
+        )
+        return true
     }
 
     private func adjustDepth(_ id: UUID, to rawValue: Double, size: CGSize,
@@ -690,7 +877,10 @@ struct VRHomeView: View {
     private func close(_ id: UUID) {
         panels.removeAll { $0.id == id }
         webSessions.removeValue(forKey: id)
+        if webSessions.count < 3 { appsWarning = nil }
         if drag?.panelID == id { drag = nil }
+        if webPinchGesture?.panelID == id { webPinchGesture = nil }
+        if focusedWebPanelID == id { focusedWebPanelID = nil }
     }
 
     private func applyRemoteWindowContent(_ manifest: RemoteManifest) {
@@ -736,6 +926,14 @@ struct VRHomeView: View {
     }
 
     private func openWebApp(_ app: VRWebApp) {
+        // Each web app uses one WKWebView per eye. Keep a small cap so five
+        // streaming apps cannot exhaust an iPhone's memory in the headset.
+        guard webSessions.count < 3 else {
+            appsWarning = "Limite de 3 apps abertos. Feche uma janela para continuar."
+            appsOpen = true
+            return
+        }
+        appsWarning = nil
         let browser = VRWebSession(app: app)
         let offset = webSessions.count % 3
         let newPanel = VRPanel(
@@ -751,6 +949,7 @@ struct VRHomeView: View {
         panels.append(newPanel)
         appsOpen = false
         themeMenuOpen = false
+        dockExpanded = false
     }
 
     private func appsLauncher(size: CGSize) -> some View {
@@ -773,6 +972,12 @@ struct VRHomeView: View {
                 Text("\(Int(webWindowZoom * 100))%")
                     .font(.system(size: 10, weight: .bold))
                     .frame(width: 35)
+            }
+            if let warning = appsWarning {
+                Text(warning)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.yellow)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             ForEach(VRWebApp.allCases) { app in
                 Button { openWebApp(app) } label: {
@@ -811,6 +1016,14 @@ struct VRHomeView: View {
             .stroke(Color.white.opacity(0.21), lineWidth: 1))
     }
 
+    private func exitCinema() {
+        cinema.exit()
+        cinemaOpen = false
+        runtime.setCinemaMode(false)
+        dockExpanded = false
+        lastPinch = false
+    }
+
     private func activateDock(_ slot: Int) {
         switch slot {
         case 0:
@@ -827,6 +1040,11 @@ struct VRHomeView: View {
             appsOpen.toggle()
             if appsOpen { themeMenuOpen = false }
         case 2:
+            drag = nil
+            webPinchGesture = nil
+            appsOpen = false
+            themeMenuOpen = false
+            runtime.setCinemaMode(true)
             cinema.enter(camera: runtime.camera)
             cinemaOpen = true
         case 3:
