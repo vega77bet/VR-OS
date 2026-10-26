@@ -96,7 +96,6 @@ struct VRSettingsScreen: View {
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
                 .focused($searchFocused)
-                .disabled(rightEye)
                 .submitLabel(.search)
                 .lineLimit(1)
             if !session.searchText.isEmpty {
@@ -109,7 +108,6 @@ struct VRSettingsScreen: View {
                         .foregroundStyle(Color(white: 0.62))
                 }
                 .buttonStyle(.plain)
-                .disabled(rightEye)
             }
         }
         .padding(.horizontal, 10)
@@ -135,10 +133,10 @@ struct VRSettingsTable: UIViewRepresentable {
         table.backgroundColor = UIColor(white: 0.105, alpha: 1)
         table.separatorColor = UIColor(white: 0.27, alpha: 1)
         table.separatorInset = UIEdgeInsets(top: 0, left: 12, bottom: 0, right: 0)
-        table.showsVerticalScrollIndicator = !rightEye
+        table.showsVerticalScrollIndicator = true
         table.keyboardDismissMode = .interactive
-        table.isScrollEnabled = !rightEye
-        table.isUserInteractionEnabled = !rightEye
+        table.isScrollEnabled = true
+        table.isUserInteractionEnabled = true
         table.contentInsetAdjustmentBehavior = .never
         table.estimatedRowHeight = 0
         table.sectionHeaderHeight = 22
@@ -186,10 +184,10 @@ struct VRSettingsTable: UIViewRepresentable {
                       let cell = table.cellForRow(at: path) as? VRSettingsTableCell
                 else { continue }
                 cell.configure(row: sections[path.section].rows[path.row],
-                               session: session, enabled: !rightEye)
+                               session: session, enabled: true)
             }
         }
-        if rightEye {
+        if session.scrollOwnerRightEye != rightEye {
             let maxScroll = max(0, table.contentSize.height - table.bounds.height)
             let desired = min(maxScroll, session.scrollOffset)
             if abs(table.contentOffset.y - desired) > 0.8 {
@@ -265,13 +263,12 @@ struct VRSettingsTable: UIViewRepresentable {
                     as? VRSettingsTableCell else {
                 return UITableViewCell()
             }
-            cell.configure(row: row, session: session, enabled: !rightEye)
+            cell.configure(row: row, session: session, enabled: true)
             return cell
         }
 
         func tableView(_ tableView: UITableView,
                        didSelectRowAt indexPath: IndexPath) {
-            guard !rightEye else { return }
             tableView.deselectRow(at: indexPath, animated: false)
             let sections = self.sections
             guard indexPath.section < sections.count &&
@@ -280,9 +277,13 @@ struct VRSettingsTable: UIViewRepresentable {
             session.perform(sections[indexPath.section].rows[indexPath.row])
         }
 
+        func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+            session.beginPhysicalScroll(rightEye: rightEye)
+        }
+
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
-            guard !rightEye else { return }
-            session.updateScroll(scrollView.contentOffset.y, fromPrimary: true)
+            session.updateScroll(scrollView.contentOffset.y,
+                                 fromRightEye: rightEye)
         }
     }
 }
