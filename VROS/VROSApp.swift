@@ -289,15 +289,24 @@ struct VRHomeView: View {
     private func eyeView(right: Bool, size: CGSize) -> some View {
         let w = size.width
         let h = size.height
+        let shownHand = ultraWideMode ? ultraWide.hand : runtime.hand
         return ZStack {
             if ultraWideMode {
                 if let frame = ultraWide.image {
-                    Image(decorative: frame, scale: 1, orientation: .up)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: w, height: h)
-                        .clipped()
-                        .allowsHitTesting(false)
+                    if ultraFullFrame {
+                        Image(decorative: frame, scale: 1, orientation: .up)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: w, height: h)
+                            .allowsHitTesting(false)
+                    } else {
+                        Image(decorative: frame, scale: 1, orientation: .up)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: w, height: h)
+                            .clipped()
+                            .allowsHitTesting(false)
+                    }
                 } else {
                     Color.black.overlay {
                         VStack(spacing: 6) {
@@ -334,32 +343,6 @@ struct VRHomeView: View {
                 Color.black.opacity(0.10).allowsHitTesting(false)
             }
 
-            if ultraWideMode {
-                VStack {
-                    HStack {
-                        Spacer()
-                        Button { toggleUltraWide() } label: {
-                            Label("Voltar ao ARKit", systemImage: "arrow.uturn.backward")
-                                .font(.system(size: 11, weight: .bold))
-                                .padding(.horizontal, 11)
-                                .padding(.vertical, 8)
-                                .background(.black.opacity(0.78),
-                                            in: Capsule())
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(cameraTransitioning)
-                    }
-                    Spacer()
-                    Text("0,5x ULTRAWIDE REAL · sem rastreamento ARKit")
-                        .font(.system(size: 10, weight: .bold))
-                        .padding(7)
-                        .background(.black.opacity(0.75), in: Capsule())
-                }
-                .foregroundStyle(.white)
-                .padding(13)
-            }
-
-            if !ultraWideMode {
             ForEach(panels) { panel in
                 if focusedWebPanelID == nil || focusedWebPanelID == panel.id,
                    let center = displayedPanelCenter(panel, size: size, right: right) {
@@ -374,10 +357,9 @@ struct VRHomeView: View {
                 }
             }
 
-            }
-            if !ultraWideMode && focusedWebPanelID == nil {
+            if focusedWebPanelID == nil {
                 statusBar(size: size)
-                    .position(x: w / 2, y: 28)
+                    .position(x: w / 2, y: ultraWideMode ? 76 : 28)
 
                 if themeMenuOpen {
                     themePicker(size: size).position(x: w / 2, y: h / 2)
@@ -391,18 +373,55 @@ struct VRHomeView: View {
                               y: dockExpanded ? dockCenterY(size) : h - 24)
             }
 
-            if runtime.hand.visible {
-                HandSkeletonOverlay(hand: runtime.hand) { joint in
+            if ultraWideMode {
+                VStack(spacing: 2) {
+                    HStack(spacing: 4) {
+                        Button { recenterUltraWide() } label: {
+                            Label("Mira", systemImage: "scope")
+                                .frame(maxWidth: .infinity)
+                        }
+                        Button { ultraFullFrame.toggle() } label: {
+                            Label(ultraFullFrame ? "Preencher" : "Tela toda",
+                                  systemImage: "arrow.up.left.and.arrow.down.right")
+                                .frame(maxWidth: .infinity)
+                        }
+                        Button { toggleUltraWide() } label: {
+                            Label("ARKit", systemImage: "arrow.uturn.backward")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .disabled(cameraTransitioning)
+                    }
+                    .font(.system(size: 9, weight: .bold))
+                    .labelStyle(.titleOnly)
+                    .padding(5)
+                    .background(.black.opacity(0.83),
+                                in: RoundedRectangle(cornerRadius: 10))
+                    Spacer(minLength: 0)
+                    Text(ultraNotice ??
+                         "0,5x REAL · mão Vision + cabeça 3DoF · sem 6DoF")
+                        .font(.system(size: 9, weight: .semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.65)
+                        .padding(6)
+                        .background(.black.opacity(0.78), in: Capsule())
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 5)
+            }
+
+            if shownHand.visible {
+                HandSkeletonOverlay(hand: shownHand) { joint in
                     mappedPoint(joint, size: size)
                 }
                 .allowsHitTesting(false)
 
-                let cursor = mappedPoint(runtime.hand.point, size: size)
+                let cursor = mappedPoint(shownHand.point, size: size)
                 ZStack {
                     Circle()
-                        .stroke(.white.opacity(0.9), lineWidth: runtime.hand.pinching ? 3 : 2)
-                        .frame(width: runtime.hand.pinching ? 29 : 21,
-                               height: runtime.hand.pinching ? 29 : 21)
+                        .stroke(.white.opacity(0.9), lineWidth: shownHand.pinching ? 3 : 2)
+                        .frame(width: shownHand.pinching ? 29 : 21,
+                               height: shownHand.pinching ? 29 : 21)
                     Circle().fill(.white).frame(width: 5, height: 5)
                 }
                 .shadow(color: .black, radius: 3)
@@ -440,7 +459,11 @@ struct VRHomeView: View {
                     .fixedSize(horizontal: true, vertical: false)
                 }
             }
-            Text(runtime.cameraStatus)
+            Text(ultraWideMode
+                 ? (ultraWide.active
+                    ? "Vision: \(ultraWide.hand.visible ? "mão visível" : "sem mão") · cabeça \(ultraWide.motionAvailable ? "3DoF" : "indisponível")"
+                    : ultraWide.status)
+                 : runtime.cameraStatus)
                 .font(.system(size: 10))
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
