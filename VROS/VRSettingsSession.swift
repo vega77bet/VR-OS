@@ -65,6 +65,14 @@ final class VRSettingsSession: ObservableObject {
     }
 
     weak var primaryTable: UITableView?
+    // Physical touches can scroll EITHER eye; the last user-dragged eye
+    // temporarily becomes the source. Vision pinches always use left eye.
+    private(set) var scrollOwnerRightEye = false
+
+    func beginPhysicalScroll(rightEye: Bool) {
+        scrollOwnerRightEye = rightEye
+    }
+
     var sections: [VRSettingsSection] {
         VRSettingsCatalog.sections(for: page, search: searchText)
     }
@@ -112,17 +120,20 @@ final class VRSettingsSession: ObservableObject {
     }
 
     func resetScroll() {
+        scrollOwnerRightEye = false
         scrollOffset = 0
         primaryTable?.setContentOffset(.zero, animated: false)
     }
 
-    func updateScroll(_ offset: CGFloat, fromPrimary: Bool) {
-        guard fromPrimary, abs(scrollOffset - offset) > 0.5 else { return }
+    func updateScroll(_ offset: CGFloat, fromRightEye: Bool) {
+        guard scrollOwnerRightEye == fromRightEye,
+              abs(scrollOffset - offset) > 0.5 else { return }
         scrollOffset = max(0, offset)
     }
 
     func scrollBy(_ delta: CGFloat) {
         guard let table = primaryTable else { return }
+        scrollOwnerRightEye = false
         let maxOffset = max(0, table.contentSize.height - table.bounds.height)
         let next = max(0, min(maxOffset, scrollOffset + delta))
         table.setContentOffset(CGPoint(x: 0, y: next), animated: false)
