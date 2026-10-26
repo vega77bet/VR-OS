@@ -159,8 +159,12 @@ struct VRHomeView: View {
             webWindowZoom = savedWebZoom > 0
                 ? min(1.55, max(0.65, CGFloat(savedWebZoom))) : 1.0
             UIDevice.current.isBatteryMonitoringEnabled = true
+            runtime.setCameraPreviewEnabled(selectedTheme == .graphite)
             runtime.start()
             Task { await updates.check() }
+        }
+        .onChange(of: selectedTheme) { theme in
+            runtime.setCameraPreviewEnabled(theme == .graphite)
         }
         .onChange(of: webWindowZoom) { zoom in
             UserDefaults.standard.set(Double(zoom), forKey: "vros.webZoom.v1")
