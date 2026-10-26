@@ -265,6 +265,9 @@ struct VRHomeView: View {
         .onChange(of: selectedTheme) { theme in
             runtime.setCameraPreviewEnabled(theme == .graphite)
         }
+        .onChange(of: settings.revision) { _ in
+            applySettingsChanges()
+        }
         .onChange(of: webWindowZoom) { zoom in
             UserDefaults.standard.set(Double(zoom), forKey: "vros.webZoom.v1")
             // Past 100% the web window has filled its eye viewport. Zoom
@@ -307,6 +310,108 @@ struct VRHomeView: View {
                           onExit: { exitCinema() })
         } else {
             eyeView(right: right, size: size)
+        }
+    }
+
+    /// Native Settings shares existing runtime objects, rather than
+    /// creating a mock preferences screen with nonfunctional controls.
+    private func openSettings() {
+        guard !cinemaOpen else { return }
+        settings.cameraUltra = ultraWideMode
+        settings.fullCameraFrame = ultraFullFrame
+        settings.invertUltraMotion = ultraInvertMotion
+        settings.themeIndex = selectedTheme.rawValue
+        settings.webZoom = webWindowZoom
+        settings.cinemaFOV = cinema.cinemaFovDegrees
+        settings.cinemaInvert = cinema.invertTracking
+        settings.cinemaImmersive = cinema.immersiveScreen
+        settings.cinemaSwapEyes = cinema.swapEyes
+        settings.cinemaAutoControls = cinema.showControlsAutomatically
+        appsOpen = false
+        lensMenuOpen = false
+        themeMenuOpen = false
+        focusedWebPanelID = nil
+        settingsGesture = nil
+        lastPinch = false
+        settings.enter(.home)
+        settingsOpen = true
+        dockExpanded = false
+    }
+
+    private func closeSettings() {
+        settingsOpen = false
+        settingsGesture = nil
+        lastPinch = false
+        settings.notice = nil
+        settings.pendingConfirmation = nil
+    }
+
+    private func centreAllWindows() {
+        if ultraWideMode {
+            recenterUltraWide()
+        } else {
+            for index in panels.indices {
+                panels[index].x = 0
+                panels[index].y = 0
+                panels[index].anchor = nil
+            }
+        }
+    }
+
+    private func applySettingsChanges() {
+        if let theme = VRTheme(rawValue: settings.themeIndex),
+           selectedTheme != theme { chooseTheme(theme) }
+        if ultraFullFrame != settings.fullCameraFrame {
+            ultraFullFrame = settings.fullCameraFrame
+        }
+        if ultraInvertMotion != settings.invertUltraMotion {
+            ultraInvertMotion = settings.invertUltraMotion
+            UserDefaults.standard.set(ultraInvertMotion,
+                                      forKey: "vros.ultra.invertMotion.v1")
+            if ultraWideMode { recenterUltraWide() }
+        }
+        if abs(webWindowZoom - settings.webZoom) > 0.005 {
+            webWindowZoom = settings.webZoom
+        }
+        if abs(cinema.cinemaFovDegrees - settings.cinemaFOV) > 0.5 {
+            cinema.adjustCinemaFOV(settings.cinemaFOV -
+                                   cinema.cinemaFovDegrees)
+        }
+        if cinema.invertTracking != settings.cinemaInvert {
+            cinema.toggleTrackingDirection()
+        }
+        if cinema.immersiveScreen != settings.cinemaImmersive {
+            cinema.toggleImmersive()
+        }
+        if cinema.swapEyes != settings.cinemaSwapEyes {
+            cinema.toggleEyeOrder()
+        }
+        if cinema.showControlsAutomatically != settings.cinemaAutoControls {
+            cinema.showControlsAutomatically = settings.cinemaAutoControls
+        }
+        runtime.setPinchSensitivity(settings.pinchSensitivity)
+        ultraWide.setPinchSensitivity(settings.pinchSensitivity)
+
+        if let request = settings.command {
+            settings.command = nil
+            switch request.kind {
+            case .recenterWindows:
+                centreAllWindows()
+            case .clearFavorites:
+                UserDefaults.standard.removeObject(
+                    forKey: "vros.web.favorites.v1")
+                for session in webSessions.values {
+                    session.clearFavorites()
+                }
+            case .restoreAll:
+                centreAllWindows()
+                cinema.resetScreenAim()
+                UserDefaults.standard.set(false,
+                                          forKey: "vros.ultra.invertMotion.v1")
+            }
+        }
+        if settings.cameraUltra != ultraWideMode && !cameraTransitioning {
+            toggleUltraWide()
         }
     }
 
