@@ -1157,15 +1157,21 @@ struct VRHomeView: View {
                     sliderID: sliderID)
                 if let id = sliderID {
                     settings.setNormalized(id, fraction: settings.sliderFraction(
-                        x: pointer.x, width: size.width))
+                        x: pointer.x, width: size.width,
+                        localY: pointer.y - top))
                 }
             } else if var gesture = settingsGesture {
                 let deltaY = pointer.y - gesture.start.y
                 let travelled = hypot(pointer.x - gesture.start.x, deltaY)
                 if let id = gesture.sliderID {
                     if travelled > 5 { gesture.moved = true }
+                    let top = settings.page == .home
+                        ? VRSettingsScreen.toolbarHeight +
+                          VRSettingsScreen.searchHeight
+                        : VRSettingsScreen.toolbarHeight
                     settings.setNormalized(id, fraction: settings.sliderFraction(
-                        x: pointer.x, width: size.width))
+                        x: pointer.x, width: size.width,
+                        localY: pointer.y - top))
                 } else if travelled > 11 {
                     gesture.moved = true
                     let desired = gesture.startingScroll - deltaY
