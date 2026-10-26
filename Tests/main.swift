@@ -174,7 +174,7 @@ verify(ultraPinch.update(thumb: thumb, index: openTip, palmWidth: 0.20),
        "A single opening sample must not drop a pinch")
 verify(!ultraPinch.update(thumb: thumb, index: openTip, palmWidth: 0.20),
        "Two opening samples should release a pinch")
-ultraPinch.update(thumb: thumb, index: closeTip, palmWidth: 0.20)
+_ = ultraPinch.update(thumb: thumb, index: closeTip, palmWidth: 0.20)
 ultraPinch.reset()
 verify(!ultraPinch.pinching,
        "Vision camera reset must clear the last held pinch")
