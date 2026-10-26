@@ -87,3 +87,15 @@ a opção "Mov./Inv." facilita o ajuste.
   sem calibração ótica); a sensação binocular depende das lentes do headset.
 - Video web protegidos por DRM podem falhar em \`WKWebView\`.
 - O IPA fornecido é **sem assinatura** e exige assinatura para instalação.
+
+
+### Mapeamento do cursor quando mostrar todo o vídeo
+
+A imagem real 0,5x é **letterboxed** por olho ao selecionar "Tela toda".
+A posição dos 21 pontos da mão desenhados mantém as coordenadas da
+imagem. Já o **cursor de interação** é expandido proporcionalmente à
+viewport inteira do olho, para permitir alcançar botões no topo e dock
+embaixo que de outra forma ficariam fora do quadro letterboxed. Portanto,
+nesse modo a posição do cursor **não corresponde exatamente ao dedo na
+imagem**: é um controle por gesto normalizado, não sobreposição calibrada.
+"Preencher" volta ao mapeamento do cursor correspondente à imagem cortada.
