@@ -17,6 +17,7 @@ final class VRSettingsSession: ObservableObject {
     @Published private(set) var scrollOffset: CGFloat = 0
     @Published var focusSearchRequest = 0
     @Published var command: VRSettingsCommand?
+    @Published private(set) var revision = 0
     @Published var notice: String?
     @Published var pendingConfirmation: String?
 
@@ -196,8 +197,9 @@ final class VRSettingsSession: ObservableObject {
             cinemaFOV = CGFloat(Int(55 + t * 60))
         case "web.zoom":
             webZoom = CGFloat(Int((0.65 + 0.90 * t) * 100)) / 100
-        default: break
+        default: return
         }
+        revision += 1
     }
 
     func perform(_ row: VRSettingsRow, direction: Int = 0) {
@@ -223,6 +225,7 @@ final class VRSettingsSession: ObservableObject {
             execute(row.id)
         }
         if row.kind != .action { pendingConfirmation = nil }
+        revision += 1
     }
 
     private func step(_ id: String, _ direction: Int) {
