@@ -126,3 +126,58 @@ struct VRLensSettings: Equatable {
         return value
     }
 }
+
+
+/// Identical hit positions for the onscreen calibration controls and the
+/// Vision pinch pointer (which never generates regular UIKit touch events).
+enum VRLensMenuAction: Equatable {
+    case close
+    case profile(Int)
+    case adjust(row: Int, direction: Int)
+}
+
+enum VRLensMenuGeometry {
+    static let height: CGFloat = 219
+    static let headerY: CGFloat = 8
+    static let profileY: CGFloat = 35
+    static let controlY: CGFloat = 62
+    static let controlStep: CGFloat = 27
+    static let controlCount = 5
+
+    static func rect(in viewport: CGSize) -> CGRect {
+        let width = min(viewport.width * 0.97, 320)
+        let h = min(height, max(1, viewport.height - 4))
+        return CGRect(x: (viewport.width - width) / 2,
+                      y: (viewport.height - h) / 2,
+                      width: width, height: h)
+    }
+
+    static func action(at point: CGPoint, viewport: CGSize)
+        -> VRLensMenuAction? {
+        let panel = rect(in: viewport)
+        guard panel.contains(point) else { return .close }
+        let x = point.x - panel.minX
+        let y = point.y - panel.minY
+
+        if y >= headerY && y <= headerY + 24 {
+            return x > panel.width - 42 ? .close : nil
+        }
+        if y >= profileY && y <= profileY + 24 {
+            let slot = Int((x - 8) / max(1, (panel.width - 16) / 3))
+            return .profile(max(0, min(2, slot)))
+        }
+        if y >= controlY {
+            let row = Int((y - controlY) / controlStep)
+            guard row >= 0, row < controlCount else { return nil }
+            let rowOffset = y - (controlY + CGFloat(row) * controlStep)
+            guard rowOffset <= 24 else { return nil }
+            if x >= panel.width - 90 && x < panel.width - 65 {
+                return .adjust(row: row, direction: -1)
+            }
+            if x >= panel.width - 33 && x <= panel.width - 8 {
+                return .adjust(row: row, direction: 1)
+            }
+        }
+        return nil
+    }
+}
