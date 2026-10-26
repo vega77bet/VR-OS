@@ -156,14 +156,18 @@ enum VRLensMenuGeometry {
         -> VRLensMenuAction? {
         let panel = rect(in: viewport)
         guard panel.contains(point) else { return .close }
-        let x = point.x - panel.minX
-        let y = point.y - panel.minY
+        // On short eye viewports, scale the entire calibration panel down
+        // without sacrificing a row. Convert the pinch back to design units.
+        let scale = max(0.01, panel.height / height)
+        let fullWidth = panel.width / scale
+        let x = (point.x - panel.minX) / scale
+        let y = (point.y - panel.minY) / scale
 
         if y >= headerY && y <= headerY + 24 {
-            return x > panel.width - 42 ? .close : nil
+            return x > fullWidth - 42 ? .close : nil
         }
         if y >= profileY && y <= profileY + 24 {
-            let slot = Int((x - 8) / max(1, (panel.width - 16) / 3))
+            let slot = Int((x - 8) / max(1, (fullWidth - 16) / 3))
             return .profile(max(0, min(2, slot)))
         }
         if y >= controlY {
@@ -171,10 +175,10 @@ enum VRLensMenuGeometry {
             guard row >= 0, row < controlCount else { return nil }
             let rowOffset = y - (controlY + CGFloat(row) * controlStep)
             guard rowOffset <= 24 else { return nil }
-            if x >= panel.width - 90 && x < panel.width - 65 {
+            if x >= fullWidth - 90 && x < fullWidth - 65 {
                 return .adjust(row: row, direction: -1)
             }
-            if x >= panel.width - 33 && x <= panel.width - 8 {
+            if x >= fullWidth - 33 && x <= fullWidth - 8 {
                 return .adjust(row: row, direction: 1)
             }
         }
