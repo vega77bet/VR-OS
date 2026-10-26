@@ -105,6 +105,7 @@ final class CinemaModel: ObservableObject {
     @Published var playing = false
     @Published var selectedMode: CinemaVideoMode = .twoD
     @Published var immersiveScreen = true
+    @Published var cinemaFovDegrees: CGFloat = 78
     @Published var swapEyes = false
     @Published var convergence: CGFloat = 0
     @Published var controlsVisible = true
@@ -411,8 +412,13 @@ final class CinemaModel: ObservableObject {
     func toggleImmersive() {
         immersiveScreen.toggle()
         updateSeatPosition()
-        refreshScreenAim()
         recenterHead()
+        revealControls()
+    }
+
+    func adjustCinemaFOV(_ delta: CGFloat) {
+        cinemaFovDegrees = min(105, max(55, cinemaFovDegrees + delta))
+        updateSeatPosition()
         revealControls()
     }
 
@@ -422,7 +428,10 @@ final class CinemaModel: ObservableObject {
         guard let selected = seats.first(where: { $0.id == currentSeatID }) else { return }
         for (eye, offset) in [(leftCamera, Float(-0.032)),
                               (rightCamera, Float(0.032))] {
-            eye.camera?.fieldOfView = immersiveScreen ? 68 : 75
+            // Wider viewing angle avoids cropping an ultra-wide cinema screen.
+            // The user can tune this for their headset lenses.
+            eye.camera?.fieldOfView = immersiveScreen
+                ? cinemaFovDegrees : min(115, cinemaFovDegrees + 12)
             let target = SCNVector3(selected.cameraPosition.x + offset,
                                     selected.cameraPosition.y,
                                     selected.cameraPosition.z)
@@ -1041,19 +1050,20 @@ struct CinemaEyeView: View {
                     .padding(.horizontal, 7)
                     .padding(.top, 3)
                     HStack(spacing: 5) {
+                        cinemaOption("FOV −") { cinema.adjustCinemaFOV(-5) }
+                        cinemaOption("FOV +") { cinema.adjustCinemaFOV(5) }
                         cinemaOption(cinema.invertTracking ? "Mov.: inverso" : "Mov.: normal") {
                             cinema.toggleTrackingDirection()
                         }
-                        Text(String(format: "Visão ↑%.0f° / ↔%.0f°",
-                                    cinema.screenPitchDegrees, cinema.screenYawDegrees))
+                        Text(String(format: "%.0f°", cinema.cinemaFovDegrees))
                             .font(.system(size: 9, weight: .semibold))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                            .frame(maxWidth: .infinity)
+                            .frame(width: 27)
                     }
                     .padding(.horizontal, 7)
                     .padding(.top, 3)
-                    Text(cinema.headTrackingStatus + " · " + cinema.currentSeatLabel)
+                    Text(String(format: "%@ · %@ · Mira ↑%.0f° ↔%.0f°",
+                                cinema.headTrackingStatus, cinema.currentSeatLabel,
+                                cinema.screenPitchDegrees, cinema.screenYawDegrees))
                         .font(.system(size: 9, weight: .medium))
                         .foregroundStyle(.green.opacity(0.95))
                         .padding(.top, 3)
