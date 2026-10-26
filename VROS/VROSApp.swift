@@ -267,7 +267,8 @@ struct VRHomeView: View {
                 Circle()
                     .fill(runtime.spatialTracking ? Color.white : Color.gray)
                     .frame(width: 5, height: 5)
-                Text(updates.manifest.headline)
+                Text("VR OS " + (Bundle.main.infoDictionary?["CFBundleShortVersionString"]
+                    as? String ?? "4.3"))
                     .tracking(0.5)
                     .font(.system(size: 10, weight: .semibold))
                     .lineLimit(1)
