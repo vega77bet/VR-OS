@@ -453,6 +453,7 @@ struct VRHomeView: View {
                     selectedTheme == .graphite && !settingsOpen)
                 runtime.resume()
                 cameraTransitioning = false
+                if settingsOpen && settings.cameraUltra { toggleUltraWide() }
             }
         } else {
             // Snapshot the ARKit window screen positions before suspending it.
@@ -472,8 +473,25 @@ struct VRHomeView: View {
             ultraWide.setDisplayEnabled(!settingsOpen)
             ultraNotice = nil
             dockExpanded = false
-            ultraWide.start()
-            cameraTransitioning = false
+            ultraWide.start { started in
+                if !started {
+                    // No physical lens or camera permission: do not leave
+                    // the user trapped in a black 0.5x mode.
+                    ultraWideMode = false
+                    ultraPanelDirections.removeAll()
+                    settings.cameraUltra = false
+                    settings.notice = "Câmera 0,5x indisponível; ARKit restaurado"
+                    runtime.setCameraPreviewEnabled(
+                        selectedTheme == .graphite && !settingsOpen)
+                    runtime.resume()
+                }
+                cameraTransitioning = false
+                // A Settings switch may have been changed while capture
+                // was starting: apply the newest desired state afterwards.
+                if started && settingsOpen && !settings.cameraUltra {
+                    toggleUltraWide()
+                }
+            }
         }
     }
 
