@@ -88,6 +88,12 @@ private struct WebPinchGesture {
     var moved = false
 }
 
+private struct NotePinchGesture {
+    let panelID: UUID
+    let initialPointerY: CGFloat
+    let startScrollY: CGFloat
+}
+
 struct VRHomeView: View {
     @StateObject private var runtime = VRRuntime()
     @StateObject private var updates = LiveUpdateManager()
@@ -97,6 +103,8 @@ struct VRHomeView: View {
     @State private var appsOpen = false
     @State private var dockExpanded = true
     @State private var webSessions: [UUID: VRWebSession] = [:]
+    @State private var noteSessions: [UUID: VRNoteSession] = [:]
+    @State private var notePinchGesture: NotePinchGesture?
     @State private var appsWarning: String?
     @State private var webWindowZoom: CGFloat = 1.0
     @State private var focusedWebPanelID: UUID?
@@ -154,6 +162,11 @@ struct VRHomeView: View {
         }
         .onChange(of: webWindowZoom) { zoom in
             UserDefaults.standard.set(Double(zoom), forKey: "vros.webZoom.v1")
+            // Past 100% the web window has filled its eye viewport. Zoom
+            // the PAGE rather than letting controls disappear offscreen.
+            for browser in webSessions.values {
+                browser.setPageZoom(max(1.0, zoom * 1.15))
+            }
         }
         .onDisappear {
             runtime.setCinemaMode(false)
@@ -390,12 +403,36 @@ struct VRHomeView: View {
                     .disabled(updates.isChecking)
                     .buttonStyle(.plain)
                 }
+            } else if let note = noteSessions[panel.id] {
+                VStack(spacing: 3) {
+                    VRNoteScrollSurface(session: note, rightEye: right)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    HStack(spacing: 6) {
+                        Button {
+                            note.scrollBy(-90)
+                        } label: {
+                            Label("Subir", systemImage: "arrow.up")
+                                .frame(maxWidth: .infinity)
+                        }
+                        Button {
+                            note.scrollBy(90)
+                        } label: {
+                            Label("Descer", systemImage: "arrow.down")
+                                .frame(maxWidth: .infinity)
+                        }
+                    }
+                    .font(.system(size: 10, weight: .medium))
+                    .buttonStyle(.plain)
+                    .padding(.vertical, 3)
+                    .background(.white.opacity(0.13),
+                                in: RoundedRectangle(cornerRadius: 7))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 Text(panel.text)
                     .font(.system(size: 11, weight: .regular))
                     .foregroundStyle(.white.opacity(0.86))
-                    .lineLimit(4)
-                    .minimumScaleFactor(0.7)
+                    .lineLimit(nil)
             }
 
             if panel.kind != .web { Spacer(minLength: 0) }
@@ -417,6 +454,11 @@ struct VRHomeView: View {
         .overlay(RoundedRectangle(cornerRadius: 16)
             .stroke(selectedTheme.accent.opacity(0.45), lineWidth: 1))
         .shadow(color: .black.opacity(0.50), radius: 11, y: 5)
+        .onAppear {
+            if panel.kind == .content && noteSessions[panel.id] == nil {
+                noteSessions[panel.id] = VRNoteSession(text: panel.text)
+            }
+        }
     }
 
     private func displayedPanelSize(_ panel: VRPanel, size: CGSize) -> CGSize {
@@ -424,8 +466,12 @@ struct VRHomeView: View {
             return CGSize(width: size.width * 0.995, height: size.height * 0.99)
         }
         let scale = windowScale(panel)
-        return CGSize(width: panelWidth(panel, size: size) * scale,
-                      height: panelHeight(panel, size: size) * scale)
+        // Never allow zoom/depth to push the close button outside an eye.
+        // The grab handle must also remain inside the bottom edge.
+        let maxWidth = size.width * (panel.kind == .web ? 0.99 : 0.94)
+        let maxHeight = size.height * (panel.kind == .web ? 0.80 : 0.75)
+        return CGSize(width: min(maxWidth, panelWidth(panel, size: size) * scale),
+                      height: min(maxHeight, panelHeight(panel, size: size) * scale))
     }
 
     private func displayedPanelCenter(_ panel: VRPanel, size: CGSize,
@@ -447,13 +493,13 @@ struct VRHomeView: View {
 
     /// The handle is only a white line, without a track, numbers, or thumb.
     private func grabHandleWidth(_ panel: VRPanel, size: CGSize) -> CGFloat {
-        min(size.width * 0.72, max(70, panelWidth(panel, size: size) * windowScale(panel) * 0.68))
+        min(size.width * 0.72, max(70, displayedPanelSize(panel, size: size).width * 0.68))
     }
 
     private func grabHandleCenter(_ center: CGPoint, panel: VRPanel,
                                   size: CGSize) -> CGPoint {
         CGPoint(x: center.x,
-                y: center.y + panelHeight(panel, size: size) * windowScale(panel) / 2 + 22)
+                y: center.y + displayedPanelSize(panel, size: size).height / 2 + 22)
     }
 
     private func grabHandle(_ panel: VRPanel, size: CGSize) -> some View {
@@ -572,6 +618,7 @@ struct VRHomeView: View {
             lastPinch = false
             drag = nil
             webPinchGesture = nil
+            notePinchGesture = nil
             return
         }
 
@@ -591,11 +638,16 @@ struct VRHomeView: View {
                     startY: webGesture.startScrollY, fingerDeltaY: dy)
             }
             webPinchGesture = webGesture
+        } else if hand.pinching, let noteGesture = notePinchGesture {
+            noteSessions[noteGesture.panelID]?.scrollFromPinch(
+                startY: noteGesture.startScrollY,
+                fingerDeltaY: pointer.y - noteGesture.initialPointerY)
         } else if !hand.pinching {
             if lastPinch, let gesture = webPinchGesture, !gesture.moved {
                 webSessions[gesture.panelID]?.tapFromPinch(x: gesture.x, y: gesture.y)
             }
             webPinchGesture = nil
+            notePinchGesture = nil
             drag = nil
         }
         lastPinch = hand.pinching
@@ -877,7 +929,9 @@ struct VRHomeView: View {
     private func close(_ id: UUID) {
         panels.removeAll { $0.id == id }
         webSessions.removeValue(forKey: id)
+        noteSessions.removeValue(forKey: id)
         if webSessions.count < 3 { appsWarning = nil }
+        if notePinchGesture?.panelID == id { notePinchGesture = nil }
         if drag?.panelID == id { drag = nil }
         if webPinchGesture?.panelID == id { webPinchGesture = nil }
         if focusedWebPanelID == id { focusedWebPanelID = nil }
@@ -891,6 +945,7 @@ struct VRHomeView: View {
             panels[index].title = template.title
             panels[index].icon = template.symbol
             panels[index].text = template.text
+            noteSessions[panels[index].id]?.text = template.text
             // Keep user's chosen depth / anchor: live content updates should not
             // teleport already-placed windows.
         }
@@ -935,7 +990,7 @@ struct VRHomeView: View {
         }
         appsWarning = nil
         let browser = VRWebSession(app: app)
-        let offset = webSessions.count % 3
+        browser.setPageZoom(max(1.0, webWindowZoom * 1.15))
         let newPanel = VRPanel(
             title: app.title, icon: app.symbol,
             text: app.description,
