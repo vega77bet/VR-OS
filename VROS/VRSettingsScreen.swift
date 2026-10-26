@@ -158,21 +158,36 @@ struct VRSettingsTable: UIViewRepresentable {
         let sections = session.sections
         // Never reload on every new scroll offset: doing that would interrupt
         // native inertia, destroy UIKit cells and desynchronize the two eyes.
-        let identity = sections.flatMap { $0.rows }.map {
+        let structuralIdentity = sections.flatMap { $0.rows }
+            .map(\.id).joined(separator: "|")
+        let signature = session.page.rawValue + "#" + session.searchText +
+            "#" + structuralIdentity
+        let valuesSignature = sections.flatMap { $0.rows }.map {
             "\($0.id):\(session.value(for: $0.id)):\(session.toggled($0.id)):\(session.selected($0.id))"
         }.joined(separator: "|")
-        let signature = session.page.rawValue + "#" + session.searchText +
-            "#" + identity + "#\(session.pendingConfirmation ?? "")"
         if coordinator.signature != signature {
             let pageChanged = coordinator.page != session.page
             coordinator.page = session.page
             coordinator.signature = signature
+            coordinator.valuesSignature = valuesSignature
             coordinator.sections = sections
             table.reloadData()
             if pageChanged || coordinator.search != session.searchText {
                 table.setContentOffset(.zero, animated: false)
             }
             coordinator.search = session.searchText
+        } else if coordinator.valuesSignature != valuesSignature {
+            // Never reloadData on UISlider.valueChanged: the old behavior
+            // destroyed the slider being dragged and could reset scrolling.
+            coordinator.valuesSignature = valuesSignature
+            for path in table.indexPathsForVisibleRows ?? [] {
+                guard path.section < sections.count,
+                      path.row < sections[path.section].rows.count,
+                      let cell = table.cellForRow(at: path) as? VRSettingsTableCell
+                else { continue }
+                cell.configure(row: sections[path.section].rows[path.row],
+                               session: session, enabled: !rightEye)
+            }
         }
         if rightEye {
             let maxScroll = max(0, table.contentSize.height - table.bounds.height)
@@ -191,6 +206,7 @@ struct VRSettingsTable: UIViewRepresentable {
         let rightEye: Bool
         var sections: [VRSettingsSection] = []
         var signature = ""
+        var valuesSignature = ""
         var search = ""
         var page: VRSettingsPage = .home
 
@@ -385,7 +401,9 @@ final class VRSettingsTableCell: UITableViewCell {
             number.text = session.value(for: row.id)
         case .slider:
             slider.isHidden = false
-            slider.value = Float(session.normalized(row.id))
+            if !slider.isTracking {
+                slider.value = Float(session.normalized(row.id))
+            }
             slider.isEnabled = enabled
             number.isHidden = false
             number.text = session.value(for: row.id)
