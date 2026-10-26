@@ -478,16 +478,14 @@ struct VRHomeView: View {
     }
 
     private func displayedPanelSize(_ panel: VRPanel, size: CGSize) -> CGSize {
-        if focusedWebPanelID == panel.id {
-            return CGSize(width: size.width * 0.995, height: size.height * 0.99)
-        }
-        let scale = windowScale(panel)
-        // Never allow zoom/depth to push the close button outside an eye.
-        // The grab handle must also remain inside the bottom edge.
-        let maxWidth = size.width * (panel.kind == .web ? 0.99 : 0.94)
-        let maxHeight = size.height * (panel.kind == .web ? 0.80 : 0.75)
-        return CGSize(width: min(maxWidth, panelWidth(panel, size: size) * scale),
-                      height: min(maxHeight, panelHeight(panel, size: size) * scale))
+        VRGestureGeometry.visiblePanelSize(
+            original: CGSize(width: panelWidth(panel, size: size),
+                             height: panelHeight(panel, size: size)),
+            scale: windowScale(panel),
+            viewport: size,
+            isWeb: panel.kind == .web,
+            isFocused: focusedWebPanelID == panel.id
+        )
     }
 
     private func displayedPanelCenter(_ panel: VRPanel, size: CGSize,
@@ -742,33 +740,24 @@ struct VRHomeView: View {
             return
         }
         if appsOpen {
-            // Use the same rows/spacing as appsLauncher, including the
-            // zoom slider and newly installed site entries. Previously the
-            // hardcoded 3-row map opened the WRONG app after V13.
-            let width = min(size.width * 0.89, 330)
-            let menuLeft = (size.width - width) / 2
-            let warningHeight: CGFloat = appsWarning == nil ? 0 : 32
-            let menuHeight = 20 + 17 + 22 +
-                CGFloat(VRWebApp.allCases.count) * 49 +
-                CGFloat(VRWebApp.allCases.count + 1) * 7 + warningHeight
-            let menuTop = (size.height - menuHeight) / 2
-            let zoomTop = menuTop + 10 + 17 + 7
-            let firstRowTop = zoomTop + 22 + 7 + warningHeight
-            let localX = pointer.x - menuLeft
-            if localX >= 0 && localX <= width {
-                let localRowY = pointer.y - firstRowTop
-                if localRowY >= 0 {
-                    let index = Int(localRowY / 56)
-                    if index >= 0 && index < VRWebApp.allCases.count &&
-                       localRowY - CGFloat(index) * 56 <= 49 {
-                        openWebApp(VRWebApp.allCases[index])
-                    }
-                } else if pointer.y >= zoomTop && pointer.y < zoomTop + 22 {
-                    let fraction = max(0, min(1, (localX - 110) / max(1, width - 157)))
-                    webWindowZoom = 0.65 + fraction * 0.90
-                }
+            let count = VRWebApp.allCases.count
+            let warning = appsWarning != nil
+            if let index = VRGestureGeometry.appRow(
+                at: pointer, viewport: size, count: count, warning: warning) {
+                openWebApp(VRWebApp.allCases[index])
+            } else if let fraction = VRGestureGeometry.appZoomFraction(
+                at: pointer, viewport: size, count: count, warning: warning) {
+                webWindowZoom = 0.65 + fraction * 0.90
             } else {
-                appsOpen = false
+                // A pinch outside the launcher closes it so the dock is usable.
+                let width = VRGestureGeometry.appMenuWidth(viewport: size)
+                let left = (size.width - width) / 2
+                let height = VRGestureGeometry.appMenuHeight(
+                    count: count, warning: warning)
+                if pointer.x < left || pointer.x > left + width ||
+                   abs(pointer.y - size.height / 2) > height / 2 {
+                    appsOpen = false
+                }
             }
             return
         }
@@ -925,8 +914,8 @@ struct VRHomeView: View {
 
         // The WebWindow has a navigation row and a second row for scrolling.
         if y >= 76 && y < 111 {
-            let slot = min(6, max(0,
-                Int((x - 12) / max(1, (dims.width - 24) / 7))))
+            let slot = VRGestureGeometry.webToolbarSlot(
+                localX: x, width: dims.width)
             switch slot {
             case 0: browser.back()
             case 1: browser.forward()
@@ -948,19 +937,16 @@ struct VRHomeView: View {
         }
 
         if !browser.favorites.isEmpty && y >= 144 && y < 177 {
-            let firstButtonX: CGFloat = 28
-            if x >= firstButtonX {
-                let slotWidth = max(1, (dims.width - firstButtonX - 12) /
-                                       CGFloat(browser.favorites.count))
-                let index = Int((x - firstButtonX) / slotWidth)
-                if browser.favorites.indices.contains(index) {
-                    browser.openFavorite(index)
-                }
+            if let index = VRGestureGeometry.webFavoriteSlot(
+                localX: x, width: dims.width,
+                count: browser.favorites.count) {
+                browser.openFavorite(index)
             }
             return true
         }
 
-        let contentTop = top + 150 + (browser.favorites.isEmpty ? 0 : 29)
+        let contentTop = top + VRGestureGeometry.webContentTop(
+            hasFavorites: !browser.favorites.isEmpty)
         let contentBottom = top + dims.height - 30
         guard pointer.y >= contentTop && pointer.y <= contentBottom,
               dims.height > 180 else { return true }
@@ -1082,6 +1068,7 @@ struct VRHomeView: View {
                 .buttonStyle(.plain)
             }
             .font(.system(size: 11, weight: .bold))
+            .frame(height: VRGestureGeometry.appHeaderHeight)
             HStack(spacing: 8) {
                 Text("Tamanho das janelas")
                     .font(.system(size: 10))
@@ -1091,11 +1078,14 @@ struct VRHomeView: View {
                     .font(.system(size: 10, weight: .bold))
                     .frame(width: 35)
             }
+            .frame(height: VRGestureGeometry.appZoomHeight)
             if let warning = appsWarning {
                 Text(warning)
                     .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(.yellow)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.75)
+                    .frame(height: VRGestureGeometry.appWarningHeight)
             }
             ForEach(VRWebApp.allCases) { app in
                 Button { openWebApp(app) } label: {
@@ -1117,7 +1107,7 @@ struct VRHomeView: View {
                             .foregroundStyle(.white.opacity(0.75))
                     }
                     .frame(maxWidth: .infinity)
-                    .frame(height: 49)
+                    .frame(height: VRGestureGeometry.appRowHeight)
                     .padding(.horizontal, 7)
                     .background(.white.opacity(0.08),
                                 in: RoundedRectangle(cornerRadius: 10))
