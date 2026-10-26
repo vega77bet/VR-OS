@@ -1174,7 +1174,8 @@ struct VRHomeView: View {
                     : VRSettingsScreen.toolbarHeight
                 let row = settings.row(at: pointer, topInset: top)
                 let sliderID: String?
-                if let row = row, row.kind == .slider {
+                if let row = row, row.kind == .slider,
+                   settings.isSliderHit(at: pointer, topInset: top) {
                     sliderID = row.id
                 } else {
                     sliderID = nil
