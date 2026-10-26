@@ -14,7 +14,9 @@ struct VRSettingsCommand: Identifiable {
 final class VRSettingsSession: ObservableObject {
     @Published var page: VRSettingsPage = .home
     @Published var searchText: String = ""
-    @Published private(set) var scrollOffset: CGFloat = 0
+    // High-frequency scroll updates must NOT publish into the whole
+    // SwiftUI/ARKit headset tree. UIKit mirrors the peer table directly.
+    private(set) var scrollOffset: CGFloat = 0
     @Published var focusSearchRequest = 0
     @Published var command: VRSettingsCommand?
     @Published private(set) var revision = 0
@@ -65,6 +67,7 @@ final class VRSettingsSession: ObservableObject {
     }
 
     weak var primaryTable: UITableView?
+    weak var secondaryTable: UITableView?
     // Physical touches can scroll EITHER eye; the last user-dragged eye
     // temporarily becomes the source. Vision pinches always use left eye.
     private(set) var scrollOwnerRightEye = false
@@ -123,12 +126,25 @@ final class VRSettingsSession: ObservableObject {
         scrollOwnerRightEye = false
         scrollOffset = 0
         primaryTable?.setContentOffset(.zero, animated: false)
+        secondaryTable?.setContentOffset(.zero, animated: false)
+    }
+
+    private func mirrorScroll(_ position: CGFloat, into table: UITableView?) {
+        guard let table = table, table.bounds.height > 0 else { return }
+        let maximum = max(0, table.contentSize.height - table.bounds.height)
+        let clamped = max(0, min(maximum, position))
+        guard abs(table.contentOffset.y - clamped) > 0.6 else { return }
+        table.setContentOffset(CGPoint(x: 0, y: clamped), animated: false)
     }
 
     func updateScroll(_ offset: CGFloat, fromRightEye: Bool) {
         guard scrollOwnerRightEye == fromRightEye,
               abs(scrollOffset - offset) > 0.5 else { return }
         scrollOffset = max(0, offset)
+        // Direct UIKit-to-UIKit update gives both lenses the SAME vertical
+        // position without redrawing the entire SwiftUI camera scene.
+        mirrorScroll(scrollOffset, into: fromRightEye
+                     ? primaryTable : secondaryTable)
     }
 
     func scrollBy(_ delta: CGFloat) {
@@ -136,8 +152,9 @@ final class VRSettingsSession: ObservableObject {
         scrollOwnerRightEye = false
         let maxOffset = max(0, table.contentSize.height - table.bounds.height)
         let next = max(0, min(maxOffset, scrollOffset + delta))
-        table.setContentOffset(CGPoint(x: 0, y: next), animated: false)
         scrollOffset = next
+        mirrorScroll(next, into: primaryTable)
+        mirrorScroll(next, into: secondaryTable)
     }
 
     func value(for id: String) -> String {
