@@ -214,7 +214,7 @@ enum VRSettingsCatalog {
             return [
                 group("APLICATIVO", [
                     info("about.name", "Nome", "VR-OS"),
-                    info("about.version", "Versão", "4.7.0 · build 21"),
+                    info("about.version", "Versão", installedVersion()),
                     info("about.source", "Projeto", "Aplicativo nativo Swift para iPhone")
                 ]),
                 group("PRIVACIDADE", [
@@ -225,6 +225,15 @@ enum VRSettingsCatalog {
                 ])
             ]
         }
+    }
+
+    private static func installedVersion() -> String {
+        // Read the signed/installed bundle, not a stale hardcoded HUD value.
+        let dictionary = Bundle.main.infoDictionary ?? [:]
+        let version = dictionary["CFBundleShortVersionString"] as? String
+            ?? "4.7.0"
+        let build = dictionary["CFBundleVersion"] as? String ?? "21"
+        return "\(version) · build \(build)"
     }
 
     private static func searchResults(_ query: String) -> [VRSettingsSection] {
