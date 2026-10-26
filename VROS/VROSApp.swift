@@ -853,6 +853,7 @@ struct VRHomeView: View {
         guard hand.visible else {
             lastPinch = false
             drag = nil
+            ultraDrag = nil
             webPinchGesture = nil
             notePinchGesture = nil
             return
@@ -865,6 +866,16 @@ struct VRHomeView: View {
                   let index = panels.firstIndex(where: { $0.id == held.panelID }) {
             updateSpatialGrab(hand, pointer: pointer, held: &held, panelIndex: index)
             drag = held
+        } else if hand.pinching, let held = ultraDrag {
+            // True ultrawide Vision fingertip controls a 2D angular window
+            // anchor. No fake metre translation or depth data is invented.
+            let destination = CGPoint(
+                x: held.initialCentre.x + pointer.x - held.initialPointer.x,
+                y: held.initialCentre.y + pointer.y - held.initialPointer.y)
+            ultraPanelDirections[held.panelID] =
+                VRUltraWideWindowProjection.anchoredDirection(
+                    at: destination, viewport: size,
+                    headRotation: ultraWide.motionDelta)
         } else if hand.pinching, var webGesture = webPinchGesture {
             let dx = pointer.x - webGesture.initialPointer.x
             let dy = pointer.y - webGesture.initialPointer.y
@@ -885,6 +896,7 @@ struct VRHomeView: View {
             webPinchGesture = nil
             notePinchGesture = nil
             drag = nil
+            ultraDrag = nil
         }
         lastPinch = hand.pinching
     }
@@ -953,6 +965,17 @@ struct VRHomeView: View {
     }
 
     private func beganPinch(_ pointer: CGPoint, hand: TrackedHand, size: CGSize) {
+        // A real hand pinch can also reach ultrawide's lens/headset switches.
+        if ultraWideMode && pointer.y <= 44 {
+            if pointer.x < size.width / 3 {
+                recenterUltraWide()
+            } else if pointer.x < size.width * 2 / 3 {
+                ultraFullFrame.toggle()
+            } else {
+                toggleUltraWide()
+            }
+            return
+        }
         if let focusedID = focusedWebPanelID {
             if let panel = panels.first(where: { $0.id == focusedID }) {
                 _ = beginWebPanelPinch(panel, pointer: pointer, size: size)
@@ -1018,6 +1041,21 @@ struct VRHomeView: View {
         // Only the white line is a 3D movement handle. Its hit area is
         // larger than its visible thickness for comfortable hand gestures.
         for panel in panels.reversed() {
+            if ultraWideMode {
+                guard let center = displayedPanelCenter(
+                    panel, size: size, right: false) else { continue }
+                let handle = grabHandleCenter(center, panel: panel, size: size)
+                guard abs(pointer.x - handle.x) <=
+                          grabHandleWidth(panel, size: size) / 2 + 12,
+                      abs(pointer.y - handle.y) <= 21 else { continue }
+                ultraDrag = UltraWideDrag(
+                    panelID: panel.id, initialPointer: pointer,
+                    initialCentre: CGPoint(
+                        x: center.x - min(CGFloat(10),
+                            CGFloat(7 / max(panel.depth, 0.65))),
+                        y: center.y))
+                return
+            }
             guard let center = windowCenter(panel, size: size, right: false),
                   let anchor = panel.anchor,
                   let pose = runtime.camera, runtime.spatialTracking else { continue }
@@ -1212,6 +1250,8 @@ struct VRHomeView: View {
         if webSessions.count < 3 { appsWarning = nil }
         if notePinchGesture?.panelID == id { notePinchGesture = nil }
         if drag?.panelID == id { drag = nil }
+        if ultraDrag?.panelID == id { ultraDrag = nil }
+        ultraPanelDirections.removeValue(forKey: id)
         if webPinchGesture?.panelID == id { webPinchGesture = nil }
         if focusedWebPanelID == id { focusedWebPanelID = nil }
     }
