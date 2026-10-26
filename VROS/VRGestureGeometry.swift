@@ -138,7 +138,10 @@ enum VRGestureGeometry {
         guard point.x >= left, point.x <= left + width,
               point.y >= top, point.y <= top + compactAppPagerHeight
         else { return nil }
-        return point.x < viewport.width / 2 ? -1 : 1
+        let localX = point.x - left
+        if localX < width / 3 { return -1 }
+        if localX > width * 2 / 3 { return 1 }
+        return nil
     }
 
     static func webToolbarSlot(localX: CGFloat, width: CGFloat,
