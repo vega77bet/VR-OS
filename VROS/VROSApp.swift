@@ -344,6 +344,7 @@ struct VRHomeView: View {
         focusedWebPanelID = nil
         settingsGesture = nil
         lastPinch = false
+        settings.searchText = ""
         settings.enter(.home)
         settingsOpen = true
         // The opaque Settings surface needs camera pose + Vision but does
@@ -689,7 +690,9 @@ struct VRHomeView: View {
                                  onClose: { closeSettings() })
                     .frame(width: w, height: h)
                     .zIndex(50)
-                if shownHand.visible && settings.showCursor {
+                // Accessibility: disabling the Home cursor must NEVER
+                // hide the pointer used to re-enable it in Settings.
+                if shownHand.visible {
                     let cursor = interactionPoint(shownHand.point, size: size)
                     ZStack {
                         Circle()
