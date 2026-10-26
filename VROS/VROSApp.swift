@@ -1357,7 +1357,7 @@ struct VRHomeView: View {
             return
         }
         if appsOpen {
-            let count = VRWebApp.allCases.count
+            let count = VRLauncherApp.all.count
             let warning = appsWarning != nil
             let pageCount = VRGestureGeometry.compactAppPageCount(
                 viewport: size, warning: warning, count: count)
@@ -1367,7 +1367,7 @@ struct VRHomeView: View {
             } else if let index = VRGestureGeometry.compactAppRow(
                 at: pointer, viewport: size, count: count,
                 warning: warning, page: appsPage) {
-                openWebApp(VRWebApp.allCases[index])
+                openLauncherApp(VRLauncherApp.all[index])
             } else if let fraction = VRGestureGeometry.compactAppZoomFraction(
                 at: pointer, viewport: size, count: count, warning: warning) {
                 webWindowZoom = 0.65 + fraction * 0.90
@@ -1695,6 +1695,13 @@ struct VRHomeView: View {
         registerUltraWindow(panel)
     }
 
+    private func openLauncherApp(_ item: VRLauncherApp) {
+        switch item {
+        case let .web(app): openWebApp(app)
+        case .settings: openSettings()
+        }
+    }
+
     private func openWebApp(_ app: VRWebApp) {
         // Each web app uses one WKWebView per eye. Keep a small cap so five
         // streaming apps cannot exhaust an iPhone's memory in the headset.
@@ -1724,14 +1731,14 @@ struct VRHomeView: View {
     }
 
     private func appsLauncher(size: CGSize) -> some View {
-        let count = VRWebApp.allCases.count
+        let count = VRLauncherApp.all.count
         let warning = appsWarning != nil
         let rows = VRGestureGeometry.compactAppRows(
             viewport: size, warning: warning, count: count)
         let pages = VRGestureGeometry.compactAppPageCount(
             viewport: size, warning: warning, count: count)
         let page = min(max(0, appsPage), pages - 1)
-        let visibleApps = Array(VRWebApp.allCases.dropFirst(page * rows)
+        let visibleApps = Array(VRLauncherApp.all.dropFirst(page * rows)
             .prefix(rows))
         return VStack(spacing: VRGestureGeometry.appRowGap) {
             HStack {
@@ -1780,7 +1787,7 @@ struct VRHomeView: View {
             .font(.system(size: 9, weight: .semibold))
             .frame(height: VRGestureGeometry.compactAppPagerHeight)
             ForEach(visibleApps) { app in
-                Button { openWebApp(app) } label: {
+                Button { openLauncherApp(app) } label: {
                     HStack(spacing: 8) {
                         Image(systemName: app.symbol)
                             .font(.system(size: 20))
@@ -1789,7 +1796,7 @@ struct VRHomeView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(app.title)
                                 .font(.system(size: 12, weight: .bold))
-                            Text(app.description)
+                            Text(app.subtitle)
                                 .font(.system(size: 9))
                                 .lineLimit(2)
                                 .foregroundStyle(.white.opacity(0.7))
@@ -1830,11 +1837,11 @@ struct VRHomeView: View {
             let count = panels.count + 1
             panels.append(VRPanel(
                 title: "Janela \(count)", icon: "macwindow",
-                text: "GUIA RÁPIDO DO VR-OS V19\n\n"
+                text: "GUIA RÁPIDO DO VR-OS V21\n\n"
                     + "1. Pinça na linha branca: arraste a janela pelo ambiente.\n\n"
                     + "2. Segure a pinça sobre este texto e mova a mão para ROLAR a janela.\n\n"
                     + "3. Use as setas ↑/↓ para subir e descer. A−/A+ deixam o texto menor ou maior.\n\n"
-                    + "4. Apps: YouTube, Netflix, Navegador, Twitch e Wikipedia. "
+                    + "4. Apps: Ajustes, YouTube, Netflix, Navegador, Twitch e Wikipedia. "
                     + "A estrela salva favoritos, a lupa ajusta zoom e o ícone de expandir abre o Modo Foco.\n\n"
                     + "5. Cinema: poltronas selecionadas por olhar por 1,5 s. "
                     + "Use Centralizar e Mirar tela antes de testar os movimentos.\n\n"
@@ -1844,7 +1851,7 @@ struct VRHomeView: View {
                     + "se sentir desconforto, pare e ajuste o encaixe.",
                 x: CGFloat((count % 3) - 1) * 0.15,
                 y: CGFloat(count % 2 == 0 ? -0.38 : -0.28),
-                depth: 1.6))
+                depth: Double(settings.defaultDepth)))
             if let newPanel = panels.last { registerUltraWindow(newPanel) }
         case 1:
             appsOpen.toggle()
