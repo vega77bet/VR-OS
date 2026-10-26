@@ -32,12 +32,19 @@ final class VRUltraWideCamera: NSObject, ObservableObject,
     // Vision filter state is owned exclusively by visionQueue.
     private var filteredJoints: [CGPoint?] = Array(repeating: nil, count: 21)
     private var pinchDetector = VRPinchDetector()
+    // Vision-queue only; AVCapture's video thread never mutates this.
+    private var pinchSensitivity: CGFloat = 0.5
     private var missingFrames = 0
     private var configured = false
 
     override init() {
         super.init()
         request.maximumHandCount = 1
+    }
+
+    func setPinchSensitivity(_ raw: CGFloat) {
+        let next = max(0, min(1, raw))
+        visionQueue.async { [weak self] in self?.pinchSensitivity = next }
     }
 
     func start() {
@@ -249,7 +256,8 @@ final class VRUltraWideCamera: NSObject, ObservableObject,
                 palm = 0.04
             }
             let pinching = pinchDetector.update(
-                thumb: thumb, index: fingertip, palmWidth: palm)
+                thumb: thumb, index: fingertip, palmWidth: palm,
+                sensitivity: pinchSensitivity)
             let state = TrackedHand(point: fingertip, visible: true,
                                     pinching: pinching, joints: joints,
                                     estimatedDepth: nil, worldPoint: nil)
