@@ -96,6 +96,8 @@ private struct NotePinchGesture {
 }
 
 struct VRHomeView: View {
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var wasBackgrounded = false
     @StateObject private var runtime = VRRuntime()
     @StateObject private var updates = LiveUpdateManager()
     @State private var nextRemoteTemplateIndex = 0
@@ -174,7 +176,19 @@ struct VRHomeView: View {
                 browser.setPageZoom(max(1.0, zoom * 1.15))
             }
         }
+        .onChange(of: scenePhase) { phase in
+            if phase == .background {
+                wasBackgrounded = true
+                if cinemaOpen { cinema.exit() }
+                runtime.stop()
+            } else if phase == .active && wasBackgrounded {
+                wasBackgrounded = false
+                runtime.resume()
+                if cinemaOpen { cinema.enter(camera: runtime.camera) }
+            }
+        }
         .onDisappear {
+            if cinemaOpen { cinema.exit() }
             runtime.setCinemaMode(false)
             runtime.stop()
         }
