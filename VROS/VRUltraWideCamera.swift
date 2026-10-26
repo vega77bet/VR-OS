@@ -80,14 +80,18 @@ final class VRUltraWideCamera: NSObject, ObservableObject, AVCaptureVideoDataOut
         }
     }
 
-    func stop() {
+    func stop(completion: (() -> Void)? = nil) {
         queue.async { [weak self] in
-            guard let self = self else { return }
+            guard let self = self else {
+                DispatchQueue.main.async { completion?() }
+                return
+            }
             if self.capture.isRunning { self.capture.stopRunning() }
             DispatchQueue.main.async {
                 self.active = false
                 self.image = nil
                 self.status = "Câmera 0,5x desligada"
+                completion?()
             }
         }
     }
