@@ -94,7 +94,7 @@ enum VRSettingsCatalog {
             if !query.isEmpty { return searchResults(query) }
             return [
                 VRSettingsSection(title: "", rows: [
-                    VRSettingsRow(id: "open.about", title: "VR-OS",
+                    VRSettingsRow(id: "profile.about", title: "VR-OS",
                                   subtitle: "Preferências do ambiente virtual",
                                   symbol: "gearshape.fill", kind: .navigate(.about))
                 ]),
