@@ -438,10 +438,11 @@ struct VRHomeView: View {
         VStack(spacing: 3) {
             HStack(spacing: 5) {
                 Circle()
-                    .fill(runtime.spatialTracking ? Color.white : Color.gray)
+                    .fill((ultraWideMode ? ultraWide.active : runtime.spatialTracking)
+                          ? Color.white : Color.gray)
                     .frame(width: 5, height: 5)
                 Text("VR OS " + (Bundle.main.infoDictionary?["CFBundleShortVersionString"]
-                    as? String ?? "4.3"))
+                    as? String ?? "4.5"))
                     .tracking(0.5)
                     .font(.system(size: 10, weight: .semibold))
                     .lineLimit(1)
@@ -684,7 +685,28 @@ struct VRHomeView: View {
         if focusedWebPanelID == panel.id {
             return CGPoint(x: size.width / 2, y: size.height / 2)
         }
+        if ultraWideMode {
+            return ultraWindowCenter(panel, size: size, right: right)
+        }
         return windowCenter(panel, size: size, right: right)
+    }
+
+    /// Rotational head tracking only: windows retain approximate angular
+    /// bearings. This does not pretend to be spatial ARKit world tracking.
+    private func ultraWindowCenter(_ panel: VRPanel, size: CGSize,
+                                   right: Bool) -> CGPoint? {
+        let defaultPosition = CGPoint(
+            x: size.width / 2 + panel.x * size.width / 2,
+            y: size.height / 2 + panel.y * size.height / 2)
+        let direction = ultraPanelDirections[panel.id] ??
+            VRUltraWideWindowProjection.screenRay(
+                at: defaultPosition, viewport: size)
+        guard let center = VRUltraWideWindowProjection.project(
+            direction, headRotation: ultraWide.motionDelta, viewport: size)
+        else { return nil }
+        let parallax = min(CGFloat(10), CGFloat(7 / max(panel.depth, 0.65)))
+        return CGPoint(x: center.x + (right ? -parallax : parallax),
+                       y: center.y)
     }
 
     /// The web windows are larger than note cards so sites can be used.
@@ -772,6 +794,11 @@ struct VRHomeView: View {
     private func panelWidth(_ size: CGSize) -> CGFloat { min(350, size.width * 0.75) }
     private func panelHeight(_ size: CGSize) -> CGFloat { min(180, size.height * 0.39) }
     private func windowScale(_ panel: VRPanel) -> CGFloat {
+        if ultraWideMode {
+            // No depth measurement in 3DoF; keep virtual depth manually.
+            let scale = min(2.5, max(0.3, CGFloat(1.5 / panel.depth)))
+            return panel.kind == .web ? scale * webWindowZoom : scale
+        }
         // Perspective must use the actual distance from the AR camera to
         // the window's world anchor, not a cosmetic scale tied to slider Z.
         guard let anchor = panel.anchor, let camera = runtime.camera else {
@@ -803,16 +830,20 @@ struct VRHomeView: View {
         }
     }
 
-    /// Image(decorative:) is .scaledToFill for each eye; use the SAME crop for joints.
+    /// Map Vision's normalized joint coordinates through the exact video
+    /// scaling used in this eye, including the optional full-frame 0.5x fit.
     private func mappedPoint(_ raw: CGPoint, size: CGSize) -> CGPoint {
-        guard let image = runtime.cameraImage else {
+        let image = ultraWideMode ? ultraWide.image : runtime.cameraImage
+        guard let image = image else {
             return CGPoint(x: raw.x * size.width, y: raw.y * size.height)
         }
         let iw = CGFloat(image.width)
         let ih = CGFloat(image.height)
-        let scale = max(size.width / iw, size.height / ih)
-        return CGPoint(x: raw.x * iw * scale - (iw * scale - size.width) / 2,
-                       y: raw.y * ih * scale - (ih * scale - size.height) / 2)
+        let scale = ultraWideMode && ultraFullFrame
+            ? min(size.width / iw, size.height / ih)
+            : max(size.width / iw, size.height / ih)
+        return CGPoint(x: raw.x * iw * scale + (size.width - iw * scale) / 2,
+                       y: raw.y * ih * scale + (size.height - ih * scale) / 2)
     }
 
     private func processGesture(_ hand: TrackedHand, size: CGSize) {
