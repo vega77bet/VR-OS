@@ -1117,6 +1117,83 @@ struct VRHomeView: View {
         return mappedPoint(raw, size: size)
     }
 
+    /// A held pinch scrolls the PRIMARY UITableView, while the other eye
+    /// renders exactly the same offset. Short pinches dispatch the same row
+    /// actions as UIKit touches. Dragging a slider never scrolls the page.
+    private func processSettingsGesture(_ hand: TrackedHand, size: CGSize) {
+        guard hand.visible else {
+            finishSettingsPinch(size: size)
+            lastPinch = false
+            return
+        }
+        let pointer = interactionPoint(hand.point, size: size)
+        if hand.pinching {
+            if settingsGesture == nil {
+                let top = settings.page == .home
+                    ? VRSettingsScreen.toolbarHeight +
+                      VRSettingsScreen.searchHeight
+                    : VRSettingsScreen.toolbarHeight
+                let row = settings.row(at: pointer, topInset: top)
+                let sliderID: String?
+                if let row = row, row.kind == .slider {
+                    sliderID = row.id
+                } else {
+                    sliderID = nil
+                }
+                settingsGesture = VRSettingsPinch(
+                    start: pointer, startingScroll: settings.scrollOffset,
+                    sliderID: sliderID)
+                if let id = sliderID {
+                    settings.setNormalized(id, fraction: settings.sliderFraction(
+                        x: pointer.x, width: size.width))
+                }
+            } else if var gesture = settingsGesture {
+                let deltaY = pointer.y - gesture.start.y
+                let travelled = hypot(pointer.x - gesture.start.x, deltaY)
+                if let id = gesture.sliderID {
+                    if travelled > 5 { gesture.moved = true }
+                    settings.setNormalized(id, fraction: settings.sliderFraction(
+                        x: pointer.x, width: size.width))
+                } else if travelled > 11 {
+                    gesture.moved = true
+                    let desired = gesture.startingScroll - deltaY
+                    settings.scrollBy(desired - settings.scrollOffset)
+                }
+                settingsGesture = gesture
+            }
+        } else {
+            finishSettingsPinch(size: size)
+        }
+        lastPinch = hand.pinching
+    }
+
+    private func finishSettingsPinch(size: CGSize) {
+        guard let gesture = settingsGesture else { return }
+        settingsGesture = nil
+        guard !gesture.moved, gesture.sliderID == nil else { return }
+        let pointer = gesture.start
+        if pointer.y < VRSettingsScreen.toolbarHeight {
+            if pointer.x > size.width - 49 {
+                closeSettings()
+            } else if pointer.x < size.width * 0.38 {
+                settings.back()
+            }
+            return
+        }
+        if settings.page == .home &&
+           pointer.y < VRSettingsScreen.toolbarHeight +
+                       VRSettingsScreen.searchHeight {
+            settings.focusSearchRequest += 1
+            return
+        }
+        let top = settings.page == .home
+            ? VRSettingsScreen.toolbarHeight +
+              VRSettingsScreen.searchHeight
+            : VRSettingsScreen.toolbarHeight
+        _ = settings.handlePinchTap(at: pointer, viewport: size,
+                                    topInset: top)
+    }
+
     private func processGesture(_ hand: TrackedHand, size: CGSize) {
         if settingsOpen {
             processSettingsGesture(hand, size: size)
