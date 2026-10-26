@@ -147,7 +147,8 @@ final class CinemaModel: ObservableObject {
 
         buildRoom()
         let savedSeat = preferences.integer(forKey: "vros.cinema.seat.v1")
-        if let seat = seats.first(where: { $0.id == savedSeat }) {
+        if preferences.object(forKey: "vros.cinema.seat.v1") != nil,
+           let seat = seats.first(where: { $0.id == savedSeat }) {
             currentSeatID = seat.id
             currentSeatLabel = seat.label
             refreshSeatMarkerColors()
