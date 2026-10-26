@@ -679,12 +679,13 @@ struct VRHomeView: View {
             // hardcoded 3-row map opened the WRONG app after V13.
             let width = min(size.width * 0.89, 330)
             let menuLeft = (size.width - width) / 2
+            let warningHeight: CGFloat = appsWarning == nil ? 0 : 32
             let menuHeight = 20 + 17 + 22 +
                 CGFloat(VRWebApp.allCases.count) * 49 +
-                CGFloat(VRWebApp.allCases.count + 1) * 7
+                CGFloat(VRWebApp.allCases.count + 1) * 7 + warningHeight
             let menuTop = (size.height - menuHeight) / 2
             let zoomTop = menuTop + 10 + 17 + 7
-            let firstRowTop = zoomTop + 22 + 7
+            let firstRowTop = zoomTop + 22 + 7 + warningHeight
             let localX = pointer.x - menuLeft
             if localX >= 0 && localX <= width {
                 let localRowY = pointer.y - firstRowTop
