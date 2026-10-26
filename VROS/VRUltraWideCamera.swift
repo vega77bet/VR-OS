@@ -29,6 +29,9 @@ final class VRUltraWideCamera: NSObject, ObservableObject,
     // frameIndex and visionBusy are owned exclusively by outputQueue.
     private var frameIndex = 0
     private var visionBusy = false
+    // outputQueue only: native Settings hides camera preview but keeps
+    // Vision gesture detection and 3DoF running at full responsiveness.
+    private var displayEnabled = true
     // Vision filter state is owned exclusively by visionQueue.
     private var filteredJoints: [CGPoint?] = Array(repeating: nil, count: 21)
     private var pinchDetector = VRPinchDetector()
@@ -40,6 +43,13 @@ final class VRUltraWideCamera: NSObject, ObservableObject,
     override init() {
         super.init()
         request.maximumHandCount = 1
+    }
+
+    func setDisplayEnabled(_ enabled: Bool) {
+        outputQueue.async { [weak self] in self?.displayEnabled = enabled }
+        if !enabled {
+            DispatchQueue.main.async { [weak self] in self?.image = nil }
+        }
     }
 
     func setPinchSensitivity(_ raw: CGFloat) {
@@ -196,7 +206,7 @@ final class VRUltraWideCamera: NSObject, ObservableObject,
                        from connection: AVCaptureConnection) {
         frameIndex += 1
         guard let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-        if frameIndex % 2 == 0 {
+        if frameIndex % 2 == 0 && displayEnabled {
             let image = CIImage(cvPixelBuffer: buffer)
             if let cgImage = context.createCGImage(image, from: image.extent) {
                 DispatchQueue.main.async { [weak self] in
