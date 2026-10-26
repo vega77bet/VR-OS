@@ -72,6 +72,10 @@ final class VRWebSession: ObservableObject {
     @Published var loading = false
     @Published var message: String?
     @Published private(set) var pageZoom: CGFloat = 1.15
+    @Published private(set) var favorites: [URL] = []
+
+    private let favoritesKey = "vros.web.favorites.v1"
+    var currentIsFavorite: Bool { favorites.contains(requestedURL) }
 
     weak var primary: WKWebView?
     weak var secondary: WKWebView?
@@ -80,6 +84,10 @@ final class VRWebSession: ObservableObject {
         self.app = app
         requestedURL = app.startURL
         address = app.startURL.absoluteString
+        favorites = (UserDefaults.standard.stringArray(forKey: favoritesKey) ?? [])
+            .compactMap(URL.init(string:))
+            .filter { $0.scheme == "https" }
+            .suffix(4)
         message = app == .netflix
             ? "Filmes protegidos podem não tocar aqui. Use Safari se necessário."
             : nil
@@ -151,6 +159,29 @@ final class VRWebSession: ObservableObject {
            abs(scroll.contentOffset.x - x) > 0.5 {
             scroll.setContentOffset(CGPoint(x: x, y: y), animated: false)
         }
+    }
+
+    func toggleFavorite() {
+        let url = primary?.url ?? requestedURL
+        guard url.scheme == "https" else { return }
+        if favorites.contains(url) {
+            favorites.removeAll { $0 == url }
+            message = "Favorito removido."
+        } else {
+            if favorites.count >= 4 { favorites.removeFirst() }
+            favorites.append(url)
+            message = "Página salva nos favoritos."
+        }
+        UserDefaults.standard.set(favorites.map(\.absoluteString),
+                                  forKey: favoritesKey)
+    }
+
+    func openFavorite(_ index: Int) {
+        guard favorites.indices.contains(index) else { return }
+        let url = favorites[index]
+        address = url.absoluteString
+        message = nil
+        requestedURL = url
     }
 
     func setPageZoom(_ zoom: CGFloat) {
@@ -368,7 +399,11 @@ struct VRWebWindow: View {
                     .frame(height: 30)
                     .background(Color.white.opacity(0.11),
                                 in: RoundedRectangle(cornerRadius: 7))
+                navButton(session.currentIsFavorite ? "star.fill" : "star",
+                          disabled: false) { session.toggleFavorite() }
+                    .frame(width: 29)
                 navButton("arrow.right", disabled: false) { session.navigate() }
+                    .frame(width: 29)
             }
             HStack(spacing: 4) {
                 navButton("chevron.left", disabled: !session.canGoBack) {
@@ -400,6 +435,30 @@ struct VRWebWindow: View {
                 navButton("arrow.down", disabled: false) { session.scrollByPage(1) }
             }
             .frame(height: 25)
+            if !session.favorites.isEmpty {
+                HStack(spacing: 4) {
+                    Image(systemName: "star.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.yellow)
+                    ForEach(Array(session.favorites.enumerated()), id: \.offset) { index, url in
+                        Button {
+                            session.openFavorite(index)
+                        } label: {
+                            Text(url.host?.replacingOccurrences(of: "www.", with: "")
+                                 ?? "Favorito")
+                                .font(.system(size: 9))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.7)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 23)
+                                .background(.white.opacity(0.12),
+                                            in: RoundedRectangle(cornerRadius: 5))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .frame(height: 24)
+            }
 
             VRWebSurface(session: session, rightEye: rightEye)
                 .background(Color.black)
