@@ -224,12 +224,13 @@ for screen in [CGSize(width: 852, height: 393),
 
                 let viewport = placement.aperture
                 let menu = VRLensMenuGeometry.rect(in: viewport)
-                let minus = CGPoint(x: menu.maxX - 77,
+                let menuScale = menu.height / VRLensMenuGeometry.height
+                let minus = CGPoint(x: menu.maxX - 77 * menuScale,
                                     y: menu.minY +
-                                    VRLensMenuGeometry.controlY + 12)
-                let plus = CGPoint(x: menu.maxX - 20,
+                                    (VRLensMenuGeometry.controlY + 12) * menuScale)
+                let plus = CGPoint(x: menu.maxX - 20 * menuScale,
                                    y: menu.minY +
-                                   VRLensMenuGeometry.controlY + 12)
+                                   (VRLensMenuGeometry.controlY + 12) * menuScale)
                 verify(VRLensMenuGeometry.action(
                     at: minus, viewport: viewport) ==
                     .adjust(row: 0, direction: -1),
@@ -238,8 +239,8 @@ for screen in [CGSize(width: 852, height: 393),
                     at: plus, viewport: viewport) ==
                     .adjust(row: 0, direction: 1),
                     "The first lens settings plus button must match pinch")
-                let close = CGPoint(x: menu.maxX - 20,
-                                    y: menu.minY + 20)
+                let close = CGPoint(x: menu.maxX - 20 * menuScale,
+                                    y: menu.minY + 20 * menuScale)
                 verify(VRLensMenuGeometry.action(
                     at: close, viewport: viewport) == .close,
                     "The lens calibration X must match pinch")
