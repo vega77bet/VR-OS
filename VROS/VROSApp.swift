@@ -612,7 +612,7 @@ struct VRHomeView: View {
     }
 
     private func lensCalibrationPanel(size: CGSize) -> some View {
-        VRLensCalibrationView(lens: $settings.lens, isOpen: $settings.lensMenuOpen,
+        VRLensCalibrationView(lens: $settings.lens, isOpen: $lensMenuOpen,
                               viewport: size)
     }
 
