@@ -427,7 +427,9 @@ struct VRHomeView: View {
                 }
             case .restoreAll:
                 centreAllWindows()
-                cinema.resetScreenAim()
+                cinema.resetPlacement()
+                UserDefaults.standard.removeObject(forKey: "vros.note.fontSize.v1")
+                for note in noteSessions.values { note.resetFontSize() }
                 UserDefaults.standard.set(false,
                                           forKey: "vros.ultra.invertMotion.v1")
             }

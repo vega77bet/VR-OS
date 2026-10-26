@@ -98,6 +98,9 @@ final class SettingsRegressionTests: XCTestCase {
         try await Task.sleep(nanoseconds: 500_000_000)
         XCTAssertFalse(cinema.playing)
         XCTAssertTrue(cinema.controlsVisible)
+        let photoToken = cinema.beginPhotoImport()
+        cinema.exit()
+        XCTAssertFalse(cinema.acceptsPhotoImport(photoToken))
     }
     @MainActor
     func testEveryControlPersistsAcrossNewSession() throws {

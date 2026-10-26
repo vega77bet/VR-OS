@@ -2,8 +2,8 @@ import SwiftUI
 import UIKit
 
 /// The same settings screen is rendered in both VR lenses. All rows, toggles,
-/// search and scroll offset use one session. Only LEFT UIKit table receives
-/// direct touches so stereo surfaces cannot fight over scroll/navigation.
+/// search and scroll offset use one session. The last physically dragged eye
+/// owns scrolling and directly mirrors its offset to the peer.
 struct VRSettingsScreen: View {
     @ObservedObject var session: VRSettingsSession
     let rightEye: Bool
@@ -307,7 +307,7 @@ struct VRSettingsTable: UIViewRepresentable {
 
 /// Reusable UIKit cell, styled after grouped iOS Settings in charcoal gray.
 /// Row selection handles navigation, toggles, choices and confirmation.
-/// UISlider / +/- buttons are genuine interactive controls (primary eye).
+/// UISlider / +/- buttons are genuine interactive controls in either eye.
 final class VRSettingsTableCell: UITableViewCell {
     let slider = UISlider()
     private let iconBackground = UIView()
@@ -512,3 +512,4 @@ final class VRSettingsTableCell: UITableViewCell {
         session?.perform(row, direction: 1)
     }
 }
+

@@ -7,8 +7,8 @@ struct VRSettingsCommand: Identifiable {
     let kind: Kind
 }
 
-/// One shared, observable model for BOTH eyes. The primary UIKit table owns
-/// touch scrolling; its scroll offset drives the right-eye mirror. Hand
+/// One shared, observable model for BOTH eyes. The last touched UIKit table
+/// owns scrolling; its scroll offset drives the peer. Hand
 /// gestures query the same UITableView rows instead of guessing row geometry.
 @MainActor
 final class VRSettingsSession: ObservableObject {
@@ -393,6 +393,11 @@ final class VRSettingsSession: ObservableObject {
     /// touchscreen touches; scrolling is always driven by the primary eye.
     func row(at viewportPoint: CGPoint, topInset: CGFloat) -> VRSettingsRow? {
         guard let table = primaryTable else { return nil }
+        // Navigation/search publishes before SwiftUI has reloaded UIKit.
+        // Ignore a Vision frame against the previous page's row geometry.
+        if let source = table.dataSource as? VRSettingsTable.Coordinator {
+            guard source.page == page, source.search == searchText else { return nil }
+        }
         let localY = viewportPoint.y - topInset
         guard localY >= 0, localY < table.bounds.height else { return nil }
         let localX = viewportPoint.x

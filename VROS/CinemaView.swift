@@ -363,6 +363,25 @@ final class CinemaModel: ObservableObject {
         recenterHead()
     }
 
+    func resetPlacement() {
+        convergence = 0
+        updateStereoMaterials()
+        _ = selectSeat(30)
+        resetScreenAim()
+    }
+
+    // Covers the asynchronous Photos/iCloud download BEFORE file import starts.
+    func beginPhotoImport() -> UUID {
+        controlsTask?.cancel()
+        controlsVisible = true
+        movieImportID = UUID()
+        return movieImportID
+    }
+
+    func acceptsPhotoImport(_ token: UUID) -> Bool {
+        movieImportID == token
+    }
+
     func toggleTrackingDirection() {
         invertTracking.toggle()
         UserDefaults.standard.set(invertTracking, forKey: "vros.cinema.invert.v1")
@@ -383,6 +402,7 @@ final class CinemaModel: ObservableObject {
         }
         let importID = UUID()
         movieImportID = importID
+        controlsTask?.cancel()
         controlsVisible = true
         errorMessage = "Importando vídeo…"
         Task { @MainActor [weak self] in
@@ -724,6 +744,12 @@ final class CinemaModel: ObservableObject {
 
     func togglePlayback() {
         guard let player = player else { showPicker = true; return }
+        guard player.currentItem?.status != .failed else {
+            errorMessage = player.currentItem?.error?.localizedDescription ??
+                "Este vídeo não pode ser reproduzido."
+            revealControls()
+            return
+        }
         if playing {
             player.pause()
             playing = false
@@ -1340,16 +1366,23 @@ struct CinemaEyeView: View {
             }
             .onChange(of: pickedMovie) { nextItem in
                 guard !rightEye, let nextItem = nextItem else { return }
+                let token = cinema.beginPhotoImport()
                 Task {
                     do {
                         guard let movie = try await nextItem.loadTransferable(
                             type: CinemaPhotoMovie.self) else {
+                            guard cinema.acceptsPhotoImport(token) else { return }
                             cinema.errorMessage = "Não foi possível importar esse vídeo da Fototeca."
                             cinema.revealControls()
                             return
                         }
+                        guard cinema.acceptsPhotoImport(token) else {
+                            try? FileManager.default.removeItem(at: movie.url)
+                            return
+                        }
                         cinema.loadMovie(movie.url, deleteSourceAfterImport: true)
                     } catch {
+                        guard cinema.acceptsPhotoImport(token) else { return }
                         cinema.errorMessage = "Erro na Fototeca: " + error.localizedDescription
                         cinema.revealControls()
                     }

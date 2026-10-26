@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main, vr-os-20-lens-viewports-reference]
 
+concurrency:
+  group: vros-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: macos-15
