@@ -1,9 +1,45 @@
 name: VROS
+schemes:
+  VROSRegression:
+    build:
+      targets:
+        VROSRegressionTests: all
+    test:
+      targets:
+        - VROSRegressionTests
 options:
   bundleIdPrefix: com.vega77bet
   deploymentTarget:
     iOS: "16.0"
 targets:
+  VROSRegressionHost:
+    type: application
+    platform: iOS
+    sources:
+      - RegressionHost
+    settings:
+      base:
+        SWIFT_VERSION: "5.0"
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGNING_ALLOWED: NO
+        TARGETED_DEVICE_FAMILY: "1"
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+  VROSRegressionTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: VROS
+        excludes: [VROSApp.swift]
+      - RegressionTests
+    dependencies:
+      - target: VROSRegressionHost
+    settings:
+      base:
+        SWIFT_VERSION: "5.0"
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGNING_ALLOWED: NO
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/VROSRegressionHost.app/VROSRegressionHost"
+        BUNDLE_LOADER: "$(TEST_HOST)"
   VROS:
     type: application
     platform: iOS
@@ -14,8 +50,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.vega77bet.vros2
         SWIFT_VERSION: "5.0"
-        MARKETING_VERSION: "4.6.0"
-        CURRENT_PROJECT_VERSION: "20"
+        MARKETING_VERSION: "4.7.0"
+        CURRENT_PROJECT_VERSION: "21"
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_NSCameraUsageDescription: "O VR OS usa a câmera traseira para mostrar o ambiente e rastrear as mãos e mapear o ambiente com ARKit."
@@ -25,3 +61,4 @@ targets:
         INFOPLIST_KEY_UIRequiresFullScreen: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         CODE_SIGNING_ALLOWED: NO
+

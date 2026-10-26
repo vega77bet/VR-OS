@@ -311,3 +311,149 @@ for screen in [CGSize(width: 243, height: 236),
     }
 }
 print("PASS: small-aperture 7-app pagination, pinch controls, warnings")
+
+
+// V21: real native Settings catalog navigation, search and stable actions.
+let homeSections = VRSettingsCatalog.sections(for: .home)
+let homeRows = homeSections.flatMap(\.rows)
+verify(VRSettingsCatalog.categories.count == 9,
+       "Settings should expose nine useful configuration categories")
+verify(homeRows.filter {
+    if case .navigate = $0.kind { return true }
+    return false
+}.count == 10, "Main settings must include a top account-style card and all categories")
+for page in VRSettingsPage.allCases {
+    let groups = VRSettingsCatalog.sections(for: page)
+    let rows = groups.flatMap(\.rows)
+    verify(!rows.isEmpty, "Settings page \(page.rawValue) must never be empty")
+    let allIDs = rows.map(\.id)
+    verify(Set(allIDs).count == allIDs.count,
+           "Settings page \(page.rawValue) must not duplicate row identities")
+    for row in rows {
+        verify(!row.title.isEmpty, "Every Settings row needs a visible title")
+        switch row.kind {
+        case let .navigate(destination):
+            verify(destination != .home, "Categories should enter a subpage")
+            verify(!VRSettingsCatalog.sections(for: destination).isEmpty,
+                   "Every navigation destination must have content")
+        case .toggle, .stepper, .slider, .choice, .action, .information:
+            verify(page != .home || row.kind == .information,
+                   "Home is navigation-first rather than a flat settings form")
+        }
+    }
+}
+let searchOne = VRSettingsCatalog.sections(for: .home, search: "camera")
+    .flatMap(\.rows)
+verify(searchOne.contains(where: { $0.id == "open.camera" }),
+       "Settings search must match labels without diacritics")
+let searchTwo = VRSettingsCatalog.sections(for: .home, search: "PINCA")
+    .flatMap(\.rows)
+verify(searchTwo.contains(where: { $0.id == "open.hands" }),
+       "Settings search must match child descriptions, case and accents")
+let searchThree = VRSettingsCatalog.sections(for: .home, search: "IPD")
+    .flatMap(\.rows)
+verify(searchThree.contains(where: { $0.id == "open.visor" }),
+       "Settings search must surface nested lens preferences")
+let searchEmpty = VRSettingsCatalog.sections(for: .home,
+                                               search: "xx_no_result_999")
+    .flatMap(\.rows)
+verify(searchEmpty.count == 1 && searchEmpty[0].id == "search.empty",
+       "Unknown search must show clear empty results, never stale rows")
+let lensSettings = VRSettingsCatalog.sections(for: .visor).flatMap(\.rows)
+verify(lensSettings.filter {
+    if case .stepper = $0.kind { return true }
+    return false
+}.count == 5, "Visor must expose five real numerical controls")
+let cinemaSettings = VRSettingsCatalog.sections(for: .cinema)
+    .flatMap(\.rows)
+verify(cinemaSettings.contains(where: { $0.id == "cinema.fov" &&
+    $0.kind == .slider }), "Cinema FOV must have a real slider row")
+verify(VRSettingsCatalog.sections(for: .internet)
+    .flatMap(\.rows).contains(where: { $0.id == "web.clear" &&
+        $0.kind == .action }), "Favorites cleanup should be explicit")
+print("PASS: Apple-inspired native Settings navigation, nested searchable")
+print("      categories, stable row IDs, toggles, sliders and actions")
+
+
+for size in [CGSize(width: 243, height: 236),
+             CGSize(width: 308, height: 345),
+             CGSize(width: 426, height: 393)] {
+    for page in VRSettingsPage.allCases {
+        let leftHeader = CGPoint(x: 15, y: 20)
+        let rightHeader = CGPoint(x: size.width - 12, y: 20)
+        verify(VRSettingsInputGeometry.classify(
+            rightHeader, viewport: size, page: page) == .close,
+            "Settings close X must stay pinch-reachable in every eye size")
+        verify(VRSettingsInputGeometry.classify(
+            leftHeader, viewport: size, page: page) ==
+               (page == .home ? .none : .back),
+            "Settings back must only exist on category pages")
+        let belowHeader = CGPoint(
+            x: size.width / 2,
+            y: VRSettingsInputGeometry.toolbarHeight + 12)
+        verify(VRSettingsInputGeometry.classify(
+            belowHeader, viewport: size, page: page) ==
+               (page == .home ? .search : .table),
+            "Search should only intercept the main Settings screen")
+        let rowPoint = CGPoint(
+            x: size.width / 2,
+            y: VRSettingsInputGeometry.tableTop(page: page) + 30)
+        verify(VRSettingsInputGeometry.classify(
+            rowPoint, viewport: size, page: page) == .table,
+            "A valid table row must not be mistaken for the toolbar")
+    }
+    verify(VRSettingsInputGeometry.classify(
+        CGPoint(x: -1, y: 30), viewport: size,
+        page: .home) == .none,
+        "A finger outside the visor must never activate controls")
+}
+let pinchOrigin = CGPoint(x: 100, y: 130)
+verify(!VRSettingsInputGeometry.isScroll(
+    from: pinchOrigin, to: CGPoint(x: 105, y: 134)),
+    "A jittery short pinch should be treated as a click")
+verify(VRSettingsInputGeometry.isScroll(
+    from: pinchOrigin, to: CGPoint(x: 100, y: 146)),
+    "A real 16px hand drag should scroll the Settings list")
+print("PASS: Settings Vision/physical search, back/close, table and scroll")
+print("      hit targets across small/medium/wide headset viewports")
+
+
+// V21 regression: Settings actually adjusts the Vision detector's activation
+// thresholds without losing two-frame debouncing or latching hysteresis.
+let middleThumb = CGPoint(x: 0.5, y: 0.5)
+let borderlineIndex = CGPoint(x: 0.595, y: 0.5) // ratio 0.475 for palm=0.20
+var lowSensitivity = VRPinchDetector()
+var highSensitivity = VRPinchDetector()
+for _ in 0..<4 {
+    verify(!lowSensitivity.update(thumb: middleThumb,
+                                  index: borderlineIndex,
+                                  palmWidth: 0.2, sensitivity: 0),
+           "Very low sensitivity must reject borderline finger separation")
+}
+verify(!highSensitivity.update(thumb: middleThumb,
+                                index: borderlineIndex,
+                                palmWidth: 0.2, sensitivity: 1),
+       "Very high sensitivity still requires two consecutive pinch frames")
+verify(highSensitivity.update(thumb: middleThumb,
+                              index: borderlineIndex,
+                              palmWidth: 0.2, sensitivity: 1),
+       "High sensitivity must recognize a wider finger gap after debounce")
+let hysteresisIndex = CGPoint(x: 0.635, y: 0.5) // ratio 0.675
+verify(highSensitivity.update(thumb: middleThumb,
+                              index: hysteresisIndex,
+                              palmWidth: 0.2, sensitivity: 1),
+       "High sensitivity pinch should stay latched in release hysteresis band")
+let releaseIndex = CGPoint(x: 0.67, y: 0.5) // ratio 0.85
+verify(highSensitivity.update(thumb: middleThumb,
+                              index: releaseIndex,
+                              palmWidth: 0.2, sensitivity: 1),
+       "First open-hand frame must not unpinch")
+verify(!highSensitivity.update(thumb: middleThumb,
+                               index: releaseIndex,
+                               palmWidth: 0.2, sensitivity: 1),
+       "Two open-hand frames must release even at high sensitivity")
+highSensitivity.reset()
+verify(!highSensitivity.pinching,
+       "Settings Vision detector reset must clear held hand gesture")
+print("PASS: Settings pinch sensitivity extreme thresholds, debounce and")
+print("      hysteresis without accidental click or stuck pinch")

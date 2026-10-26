@@ -26,6 +26,11 @@ final class VRNoteSession: ObservableObject {
                                   forKey: "vros.note.fontSize.v1")
     }
 
+    func resetFontSize() {
+        fontSize = 13
+        UserDefaults.standard.set(13, forKey: "vros.note.fontSize.v1")
+    }
+
     func scrollBy(_ delta: CGFloat) {
         scroll(to: offsetY + delta)
     }
@@ -123,3 +128,4 @@ struct VRNoteScrollSurface: UIViewRepresentable {
         }
     }
 }
+

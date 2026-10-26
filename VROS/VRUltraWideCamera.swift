@@ -12,6 +12,7 @@ import simd
 final class VRUltraWideCamera: NSObject, ObservableObject,
                                AVCaptureVideoDataOutputSampleBufferDelegate {
     @Published private(set) var image: CGImage?
+    @Published private(set) var imageResolution = CGSize.zero
     @Published private(set) var status = "Preparando câmera 0,5x…"
     @Published private(set) var active = false
     @Published private(set) var hand = TrackedHand()
@@ -29,26 +30,58 @@ final class VRUltraWideCamera: NSObject, ObservableObject,
     // frameIndex and visionBusy are owned exclusively by outputQueue.
     private var frameIndex = 0
     private var visionBusy = false
+    // outputQueue only: native Settings hides camera preview but keeps
+    // Vision gesture detection and 3DoF running at full responsiveness.
+    private var displayEnabled = true
     // Vision filter state is owned exclusively by visionQueue.
     private var filteredJoints: [CGPoint?] = Array(repeating: nil, count: 21)
     private var pinchDetector = VRPinchDetector()
+    // Vision-queue only; AVCapture's video thread never mutates this.
+    private var pinchSensitivity: CGFloat = 0.5
     private var missingFrames = 0
     private var configured = false
+    private var lastResolution = CGSize.zero
+
+    private func imageResolutionNeedsUpdate(_ buffer: CVPixelBuffer) -> Bool {
+        let size = CGSize(width: CVPixelBufferGetWidth(buffer), height: CVPixelBufferGetHeight(buffer))
+        guard size != lastResolution else { return false }
+        lastResolution = size
+        return true
+    }
 
     override init() {
         super.init()
         request.maximumHandCount = 1
     }
 
-    func start() {
+    func setDisplayEnabled(_ enabled: Bool) {
+        outputQueue.async { [weak self] in self?.displayEnabled = enabled }
+        if !enabled {
+            DispatchQueue.main.async { [weak self] in self?.image = nil }
+        }
+    }
+
+    func setPinchSensitivity(_ raw: CGFloat) {
+        let next = max(0, min(1, raw))
+        visionQueue.async { [weak self] in self?.pinchSensitivity = next }
+    }
+
+    func start(completion: ((Bool) -> Void)? = nil) {
         guard AVCaptureDevice.authorizationStatus(for: .video) == .authorized else {
             status = "Permita o acesso à câmera nos Ajustes"
+            completion?(false)
             return
         }
         status = "Ligando lente 0,5x e sensores…"
         queue.async { [weak self] in
-            guard let self = self else { return }
-            if !self.configured && !self.configure() { return }
+            guard let self = self else {
+                DispatchQueue.main.async { completion?(false) }
+                return
+            }
+            if !self.configured && !self.configure() {
+                DispatchQueue.main.async { completion?(false) }
+                return
+            }
             if !self.capture.isRunning { self.capture.startRunning() }
             let running = self.capture.isRunning
             DispatchQueue.main.async {
@@ -57,6 +90,7 @@ final class VRUltraWideCamera: NSObject, ObservableObject,
                     ? "0,5x real · mãos (Vision) + cabeça (3DoF)"
                     : "Não foi possível iniciar a câmera ultrawide"
                 if running { self.startHeadMotion() }
+                completion?(running)
             }
         }
     }
@@ -87,6 +121,7 @@ final class VRUltraWideCamera: NSObject, ObservableObject,
             output.alwaysDiscardsLateVideoFrames = true
             output.setSampleBufferDelegate(self, queue: outputQueue)
             guard capture.canAddOutput(output) else {
+                capture.removeInput(input)
                 capture.commitConfiguration()
                 DispatchQueue.main.async { self.status = "Falha ao receber vídeo 0,5x" }
                 return false
@@ -189,7 +224,14 @@ final class VRUltraWideCamera: NSObject, ObservableObject,
                        from connection: AVCaptureConnection) {
         frameIndex += 1
         guard let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-        if frameIndex % 2 == 0 {
+        if imageResolutionNeedsUpdate(buffer) {
+            let resolution = CGSize(width: CVPixelBufferGetWidth(buffer),
+                                    height: CVPixelBufferGetHeight(buffer))
+            DispatchQueue.main.async { [weak self] in
+                self?.imageResolution = resolution
+            }
+        }
+        if frameIndex % 2 == 0 && displayEnabled {
             let image = CIImage(cvPixelBuffer: buffer)
             if let cgImage = context.createCGImage(image, from: image.extent) {
                 DispatchQueue.main.async { [weak self] in
@@ -249,7 +291,8 @@ final class VRUltraWideCamera: NSObject, ObservableObject,
                 palm = 0.04
             }
             let pinching = pinchDetector.update(
-                thumb: thumb, index: fingertip, palmWidth: palm)
+                thumb: thumb, index: fingertip, palmWidth: palm,
+                sensitivity: pinchSensitivity)
             let state = TrackedHand(point: fingertip, visible: true,
                                     pinching: pinching, joints: joints,
                                     estimatedDepth: nil, worldPoint: nil)
@@ -273,3 +316,4 @@ final class VRUltraWideCamera: NSObject, ObservableObject,
         }
     }
 }
+

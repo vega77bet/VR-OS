@@ -79,6 +79,7 @@ final class CinemaModel: ObservableObject {
     private let screenHeight: CGFloat = 13.4
     private var player: AVPlayer?
     private var endPlaybackObserver: NSObjectProtocol?
+    private var playbackStatusObservation: NSKeyValueObservation?
     private var importedMovieURL: URL?
     private var movieImportID = UUID()
     private var initialOrientation: simd_quatf?
@@ -88,7 +89,13 @@ final class CinemaModel: ObservableObject {
     @Published private(set) var headTrackingStatus = "Iniciando sensores…"
     // Hide the overlay five seconds after movie playback starts so it never
     // obstructs the screen; tapping the scene or Menu restores controls.
-    @Published var showControlsAutomatically = true
+    @Published var showControlsAutomatically = true {
+        didSet {
+            UserDefaults.standard.set(showControlsAutomatically,
+                                      forKey: "vros.cinema.autoControls.v1")
+            revealControls()
+        }
+    }
     @Published private(set) var screenPitchDegrees: Float = 0
     @Published private(set) var screenYawDegrees: Float = 0
     @Published var invertTracking = false
@@ -111,9 +118,18 @@ final class CinemaModel: ObservableObject {
     @Published var movieTitle = "Escolha um filme MP4"
     @Published var playing = false
     @Published var selectedMode: CinemaVideoMode = .twoD
-    @Published var immersiveScreen = true
+    @Published var immersiveScreen = true {
+        didSet {
+            UserDefaults.standard.set(immersiveScreen,
+                                      forKey: "vros.cinema.immersive.v1")
+        }
+    }
     @Published var cinemaFovDegrees: CGFloat = 88
-    @Published var swapEyes = false
+    @Published var swapEyes = false {
+        didSet {
+            UserDefaults.standard.set(swapEyes, forKey: "vros.cinema.swapEyes.v1")
+        }
+    }
     @Published var convergence: CGFloat = 0
     @Published var controlsVisible = true
     @Published var errorMessage: String?
@@ -134,6 +150,16 @@ final class CinemaModel: ObservableObject {
         try? fileManager.removeItem(at: cacheFolder)
 
         let preferences = UserDefaults.standard
+        if preferences.object(forKey: "vros.cinema.autoControls.v1") != nil {
+            showControlsAutomatically =
+                preferences.bool(forKey: "vros.cinema.autoControls.v1")
+        }
+        if preferences.object(forKey: "vros.cinema.immersive.v1") != nil {
+            immersiveScreen = preferences.bool(forKey: "vros.cinema.immersive.v1")
+        }
+        if preferences.object(forKey: "vros.cinema.swapEyes.v1") != nil {
+            swapEyes = preferences.bool(forKey: "vros.cinema.swapEyes.v1")
+        }
         let savedFOV = preferences.double(forKey: "vros.cinema.fov.v1")
         if savedFOV >= 55 && savedFOV <= 115 {
             cinemaFovDegrees = CGFloat(savedFOV)
@@ -183,6 +209,8 @@ final class CinemaModel: ObservableObject {
     }
 
     func exit() {
+        // A copy finishing after exit/background must never start audio.
+        movieImportID = UUID()
         setSeatSelectionMode(false)
         motion.stopDeviceMotionUpdates()
         motionReference = nil
@@ -335,13 +363,32 @@ final class CinemaModel: ObservableObject {
         recenterHead()
     }
 
+    func resetPlacement() {
+        convergence = 0
+        updateStereoMaterials()
+        _ = selectSeat(30)
+        resetScreenAim()
+    }
+
+    // Covers the asynchronous Photos/iCloud download BEFORE file import starts.
+    func beginPhotoImport() -> UUID {
+        controlsTask?.cancel()
+        controlsVisible = true
+        movieImportID = UUID()
+        return movieImportID
+    }
+
+    func acceptsPhotoImport(_ token: UUID) -> Bool {
+        movieImportID == token
+    }
+
     func toggleTrackingDirection() {
         invertTracking.toggle()
         UserDefaults.standard.set(invertTracking, forKey: "vros.cinema.invert.v1")
         recenterHead()
     }
 
-    func loadMovie(_ url: URL) {
+    func loadMovie(_ url: URL, deleteSourceAfterImport: Bool = false) {
         // AVFoundation cannot reliably demux Matroska. Do not claim the
         // import succeeded when the user picks a .mkv.
         if url.pathExtension.lowercased() == "mkv" {
@@ -353,100 +400,140 @@ final class CinemaModel: ObservableObject {
             controlsVisible = true
             return
         }
-        let access = url.startAccessingSecurityScopedResource()
-        defer { if access { url.stopAccessingSecurityScopedResource() } }
-        do {
-            // Security-scoped file access is temporary. Copy into our sandbox
-            // before dismissing the document picker so offline viewing works.
-            let movieFolder = FileManager.default.urls(
-                for: .cachesDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("Cinema", isDirectory: true)
-            try FileManager.default.createDirectory(at: movieFolder,
-                                                    withIntermediateDirectories: true)
-            let dest = movieFolder.appendingPathComponent(
-                UUID().uuidString + "." + url.pathExtension.lowercased())
-            try FileManager.default.copyItem(at: url, to: dest)
-            player?.pause()
-            if let previousObserver = endPlaybackObserver {
-                NotificationCenter.default.removeObserver(previousObserver)
-                endPlaybackObserver = nil
+        let importID = UUID()
+        movieImportID = importID
+        controlsTask?.cancel()
+        controlsVisible = true
+        errorMessage = "Importando vídeo…"
+        Task { @MainActor [weak self] in
+            do {
+                let dest = try await Task.detached(priority: .userInitiated) {
+                    let access = url.startAccessingSecurityScopedResource()
+                    defer {
+                        if access { url.stopAccessingSecurityScopedResource() }
+                        if deleteSourceAfterImport { try? FileManager.default.removeItem(at: url) }
+                    }
+                    let folder = FileManager.default.urls(
+                        for: .cachesDirectory, in: .userDomainMask)[0]
+                        .appendingPathComponent("Cinema", isDirectory: true)
+                    try FileManager.default.createDirectory(at: folder,
+                                                            withIntermediateDirectories: true)
+                    let dest = folder.appendingPathComponent(
+                        UUID().uuidString + "." + url.pathExtension.lowercased())
+                    do {
+                        try FileManager.default.copyItem(at: url, to: dest)
+                        return dest
+                    } catch {
+                        try? FileManager.default.removeItem(at: dest)
+                        throw error
+                    }
+                }.value
+                guard let self = self, self.movieImportID == importID else {
+                    try? FileManager.default.removeItem(at: dest)
+                    return
+                }
+                self.installMovie(dest, sourceURL: url, importID: importID)
+            } catch {
+                guard let self = self, self.movieImportID == importID else { return }
+                self.errorMessage = "Erro ao importar vídeo: " + error.localizedDescription
+                self.revealControls()
             }
-            if let previousFile = importedMovieURL {
-                try? FileManager.default.removeItem(at: previousFile)
-            }
-            importedMovieURL = dest
-            let movie = AVPlayer(url: dest)
-            movie.actionAtItemEnd = .pause
-            leftScreenMaterial.diffuse.contents = movie
-            rightScreenMaterial.diffuse.contents = movie
-            player = movie
-            endPlaybackObserver = NotificationCenter.default.addObserver(
-                forName: .AVPlayerItemDidPlayToEndTime,
-                object: movie.currentItem,
-                queue: .main
-            ) { [weak self] _ in
-                guard let self = self else { return }
+        }
+    }
+
+    private func installMovie(_ dest: URL, sourceURL url: URL, importID: UUID) {
+        player?.pause()
+        playbackStatusObservation = nil
+        sourceAspect = 16.0 / 9.0
+        if let previousObserver = endPlaybackObserver {
+            NotificationCenter.default.removeObserver(previousObserver)
+            endPlaybackObserver = nil
+        }
+        if let previousFile = importedMovieURL {
+            try? FileManager.default.removeItem(at: previousFile)
+        }
+        importedMovieURL = dest
+        let movie = AVPlayer(url: dest)
+        movie.actionAtItemEnd = .pause
+        leftScreenMaterial.diffuse.contents = movie
+        rightScreenMaterial.diffuse.contents = movie
+        player = movie
+        playbackStatusObservation = movie.currentItem?.observe(
+            \.status, options: [.initial, .new]) { [weak self, weak movie] item, _ in
+            guard item.status == .failed else { return }
+            let message = item.error?.localizedDescription ?? "Formato de vídeo incompatível."
+            DispatchQueue.main.async {
+                guard let self = self, self.player === movie else { return }
+                self.player?.pause()
                 self.playing = false
+                self.errorMessage = "Não foi possível reproduzir: " + message
                 self.updateLighting()
                 self.revealControls()
             }
-            movieTitle = url.deletingPathExtension().lastPathComponent
-            let name = movieTitle.lowercased()
-            if name.contains("h-sbs") || name.contains("hsbs") ||
-               name.contains("half-sbs") || name.contains("half_sbs") {
-                selectedMode = .halfSBS
-            } else if name.contains("sbs") || name.contains("side-by-side") ||
-                      name.contains("side_by_side") {
-                selectedMode = .sbs
-            } else if name.contains("over-under") || name.contains("top-bottom") ||
-                      name.contains("top_bottom") || name.contains("3d-ou") {
-                selectedMode = .overUnder
-            } else {
-                selectedMode = .twoD
-            }
-            updateStereoMaterials()
-            errorMessage = nil
-            playing = true
-            updateLighting()
-            revealControls()
-            movie.play()
+        }
+        endPlaybackObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: movie.currentItem,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self = self else { return }
+            self.playing = false
+            self.updateLighting()
+            self.revealControls()
+        }
+        movieTitle = url.deletingPathExtension().lastPathComponent
+        let name = movieTitle.lowercased()
+        if name.contains("h-sbs") || name.contains("hsbs") ||
+           name.contains("half-sbs") || name.contains("half_sbs") {
+            selectedMode = .halfSBS
+        } else if name.contains("sbs") || name.contains("side-by-side") ||
+                  name.contains("side_by_side") {
+            selectedMode = .sbs
+        } else if name.contains("over-under") || name.contains("top-bottom") ||
+                  name.contains("top_bottom") || name.contains("3d-ou") {
+            selectedMode = .overUnder
+        } else {
+            selectedMode = .twoD
+        }
+        updateStereoMaterials()
+        fitScreen()
+        errorMessage = nil
+        playing = true
+        updateLighting()
+        revealControls()
+        movie.play()
 
-            // Rotate-aware aspect ratio. The video plane fits INSIDE the
-            // 27.2-by-13.4-metre screen instead of stretching 16:9 or 2.39:1.
-            let importID = UUID()
-            movieImportID = importID
-            Task {
-                let asset = AVURLAsset(url: dest)
-                do {
-                    guard let track = try await asset.loadTracks(withMediaType: .video).first
-                    else { return }
-                    let natural = try await track.load(.naturalSize)
-                    let rotation = try await track.load(.preferredTransform)
-                    let transformed = natural.applying(rotation)
-                    let width = abs(transformed.width)
-                    let height = abs(transformed.height)
-                    guard width > 0, height > 0 else { return }
-                    await MainActor.run {
-                        guard self.movieImportID == importID else { return }
-                        self.sourceAspect = width / height
-                        // An ordinary 1920x1080 SBS is usually H-SBS;
-                        // a 3840x1080 SBS is usually full-width SBS.
-                        if self.selectedMode == .sbs && self.sourceAspect < 2.6 {
-                            self.selectedMode = .halfSBS
-                        }
-                        self.fitScreen()
+        // Rotate-aware aspect ratio. The video plane fits INSIDE the
+        // 27.2-by-13.4-metre screen instead of stretching 16:9 or 2.39:1.
+        Task {
+            let asset = AVURLAsset(url: dest)
+            do {
+                guard let track = try await asset.loadTracks(withMediaType: .video).first
+                else { return }
+                let natural = try await track.load(.naturalSize)
+                let rotation = try await track.load(.preferredTransform)
+                let transformed = natural.applying(rotation)
+                let width = abs(transformed.width)
+                let height = abs(transformed.height)
+                guard width > 0, height > 0 else { return }
+                await MainActor.run {
+                    guard self.movieImportID == importID else { return }
+                    self.sourceAspect = width / height
+                    // An ordinary 1920x1080 SBS is usually H-SBS;
+                    // a 3840x1080 SBS is usually full-width SBS.
+                    if self.selectedMode == .sbs && self.sourceAspect < 2.6 {
+                        self.selectedMode = .halfSBS
                     }
-                } catch {
-                    await MainActor.run {
-                        guard self.movieImportID == importID else { return }
-                        // Keep the safe 16:9 default if metadata is unavailable.
-                        self.sourceAspect = 16.0 / 9.0
-                        self.fitScreen()
-                    }
+                    self.fitScreen()
+                }
+            } catch {
+                await MainActor.run {
+                    guard self.movieImportID == importID else { return }
+                    // Keep the safe 16:9 default if metadata is unavailable.
+                    self.sourceAspect = 16.0 / 9.0
+                    self.fitScreen()
                 }
             }
-        } catch {
-            errorMessage = "Erro ao importar MP4: " + error.localizedDescription
         }
     }
 
@@ -641,9 +728,13 @@ final class CinemaModel: ObservableObject {
         // limited to the 3D modes. This does NOT alter the source movie.
         let shift: Float = selectedMode == .twoD ? 0 :
             Float(convergence) * (rightEye ? 1 : -1)
-        let transform = SCNMatrix4Mult(
-            SCNMatrix4MakeTranslation(translationX + shift, translationY, 0),
-            SCNMatrix4MakeScale(scaleX, scaleY, 1))
+        // Set UV scale and offset independently. Multiplying translation
+        // by scale can halve the right-eye offset and sample the centre seam.
+        var transform = SCNMatrix4Identity
+        transform.m11 = scaleX
+        transform.m22 = scaleY
+        transform.m41 = translationX + shift
+        transform.m42 = translationY
         material.diffuse.contentsTransform = transform
         material.diffuse.wrapS = .clamp
         material.diffuse.wrapT = .clamp
@@ -653,6 +744,12 @@ final class CinemaModel: ObservableObject {
 
     func togglePlayback() {
         guard let player = player else { showPicker = true; return }
+        guard player.currentItem?.status != .failed else {
+            errorMessage = player.currentItem?.error?.localizedDescription ??
+                "Este vídeo não pode ser reproduzido."
+            revealControls()
+            return
+        }
         if playing {
             player.pause()
             playing = false
@@ -1269,17 +1366,23 @@ struct CinemaEyeView: View {
             }
             .onChange(of: pickedMovie) { nextItem in
                 guard !rightEye, let nextItem = nextItem else { return }
+                let token = cinema.beginPhotoImport()
                 Task {
                     do {
                         guard let movie = try await nextItem.loadTransferable(
                             type: CinemaPhotoMovie.self) else {
+                            guard cinema.acceptsPhotoImport(token) else { return }
                             cinema.errorMessage = "Não foi possível importar esse vídeo da Fototeca."
                             cinema.revealControls()
                             return
                         }
-                        cinema.loadMovie(movie.url)
-                        try? FileManager.default.removeItem(at: movie.url)
+                        guard cinema.acceptsPhotoImport(token) else {
+                            try? FileManager.default.removeItem(at: movie.url)
+                            return
+                        }
+                        cinema.loadMovie(movie.url, deleteSourceAfterImport: true)
                     } catch {
+                        guard cinema.acceptsPhotoImport(token) else { return }
                         cinema.errorMessage = "Erro na Fototeca: " + error.localizedDescription
                         cinema.revealControls()
                     }
@@ -1392,3 +1495,4 @@ struct CinemaEyeView: View {
         .buttonStyle(.plain)
     }
 }
+

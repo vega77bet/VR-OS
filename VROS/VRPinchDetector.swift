@@ -7,10 +7,21 @@ struct VRPinchDetector {
     private var confirmations = 0
 
     mutating func update(thumb: CGPoint, index: CGPoint,
-                         palmWidth: CGFloat) -> Bool {
+                         palmWidth: CGFloat,
+                         sensitivity: CGFloat = 0.5) -> Bool {
+        guard thumb.x.isFinite, thumb.y.isFinite,
+              index.x.isFinite, index.y.isFinite, palmWidth.isFinite else {
+            reset()
+            return false
+        }
         let ratio = hypot(thumb.x - index.x, thumb.y - index.y) /
                     max(0.04, palmWidth)
-        let candidate = pinching ? ratio < 0.64 : ratio < 0.43
+        let tuned = sensitivity.isFinite ? max(0, min(1, sensitivity)) : 0.5
+        // Higher sensitivity accepts slightly wider finger gaps. Retain
+        // hysteresis and two-frame debounce so noise cannot spam clicks.
+        let engage = 0.43 + (tuned - 0.5) * 0.18
+        let release = 0.64 + (tuned - 0.5) * 0.16
+        let candidate = pinching ? ratio < release : ratio < engage
         if candidate == pinching {
             confirmations = 0
         } else {
@@ -28,3 +39,4 @@ struct VRPinchDetector {
         confirmations = 0
     }
 }
+

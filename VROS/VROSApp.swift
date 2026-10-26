@@ -1,4 +1,5 @@
 import ARKit
+import AVFoundation
 import SwiftUI
 import UIKit
 import simd
@@ -104,6 +105,52 @@ private struct UltraWideDrag {
     let initialCentre: CGPoint
 }
 
+private struct VRSettingsPinch {
+    let start: CGPoint
+    let startingScroll: CGFloat
+    var moved = false
+    var sliderID: String?
+}
+
+private enum VRLauncherApp: Identifiable {
+    case web(VRWebApp)
+    case settings
+    static var all: [VRLauncherApp] {
+        VRWebApp.allCases.map { .web($0) } + [.settings]
+    }
+    var id: String {
+        switch self {
+        case let .web(app): return app.rawValue
+        case .settings: return "settings"
+        }
+    }
+    var title: String {
+        switch self {
+        case let .web(app): return app.title
+        case .settings: return "Ajustes"
+        }
+    }
+    var subtitle: String {
+        switch self {
+        case let .web(app): return app.description
+        case .settings: return "Configurações do VR-OS"
+        }
+    }
+    var symbol: String {
+        switch self {
+        case let .web(app): return app.symbol
+        case .settings: return "gearshape.fill"
+        }
+    }
+    var accent: Color {
+        switch self {
+        case let .web(app): return app.accent
+        case .settings: return Color(white: 0.72)
+        }
+    }
+}
+
+
 struct VRHomeView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var wasBackgrounded = false
@@ -119,7 +166,9 @@ struct VRHomeView: View {
     @State private var ultraPanelDirections: [UUID: SIMD3<Float>] = [:]
     @State private var ultraDrag: UltraWideDrag?
     @State private var eyeViewport = CGSize(width: 200, height: 390)
-    @State private var lens = VRLensSettings.load()
+    @StateObject private var settings = VRSettingsSession()
+    @State private var settingsOpen = false
+    @State private var settingsGesture: VRSettingsPinch?
     @State private var lensMenuOpen = false
     @StateObject private var updates = LiveUpdateManager()
     @State private var nextRemoteTemplateIndex = 0
@@ -148,7 +197,7 @@ struct VRHomeView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let placement = lens.placement(in: geometry.size)
+            let placement = settings.lens.placement(in: geometry.size)
             let eyeSize = placement.aperture
             ZStack {
                 Color.black
@@ -157,15 +206,15 @@ struct VRHomeView: View {
                 // the supplied VR headset reference screenshot.
                 lensEye(right: false, size: eyeSize)
                     .frame(width: eyeSize.width, height: eyeSize.height)
-                    .clipShape(VRLensAperture(curvature: lens.curvature))
+                    .clipShape(VRLensAperture(curvature: settings.lens.curvature))
                     // Mask visual pixels AND interactive touches outside the lens.
-                    .contentShape(VRLensAperture(curvature: lens.curvature))
+                    .contentShape(VRLensAperture(curvature: settings.lens.curvature))
                     .position(placement.left)
                 lensEye(right: true, size: eyeSize)
                     .frame(width: eyeSize.width, height: eyeSize.height)
-                    .clipShape(VRLensAperture(curvature: lens.curvature))
+                    .clipShape(VRLensAperture(curvature: settings.lens.curvature))
                     // Mask visual pixels AND interactive touches outside the lens.
-                    .contentShape(VRLensAperture(curvature: lens.curvature))
+                    .contentShape(VRLensAperture(curvature: settings.lens.curvature))
                     .position(placement.right)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
@@ -182,9 +231,9 @@ struct VRHomeView: View {
             }
             .onAppear { eyeViewport = eyeSize }
             .onChange(of: geometry.size) { nextSize in
-                eyeViewport = lens.placement(in: nextSize).aperture
+                eyeViewport = settings.lens.placement(in: nextSize).aperture
             }
-            .onChange(of: lens) { newSettings in
+            .onChange(of: settings.lens) { newSettings in
                 newSettings.save()
                 eyeViewport = newSettings.placement(in: geometry.size).aperture
             }
@@ -201,10 +250,19 @@ struct VRHomeView: View {
                 ? min(1.55, max(0.65, CGFloat(savedWebZoom))) : 1.0
             ultraInvertMotion =
                 UserDefaults.standard.bool(forKey: "vros.ultra.invertMotion.v1")
+            if UserDefaults.standard.object(forKey: "vros.ultra.fullFrame.v1") != nil {
+                ultraFullFrame =
+                    UserDefaults.standard.bool(forKey: "vros.ultra.fullFrame.v1")
+            }
+            runtime.setPinchSensitivity(settings.pinchSensitivity)
+            ultraWide.setPinchSensitivity(settings.pinchSensitivity)
             UIDevice.current.isBatteryMonitoringEnabled = true
             runtime.setCameraPreviewEnabled(selectedTheme == .graphite)
             runtime.setCinemaMode(cinemaOpen)
-            if ultraWideMode {
+            if settings.cameraUltra && !ultraWideMode &&
+               AVCaptureDevice.authorizationStatus(for: .video) == .authorized {
+                toggleUltraWide()
+            } else if ultraWideMode {
                 // A reappearing root view must not restart ARKit while the
                 // physical ultrawide lens is owned by AVCapture.
                 runtime.stop()
@@ -215,7 +273,15 @@ struct VRHomeView: View {
             Task { await updates.check() }
         }
         .onChange(of: selectedTheme) { theme in
-            runtime.setCameraPreviewEnabled(theme == .graphite)
+            runtime.setCameraPreviewEnabled(
+                theme == .graphite && !settingsOpen)
+        }
+        .onChange(of: settings.revision) { _ in
+            applySettingsChanges()
+        }
+        .onChange(of: ultraFullFrame) { enabled in
+            UserDefaults.standard.set(enabled,
+                                      forKey: "vros.ultra.fullFrame.v1")
         }
         .onChange(of: webWindowZoom) { zoom in
             UserDefaults.standard.set(Double(zoom), forKey: "vros.webZoom.v1")
@@ -262,8 +328,122 @@ struct VRHomeView: View {
         }
     }
 
+    /// Native Settings shares existing runtime objects, rather than
+    /// creating a mock preferences screen with nonfunctional controls.
+    private func openSettings() {
+        guard !cinemaOpen else { return }
+        settings.cameraUltra = ultraWideMode
+        settings.fullCameraFrame = ultraFullFrame
+        settings.invertUltraMotion = ultraInvertMotion
+        settings.themeIndex = selectedTheme.rawValue
+        settings.webZoom = webWindowZoom
+        settings.cinemaFOV = cinema.cinemaFovDegrees
+        settings.cinemaInvert = cinema.invertTracking
+        settings.cinemaImmersive = cinema.immersiveScreen
+        settings.cinemaSwapEyes = cinema.swapEyes
+        settings.cinemaAutoControls = cinema.showControlsAutomatically
+        appsOpen = false
+        lensMenuOpen = false
+        themeMenuOpen = false
+        focusedWebPanelID = nil
+        settingsGesture = nil
+        lastPinch = false
+        settings.searchText = ""
+        settings.enter(.home)
+        settingsOpen = true
+        // The opaque Settings surface needs camera pose + Vision but does
+        // not need CGImage rendering behind the stereo UI.
+        runtime.setCameraPreviewEnabled(false)
+        ultraWide.setDisplayEnabled(false)
+        dockExpanded = false
+    }
+
+    private func closeSettings() {
+        settingsOpen = false
+        runtime.setCameraPreviewEnabled(selectedTheme == .graphite)
+        ultraWide.setDisplayEnabled(true)
+        settingsGesture = nil
+        lastPinch = false
+        settings.notice = nil
+        settings.pendingConfirmation = nil
+    }
+
+    private func centreAllWindows() {
+        if ultraWideMode {
+            recenterUltraWide()
+        } else {
+            for index in panels.indices {
+                panels[index].x = 0
+                panels[index].y = 0
+                panels[index].anchor = nil
+            }
+        }
+    }
+
+    private func applySettingsChanges() {
+        if let theme = VRTheme(rawValue: settings.themeIndex),
+           selectedTheme != theme { chooseTheme(theme) }
+        if ultraFullFrame != settings.fullCameraFrame {
+            ultraFullFrame = settings.fullCameraFrame
+        }
+        if ultraInvertMotion != settings.invertUltraMotion {
+            ultraInvertMotion = settings.invertUltraMotion
+            UserDefaults.standard.set(ultraInvertMotion,
+                                      forKey: "vros.ultra.invertMotion.v1")
+            if ultraWideMode { recenterUltraWide() }
+        }
+        if abs(webWindowZoom - settings.webZoom) > 0.005 {
+            webWindowZoom = settings.webZoom
+        }
+        if abs(cinema.cinemaFovDegrees - settings.cinemaFOV) > 0.5 {
+            cinema.adjustCinemaFOV(settings.cinemaFOV -
+                                   cinema.cinemaFovDegrees)
+        }
+        if cinema.invertTracking != settings.cinemaInvert {
+            cinema.toggleTrackingDirection()
+        }
+        if cinema.immersiveScreen != settings.cinemaImmersive {
+            cinema.toggleImmersive()
+        }
+        if cinema.swapEyes != settings.cinemaSwapEyes {
+            cinema.toggleEyeOrder()
+        }
+        if cinema.showControlsAutomatically != settings.cinemaAutoControls {
+            cinema.showControlsAutomatically = settings.cinemaAutoControls
+        }
+        runtime.setPinchSensitivity(settings.pinchSensitivity)
+        ultraWide.setPinchSensitivity(settings.pinchSensitivity)
+
+        if let request = settings.command {
+            settings.command = nil
+            switch request.kind {
+            case .recenterWindows:
+                centreAllWindows()
+            case .clearFavorites:
+                UserDefaults.standard.removeObject(
+                    forKey: "vros.web.favorites.v1")
+                for session in webSessions.values {
+                    session.clearFavorites()
+                }
+            case .restoreAll:
+                centreAllWindows()
+                cinema.resetPlacement()
+                UserDefaults.standard.removeObject(forKey: "vros.note.fontSize.v1")
+                for note in noteSessions.values { note.resetFontSize() }
+                UserDefaults.standard.set(false,
+                                          forKey: "vros.ultra.invertMotion.v1")
+            }
+        }
+        if settings.cameraUltra != ultraWideMode && !cameraTransitioning {
+            toggleUltraWide()
+        }
+    }
+
     private func toggleUltraWide() {
         guard !cameraTransitioning, !cinemaOpen else { return }
+        // Dock requests also update the shared desired mode. Keep that intent
+        // even if Settings closes before the capture transition completes.
+        if !settingsOpen { settings.cameraUltra = !ultraWideMode }
         cameraTransitioning = true
         lastPinch = false
         drag = nil
@@ -279,9 +459,11 @@ struct VRHomeView: View {
                 ultraPanelDirections.removeAll()
                 ultraDrag = nil
                 ultraNotice = nil
-                runtime.setCameraPreviewEnabled(selectedTheme == .graphite)
-                runtime.resume()
+                runtime.setCameraPreviewEnabled(
+                    selectedTheme == .graphite && !settingsOpen)
+                if scenePhase == .active { runtime.resume() }
                 cameraTransitioning = false
+                if settings.cameraUltra { toggleUltraWide() }
             }
         } else {
             // Snapshot the ARKit window screen positions before suspending it.
@@ -298,10 +480,33 @@ struct VRHomeView: View {
             }
             runtime.stop()
             ultraWideMode = true
+            ultraWide.setDisplayEnabled(!settingsOpen)
             ultraNotice = nil
             dockExpanded = false
-            ultraWide.start()
-            cameraTransitioning = false
+            ultraWide.start { started in
+                guard scenePhase == .active else {
+                    ultraWide.stop()
+                    cameraTransitioning = false
+                    return
+                }
+                if !started {
+                    // No physical lens or camera permission: do not leave
+                    // the user trapped in a black 0.5x mode.
+                    ultraWideMode = false
+                    ultraPanelDirections.removeAll()
+                    settings.cameraUltra = false
+                    settings.notice = "Câmera 0,5x indisponível; ARKit restaurado"
+                    runtime.setCameraPreviewEnabled(
+                        selectedTheme == .graphite && !settingsOpen)
+                    runtime.resume()
+                }
+                cameraTransitioning = false
+                // A Settings switch may have been changed while capture
+                // was starting: apply the newest desired state afterwards.
+                if started && !settings.cameraUltra {
+                    toggleUltraWide()
+                }
+            }
         }
     }
 
@@ -346,14 +551,14 @@ struct VRHomeView: View {
                             .resizable()
                             .scaledToFit()
                             .frame(width: w, height: h)
-                            .scaleEffect(lens.cameraZoom)
+                            .scaleEffect(settings.lens.cameraZoom)
                             .allowsHitTesting(false)
                     } else {
                         Image(decorative: frame, scale: 1, orientation: .up)
                             .resizable()
                             .scaledToFill()
                             .frame(width: w, height: h)
-                            .scaleEffect(lens.cameraZoom)
+                            .scaleEffect(settings.lens.cameraZoom)
                             .clipped()
                             .allowsHitTesting(false)
                     }
@@ -376,7 +581,7 @@ struct VRHomeView: View {
                     .resizable()
                     .scaledToFill()
                     .frame(width: w, height: h)
-                    .scaleEffect(lens.cameraZoom)
+                    .scaleEffect(settings.lens.cameraZoom)
                     .clipped()
                     .allowsHitTesting(false)
             } else {
@@ -409,8 +614,10 @@ struct VRHomeView: View {
             }
 
             if focusedWebPanelID == nil {
-                statusBar(size: size)
-                    .position(x: w / 2, y: ultraWideMode ? 76 : 28)
+                if settings.showHUD {
+                    statusBar(size: size)
+                        .position(x: w / 2, y: ultraWideMode ? 76 : 28)
+                }
 
                 if themeMenuOpen {
                     themePicker(size: size).position(x: w / 2, y: h / 2)
@@ -470,12 +677,14 @@ struct VRHomeView: View {
                 .padding(.vertical, 5)
             }
 
-            if shownHand.visible {
+            if shownHand.visible && settings.showSkeleton && !settingsOpen {
                 HandSkeletonOverlay(hand: shownHand) { joint in
                     mappedPoint(joint, size: size)
                 }
                 .allowsHitTesting(false)
+            }
 
+            if shownHand.visible && settings.showCursor && !settingsOpen {
                 let cursor = interactionPoint(shownHand.point, size: size)
                 ZStack {
                     Circle()
@@ -485,8 +694,34 @@ struct VRHomeView: View {
                     Circle().fill(.white).frame(width: 5, height: 5)
                 }
                 .shadow(color: .black, radius: 3)
+                .scaleEffect(settings.cursorSize)
                 .position(cursor)
                 .allowsHitTesting(false)
+            }
+
+            if settingsOpen {
+                VRSettingsScreen(session: settings, rightEye: right,
+                                 onClose: { closeSettings() })
+                    .frame(width: w, height: h)
+                    .zIndex(50)
+                // Accessibility: disabling the Home cursor must NEVER
+                // hide the pointer used to re-enable it in Settings.
+                if shownHand.visible {
+                    let cursor = interactionPoint(shownHand.point, size: size)
+                    ZStack {
+                        Circle()
+                            .stroke(.white.opacity(0.95),
+                                    lineWidth: shownHand.pinching ? 3 : 2)
+                            .frame(width: shownHand.pinching ? 28 : 22,
+                                   height: shownHand.pinching ? 28 : 22)
+                        Circle().fill(.white).frame(width: 5, height: 5)
+                    }
+                    .scaleEffect(settings.cursorSize)
+                    .shadow(color: .black.opacity(0.9), radius: 4)
+                    .position(cursor)
+                    .allowsHitTesting(false)
+                    .zIndex(51)
+                }
             }
         }
         .frame(width: w, height: h)
@@ -545,7 +780,7 @@ struct VRHomeView: View {
     /// Adjust the OPTICAL viewport, not the physical 0.5x camera.
     /// Changes apply identically to both eyes and persist across app launches.
     private func adjustLens(row: Int, direction: Int) {
-        var next = lens
+        var next = settings.lens
         let step = CGFloat(direction)
         switch row {
         case 0: next.scale = max(0.75, min(1.40, next.scale + step * 0.05))
@@ -560,11 +795,11 @@ struct VRHomeView: View {
             next.curvature = max(0, min(1, next.curvature + step * 0.125))
         default: return
         }
-        lens = next
+        settings.lens = next
     }
 
     private func lensCalibrationPanel(size: CGSize) -> some View {
-        VRLensCalibrationView(lens: $lens, isOpen: $lensMenuOpen,
+        VRLensCalibrationView(lens: $settings.lens, isOpen: $lensMenuOpen,
                               viewport: size)
     }
 
@@ -738,7 +973,8 @@ struct VRHomeView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
             (selectedTheme == .graphite ? Color(white: updates.manifest.theme.surfaceGray) : selectedTheme.surface)
-                .opacity(updates.manifest.theme.surfaceOpacity),
+                .opacity(updates.manifest.theme.surfaceOpacity *
+                         settings.windowOpacity),
             in: RoundedRectangle(cornerRadius: 16))
         .overlay(RoundedRectangle(cornerRadius: 16)
             .stroke(selectedTheme.accent.opacity(0.45), lineWidth: 1))
@@ -914,15 +1150,18 @@ struct VRHomeView: View {
     /// Map Vision's normalized joint coordinates through the exact video
     /// scaling used in this eye, including the optional full-frame 0.5x fit.
     private func mappedPoint(_ raw: CGPoint, size: CGSize) -> CGPoint {
-        let image = ultraWideMode ? ultraWide.image : runtime.cameraImage
-        guard let image = image else {
+        // Preview pixels are deliberately hidden in Settings and themes.
+        // Keep the same sensor dimensions so the pointer does not jump.
+        let resolution = ultraWideMode ? ultraWide.imageResolution :
+            (runtime.camera?.imageResolution ?? .zero)
+        guard resolution.width > 0, resolution.height > 0 else {
             return CGPoint(x: raw.x * size.width, y: raw.y * size.height)
         }
-        let iw = CGFloat(image.width)
-        let ih = CGFloat(image.height)
+        let iw = resolution.width
+        let ih = resolution.height
         let scale = (ultraWideMode && ultraFullFrame
             ? min(size.width / iw, size.height / ih)
-            : max(size.width / iw, size.height / ih)) * lens.cameraZoom
+            : max(size.width / iw, size.height / ih)) * settings.lens.cameraZoom
         return CGPoint(x: raw.x * iw * scale + (size.width - iw * scale) / 2,
                        y: raw.y * ih * scale + (size.height - ih * scale) / 2)
     }
@@ -937,7 +1176,97 @@ struct VRHomeView: View {
         return mappedPoint(raw, size: size)
     }
 
+    /// A held pinch scrolls the PRIMARY UITableView, while the other eye
+    /// renders exactly the same offset. Short pinches dispatch the same row
+    /// actions as UIKit touches. Dragging a slider never scrolls the page.
+    private func processSettingsGesture(_ hand: TrackedHand, size: CGSize) {
+        guard hand.visible else {
+            // Vision losing the hand is NOT the same as fingers separating.
+            // Cancel held gestures without clicking any destructive control.
+            settingsGesture = nil
+            lastPinch = false
+            return
+        }
+        let pointer = interactionPoint(hand.point, size: size)
+        if hand.pinching {
+            if settingsGesture == nil {
+                let top = settings.page == .home
+                    ? VRSettingsScreen.toolbarHeight +
+                      VRSettingsScreen.searchHeight
+                    : VRSettingsScreen.toolbarHeight
+                let row = settings.row(at: pointer, topInset: top)
+                let sliderID: String?
+                if let row = row, row.kind == .slider,
+                   settings.isSliderHit(at: pointer, topInset: top) {
+                    sliderID = row.id
+                } else {
+                    sliderID = nil
+                }
+                settingsGesture = VRSettingsPinch(
+                    start: pointer, startingScroll: settings.scrollOffset,
+                    sliderID: sliderID)
+                if let id = sliderID {
+                    settings.setNormalized(id, fraction: settings.sliderFraction(
+                        x: pointer.x, width: size.width,
+                        localY: pointer.y - top))
+                }
+            } else if var gesture = settingsGesture {
+                let deltaY = pointer.y - gesture.start.y
+                let travelled = hypot(pointer.x - gesture.start.x, deltaY)
+                if let id = gesture.sliderID {
+                    if travelled > 5 { gesture.moved = true }
+                    let top = settings.page == .home
+                        ? VRSettingsScreen.toolbarHeight +
+                          VRSettingsScreen.searchHeight
+                        : VRSettingsScreen.toolbarHeight
+                    settings.setNormalized(id, fraction: settings.sliderFraction(
+                        x: pointer.x, width: size.width,
+                        localY: gesture.start.y - top))
+                } else if VRSettingsInputGeometry.isScroll(
+                    from: gesture.start, to: pointer) {
+                    gesture.moved = true
+                    if VRSettingsInputGeometry.classify(gesture.start,
+                        viewport: size, page: settings.page) == .table {
+                        let desired = gesture.startingScroll - deltaY
+                        settings.scrollBy(desired - settings.scrollOffset)
+                    }
+                }
+                settingsGesture = gesture
+            }
+        } else {
+            finishSettingsPinch(size: size)
+        }
+        lastPinch = hand.pinching
+    }
+
+    private func finishSettingsPinch(size: CGSize) {
+        guard let gesture = settingsGesture else { return }
+        settingsGesture = nil
+        guard !gesture.moved, gesture.sliderID == nil else { return }
+        let pointer = gesture.start
+        switch VRSettingsInputGeometry.classify(
+            pointer, viewport: size, page: settings.page) {
+        case .close:
+            closeSettings()
+        case .back:
+            settings.back()
+        case .search:
+            settings.focusSearchRequest += 1
+        case .table:
+            _ = settings.handlePinchTap(
+                at: pointer, viewport: size,
+                topInset: VRSettingsInputGeometry.tableTop(
+                    page: settings.page))
+        case .none:
+            break
+        }
+    }
+
     private func processGesture(_ hand: TrackedHand, size: CGSize) {
+        if settingsOpen {
+            processSettingsGesture(hand, size: size)
+            return
+        }
         // Cinema owns pinch gestures while open. Never activate the OS dock
         // behind the movie when changing stereo playback settings.
         guard !cinemaOpen else { return }
@@ -1065,7 +1394,7 @@ struct VRHomeView: View {
                     lensMenuOpen = false
                 case let .profile(index):
                     if let selected = VRLensProfile(rawValue: index) {
-                        lens.choose(selected)
+                        settings.lens.choose(selected)
                     }
                 case let .adjust(row, direction):
                     adjustLens(row: row, direction: direction)
@@ -1096,7 +1425,7 @@ struct VRHomeView: View {
             return
         }
         if appsOpen {
-            let count = VRWebApp.allCases.count
+            let count = VRLauncherApp.all.count
             let warning = appsWarning != nil
             let pageCount = VRGestureGeometry.compactAppPageCount(
                 viewport: size, warning: warning, count: count)
@@ -1106,7 +1435,7 @@ struct VRHomeView: View {
             } else if let index = VRGestureGeometry.compactAppRow(
                 at: pointer, viewport: size, count: count,
                 warning: warning, page: appsPage) {
-                openWebApp(VRWebApp.allCases[index])
+                openLauncherApp(VRLauncherApp.all[index])
             } else if let fraction = VRGestureGeometry.compactAppZoomFraction(
                 at: pointer, viewport: size, count: count, warning: warning) {
                 webWindowZoom = 0.65 + fraction * 0.90
@@ -1427,11 +1756,18 @@ struct VRHomeView: View {
             text: "",
             x: 0.08,
             y: -0.30,
-            depth: 1.3,
+            depth: Double(settings.defaultDepth),
             kind: .updates
         )
         panels.append(panel)
         registerUltraWindow(panel)
+    }
+
+    private func openLauncherApp(_ item: VRLauncherApp) {
+        switch item {
+        case let .web(app): openWebApp(app)
+        case .settings: openSettings()
+        }
     }
 
     private func openWebApp(_ app: VRWebApp) {
@@ -1450,7 +1786,7 @@ struct VRHomeView: View {
             text: app.description,
             x: 0,
             y: -0.02,
-            depth: 1.2,
+            depth: Double(settings.defaultDepth),
             kind: .web,
             webApp: app
         )
@@ -1463,14 +1799,14 @@ struct VRHomeView: View {
     }
 
     private func appsLauncher(size: CGSize) -> some View {
-        let count = VRWebApp.allCases.count
+        let count = VRLauncherApp.all.count
         let warning = appsWarning != nil
         let rows = VRGestureGeometry.compactAppRows(
             viewport: size, warning: warning, count: count)
         let pages = VRGestureGeometry.compactAppPageCount(
             viewport: size, warning: warning, count: count)
         let page = min(max(0, appsPage), pages - 1)
-        let visibleApps = Array(VRWebApp.allCases.dropFirst(page * rows)
+        let visibleApps = Array(VRLauncherApp.all.dropFirst(page * rows)
             .prefix(rows))
         return VStack(spacing: VRGestureGeometry.appRowGap) {
             HStack {
@@ -1519,7 +1855,7 @@ struct VRHomeView: View {
             .font(.system(size: 9, weight: .semibold))
             .frame(height: VRGestureGeometry.compactAppPagerHeight)
             ForEach(visibleApps) { app in
-                Button { openWebApp(app) } label: {
+                Button { openLauncherApp(app) } label: {
                     HStack(spacing: 8) {
                         Image(systemName: app.symbol)
                             .font(.system(size: 20))
@@ -1528,7 +1864,7 @@ struct VRHomeView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(app.title)
                                 .font(.system(size: 12, weight: .bold))
-                            Text(app.description)
+                            Text(app.subtitle)
                                 .font(.system(size: 9))
                                 .lineLimit(2)
                                 .foregroundStyle(.white.opacity(0.7))
@@ -1569,11 +1905,11 @@ struct VRHomeView: View {
             let count = panels.count + 1
             panels.append(VRPanel(
                 title: "Janela \(count)", icon: "macwindow",
-                text: "GUIA RÁPIDO DO VR-OS V19\n\n"
+                text: "GUIA RÁPIDO DO VR-OS V21\n\n"
                     + "1. Pinça na linha branca: arraste a janela pelo ambiente.\n\n"
                     + "2. Segure a pinça sobre este texto e mova a mão para ROLAR a janela.\n\n"
                     + "3. Use as setas ↑/↓ para subir e descer. A−/A+ deixam o texto menor ou maior.\n\n"
-                    + "4. Apps: YouTube, Netflix, Navegador, Twitch e Wikipedia. "
+                    + "4. Apps: Ajustes, YouTube, Netflix, Navegador, Twitch e Wikipedia. "
                     + "A estrela salva favoritos, a lupa ajusta zoom e o ícone de expandir abre o Modo Foco.\n\n"
                     + "5. Cinema: poltronas selecionadas por olhar por 1,5 s. "
                     + "Use Centralizar e Mirar tela antes de testar os movimentos.\n\n"
@@ -1583,7 +1919,7 @@ struct VRHomeView: View {
                     + "se sentir desconforto, pare e ajuste o encaixe.",
                 x: CGFloat((count % 3) - 1) * 0.15,
                 y: CGFloat(count % 2 == 0 ? -0.38 : -0.28),
-                depth: 1.6))
+                depth: Double(settings.defaultDepth)))
             if let newPanel = panels.last { registerUltraWindow(newPanel) }
         case 1:
             appsOpen.toggle()
@@ -1635,3 +1971,4 @@ struct VRHomeView: View {
         }
     }
 }
+
