@@ -269,7 +269,8 @@ struct VRHomeView: View {
             Task { await updates.check() }
         }
         .onChange(of: selectedTheme) { theme in
-            runtime.setCameraPreviewEnabled(theme == .graphite)
+            runtime.setCameraPreviewEnabled(
+                theme == .graphite && !settingsOpen)
         }
         .onChange(of: settings.revision) { _ in
             applySettingsChanges()
@@ -345,11 +346,17 @@ struct VRHomeView: View {
         lastPinch = false
         settings.enter(.home)
         settingsOpen = true
+        // The opaque Settings surface needs camera pose + Vision but does
+        // not need CGImage rendering behind the stereo UI.
+        runtime.setCameraPreviewEnabled(false)
+        ultraWide.setDisplayEnabled(false)
         dockExpanded = false
     }
 
     private func closeSettings() {
         settingsOpen = false
+        runtime.setCameraPreviewEnabled(selectedTheme == .graphite)
+        ultraWide.setDisplayEnabled(true)
         settingsGesture = nil
         lastPinch = false
         settings.notice = nil
@@ -442,7 +449,8 @@ struct VRHomeView: View {
                 ultraPanelDirections.removeAll()
                 ultraDrag = nil
                 ultraNotice = nil
-                runtime.setCameraPreviewEnabled(selectedTheme == .graphite)
+                runtime.setCameraPreviewEnabled(
+                    selectedTheme == .graphite && !settingsOpen)
                 runtime.resume()
                 cameraTransitioning = false
             }
@@ -461,6 +469,7 @@ struct VRHomeView: View {
             }
             runtime.stop()
             ultraWideMode = true
+            ultraWide.setDisplayEnabled(!settingsOpen)
             ultraNotice = nil
             dockExpanded = false
             ultraWide.start()
