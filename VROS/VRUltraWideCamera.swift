@@ -31,8 +31,7 @@ final class VRUltraWideCamera: NSObject, ObservableObject,
     private var visionBusy = false
     // Vision filter state is owned exclusively by visionQueue.
     private var filteredJoints: [CGPoint?] = Array(repeating: nil, count: 21)
-    private var pinchLatched = false
-    private var pinchConfirmations = 0
+    private var pinchDetector = VRPinchDetector()
     private var missingFrames = 0
     private var configured = false
 
@@ -249,20 +248,10 @@ final class VRUltraWideCamera: NSObject, ObservableObject,
             } else {
                 palm = 0.04
             }
-            let ratio = hypot(thumb.x - fingertip.x,
-                              thumb.y - fingertip.y) / max(palm, 0.04)
-            let target = pinchLatched ? ratio < 0.64 : ratio < 0.43
-            if target == pinchLatched {
-                pinchConfirmations = 0
-            } else {
-                pinchConfirmations += 1
-                if pinchConfirmations >= 2 {
-                    pinchLatched = target
-                    pinchConfirmations = 0
-                }
-            }
+            let pinching = pinchDetector.update(
+                thumb: thumb, index: fingertip, palmWidth: palm)
             let state = TrackedHand(point: fingertip, visible: true,
-                                    pinching: pinchLatched, joints: joints,
+                                    pinching: pinching, joints: joints,
                                     estimatedDepth: nil, worldPoint: nil)
             DispatchQueue.main.async { [weak self] in
                 guard let self = self, self.active else { return }
@@ -277,8 +266,7 @@ final class VRUltraWideCamera: NSObject, ObservableObject,
         missingFrames += 1
         guard missingFrames >= 3 else { return }
         filteredJoints = Array(repeating: nil, count: 21)
-        pinchLatched = false
-        pinchConfirmations = 0
+        pinchDetector.reset()
         DispatchQueue.main.async { [weak self] in
             guard let self = self, self.active else { return }
             self.hand = TrackedHand()
