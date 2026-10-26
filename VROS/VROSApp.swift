@@ -119,6 +119,8 @@ struct VRHomeView: View {
     @State private var ultraPanelDirections: [UUID: SIMD3<Float>] = [:]
     @State private var ultraDrag: UltraWideDrag?
     @State private var eyeViewport = CGSize(width: 200, height: 390)
+    @State private var lens = VRLensSettings.load()
+    @State private var lensMenuOpen = false
     @StateObject private var updates = LiveUpdateManager()
     @State private var nextRemoteTemplateIndex = 0
     @State private var selectedTheme: VRTheme = .graphite
@@ -145,23 +147,24 @@ struct VRHomeView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let eyeSize = CGSize(width: geometry.size.width / 2, height: geometry.size.height)
-            HStack(spacing: 0) {
-                if cinemaOpen {
-                    CinemaEyeView(rightEye: false, runtime: runtime, cinema: cinema, updates: updates,
-                                  onExit: { exitCinema() })
-                    CinemaEyeView(rightEye: true, runtime: runtime, cinema: cinema, updates: updates,
-                                  onExit: { exitCinema() })
-                } else {
-                    eyeView(right: false, size: eyeSize)
-                    eyeView(right: true, size: eyeSize)
-                }
+            let placement = lens.placement(in: geometry.size)
+            let eyeSize = placement.aperture
+            ZStack {
+                Color.black
+                // Eye centres are not forced to 25%/75% of the screen.
+                // Both live in the full landscape coordinate space, like
+                // the supplied VR headset reference screenshot.
+                lensEye(right: false, size: eyeSize)
+                    .frame(width: eyeSize.width, height: eyeSize.height)
+                    .clipShape(VRLensAperture(curvature: lens.curvature))
+                    .position(placement.left)
+                lensEye(right: true, size: eyeSize)
+                    .frame(width: eyeSize.width, height: eyeSize.height)
+                    .clipShape(VRLensAperture(curvature: lens.curvature))
+                    .position(placement.right)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
-            .background(Color.black)
-            .overlay(alignment: .center) {
-                Rectangle().fill(.black).frame(width: 3).allowsHitTesting(false)
-            }
+            .background(.black)
             .onReceive(runtime.$camera) { pose in
                 guard let pose = pose else { return }
                 anchorPendingPanels(pose: pose, size: eyeSize)
@@ -174,8 +177,11 @@ struct VRHomeView: View {
             }
             .onAppear { eyeViewport = eyeSize }
             .onChange(of: geometry.size) { nextSize in
-                eyeViewport = CGSize(width: nextSize.width / 2,
-                                     height: nextSize.height)
+                eyeViewport = lens.placement(in: nextSize).aperture
+            }
+            .onChange(of: lens) { newSettings in
+                newSettings.save()
+                eyeViewport = newSettings.placement(in: geometry.size).aperture
             }
             .onReceive(updates.$manifest) { remote in
                 applyRemoteWindowContent(remote)
@@ -237,6 +243,17 @@ struct VRHomeView: View {
             ultraWide.stop()
             runtime.setCinemaMode(false)
             runtime.stop()
+        }
+    }
+
+    @ViewBuilder
+    private func lensEye(right: Bool, size: CGSize) -> some View {
+        if cinemaOpen {
+            CinemaEyeView(rightEye: right, runtime: runtime,
+                          cinema: cinema, updates: updates,
+                          onExit: { exitCinema() })
+        } else {
+            eyeView(right: right, size: size)
         }
     }
 
