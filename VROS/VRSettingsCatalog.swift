@@ -56,6 +56,7 @@ enum VRSettingsRowKind: Equatable {
     case navigate(VRSettingsPage)
     case toggle
     case stepper
+    case slider
     case choice
     case action
     case information
@@ -153,14 +154,14 @@ enum VRSettingsCatalog {
                     step("hands.cursorSize", "Tamanho do cursor", "Círculo usado para apontar")
                 ]),
                 group("RECONHECIMENTO", [
-                    step("hands.sensitivity", "Sensibilidade da pinça", "Ajusta o limiar Vision nos dois modos"),
+                    slide("hands.sensitivity", "Sensibilidade da pinça", "Ajusta o limiar Vision nos dois modos"),
                     info("hands.info", "Rastreamento", "Precisa de luz e da lente traseira descoberta")
                 ])
             ]
         case .windows:
             return [
                 group("PADRÃO DAS JANELAS", [
-                    step("windows.opacity", "Opacidade", "Fundo dos painéis da Home"),
+                    slide("windows.opacity", "Opacidade", "Fundo dos painéis da Home"),
                     step("windows.depth", "Distância inicial", "Distância das novas janelas"),
                     action("windows.center", "Centralizar janelas", "Trazer painéis para a frente", "scope")
                 ])
@@ -180,7 +181,7 @@ enum VRSettingsCatalog {
         case .cinema:
             return [
                 group("CÂMERA DO CINEMA", [
-                    step("cinema.fov", "Campo de visão", "Ângulo virtual do Cinema"),
+                    slide("cinema.fov", "Campo de visão", "Ângulo virtual do Cinema"),
                     toggle("cinema.invert", "Inverter direção do movimento", "Calibração da cabeça"),
                     toggle("cinema.immersive", "Tela imersiva", "Tela de cinema maior"),
                     toggle("cinema.eyes", "Trocar lado dos olhos", "Inverte a ordem 3D da imagem")
@@ -192,7 +193,7 @@ enum VRSettingsCatalog {
         case .internet:
             return [
                 group("NAVEGADOR", [
-                    step("web.zoom", "Tamanho das páginas", "Zoom das janelas web"),
+                    slide("web.zoom", "Tamanho das páginas", "Zoom das janelas web"),
                     action("web.clear", "Limpar favoritos", "Dois toques para confirmar", "trash"),
                     info("web.info", "Sites protegidos", "Streaming com DRM pode exigir Safari")
                 ])
@@ -258,6 +259,10 @@ enum VRSettingsCatalog {
     private static func step(_ id: String, _ title: String, _ subtitle: String)
         -> VRSettingsRow {
         VRSettingsRow(id: id, title: title, subtitle: subtitle, kind: .stepper)
+    }
+    private static func slide(_ id: String, _ title: String, _ subtitle: String)
+        -> VRSettingsRow {
+        VRSettingsRow(id: id, title: title, subtitle: subtitle, kind: .slider)
     }
     private static func choice(_ id: String, _ title: String, _ subtitle: String,
                                _ symbol: String) -> VRSettingsRow {
