@@ -1,5 +1,6 @@
 import ARKit
 import AVFoundation
+import Combine
 import CoreMotion
 import simd
 import PhotosUI
@@ -105,6 +106,7 @@ final class CinemaModel: ObservableObject {
     @Published private(set) var currentSeatID = 30
     @Published private(set) var currentSeatLabel = "F3 · P7"
     @Published var seatSelectionMode = false
+    @Published var gazeProgress: CGFloat = 0
     @Published var movieTitle = "Escolha um filme MP4"
     @Published var playing = false
     @Published var selectedMode: CinemaVideoMode = .twoD
@@ -450,6 +452,7 @@ final class CinemaModel: ObservableObject {
 
     func setSeatSelectionMode(_ enabled: Bool) {
         seatSelectionMode = enabled
+        gazeProgress = 0
         for marker in seatMarkers.values { marker.isHidden = !enabled }
         revealControls()
     }
@@ -458,24 +461,37 @@ final class CinemaModel: ObservableObject {
         setSeatSelectionMode(!seatSelectionMode)
     }
 
-    /// Raycast ignores the auditorium's normal geometry, so hitting an
-    /// indicator works even if a seat back lies between it and the camera.
+    /// Raycast ignores the auditorium's chairs and finds only the glowing
+    /// selection orbs. Used by touch, pinch, and the headset gaze dwell.
+    private func targetedSeat(at point: CGPoint, in view: SCNView) -> Int? {
+        let hit = view.hitTest(point, options: [
+            .categoryBitMask: 8,
+            .firstFoundOnly: true
+        ]).first
+        guard let name = hit?.node.name,
+              name.hasPrefix("seat-indicator-") else { return nil }
+        return Int(name.replacingOccurrences(of: "seat-indicator-", with: ""))
+    }
+
+    func seatAtGazeCenter() -> Int? {
+        guard seatSelectionMode, let view = leftSceneView else { return nil }
+        return targetedSeat(at: CGPoint(x: view.bounds.midX, y: view.bounds.midY),
+                            in: view)
+    }
+
+    @discardableResult
+    func chooseSeatByGaze(_ seatID: Int) -> Bool {
+        guard seatSelectionMode else { return false }
+        return selectSeat(seatID)
+    }
+
     @discardableResult
     func chooseSeat(at viewportPoint: CGPoint, in view: SCNView? = nil,
                     tryGazeCenter: Bool = false) -> Bool {
         guard seatSelectionMode, let renderer = view ?? leftSceneView else { return false }
-        let options: [SCNHitTestOption: Any] = [
-            .categoryBitMask: 8,
-            .firstFoundOnly: true
-        ]
-        let hit = renderer.hitTest(viewportPoint, options: options).first ??
-            (tryGazeCenter ? renderer.hitTest(
-                CGPoint(x: renderer.bounds.midX, y: renderer.bounds.midY),
-                options: options).first : nil)
-        guard let name = hit?.node.name,
-              name.hasPrefix("seat-indicator-"),
-              let seatID = Int(name.replacingOccurrences(of: "seat-indicator-", with: ""))
-        else { return false }
+        let seatID = targetedSeat(at: viewportPoint, in: renderer) ??
+            (tryGazeCenter ? seatAtGazeCenter() : nil)
+        guard let seatID = seatID else { return false }
         return selectSeat(seatID)
     }
 
@@ -917,6 +933,9 @@ struct CinemaEyeView: View {
     @ObservedObject var updates: LiveUpdateManager
     let onExit: () -> Void
     @State private var lastPinch = false
+    @State private var gazeSeatID: Int?
+    @State private var gazeBeganAt = Date()
+    private let gazeTimer = Timer.publish(every: 0.15, on: .main, in: .common).autoconnect()
     @State private var pickedMovie: PhotosPickerItem?
     @State private var pickingPhotoMovie = false
 
@@ -980,15 +999,23 @@ struct CinemaEyeView: View {
                 }
                 .foregroundStyle(.white)
                 if cinema.seatSelectionMode {
-                    Circle()
-                        .strokeBorder(.cyan.opacity(0.88), lineWidth: 1.7)
-                        .frame(width: 29, height: 29)
-                        .position(x: geometry.size.width / 2,
-                                  y: geometry.size.height / 2)
-                        .allowsHitTesting(false)
+                    ZStack {
+                        Circle()
+                            .strokeBorder(.cyan.opacity(0.88), lineWidth: 1.7)
+                            .frame(width: 29, height: 29)
+                        Circle()
+                            .trim(from: 0, to: cinema.gazeProgress)
+                            .stroke(.yellow, style: StrokeStyle(lineWidth: 3,
+                                                               lineCap: .round))
+                            .frame(width: 37, height: 37)
+                            .rotationEffect(.degrees(-90))
+                    }
+                    .position(x: geometry.size.width / 2,
+                              y: geometry.size.height / 2)
+                    .allowsHitTesting(false)
                     VStack {
                         Spacer()
-                        Text("Olhe para a bolinha da poltrona e faça pinça ou toque")
+                        Text("Olhe 1,5 s para a bolinha, faça pinça ou toque")
                             .font(.system(size: 9, weight: .semibold))
                             .lineLimit(2)
                             .minimumScaleFactor(0.7)
@@ -1137,6 +1164,33 @@ struct CinemaEyeView: View {
                 }
             }
             .animation(.easeInOut(duration: 0.25), value: cinema.controlsVisible)
+            .onReceive(gazeTimer) { _ in
+                // Only left eye runs the gaze timer; the model publishes
+                // progress so both headset eyes display one synchronized ring.
+                guard !rightEye else { return }
+                guard cinema.seatSelectionMode else {
+                    gazeSeatID = nil
+                    if cinema.gazeProgress != 0 { cinema.gazeProgress = 0 }
+                    return
+                }
+                guard let target = cinema.seatAtGazeCenter() else {
+                    gazeSeatID = nil
+                    cinema.gazeProgress = 0
+                    return
+                }
+                if gazeSeatID != target {
+                    gazeSeatID = target
+                    gazeBeganAt = Date()
+                    cinema.gazeProgress = 0
+                }
+                let elapsed = Date().timeIntervalSince(gazeBeganAt)
+                cinema.gazeProgress = min(1, max(0, elapsed / 1.5))
+                if elapsed >= 1.5 {
+                    _ = cinema.chooseSeatByGaze(target)
+                    gazeSeatID = nil
+                    cinema.gazeProgress = 0
+                }
+            }
             .onChange(of: pickedMovie) { nextItem in
                 guard !rightEye, let nextItem = nextItem else { return }
                 Task {
