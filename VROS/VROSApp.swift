@@ -111,7 +111,9 @@ struct VRHomeView: View {
     @StateObject private var ultraWide = VRUltraWideCamera()
     @State private var ultraWideMode = false
     @State private var cameraTransitioning = false
-    @State private var ultraFullFrame = false
+    // Full sensor frame is the honest default for a REAL 0.5x image.
+    // User can opt into fill, which crops the sides inside narrow eye viewports.
+    @State private var ultraFullFrame = true
     @State private var ultraNotice: String?
     @State private var ultraPanelDirections: [UUID: SIMD3<Float>] = [:]
     @State private var ultraDrag: UltraWideDrag?
@@ -271,19 +273,19 @@ struct VRHomeView: View {
 
     private func recenterUltraWide() {
         guard ultraWideMode else { return }
-        // Rebase window directions to their CURRENT screen positions before
-        // changing the gyro origin, preventing a sudden position jump.
+        // When windows are outside the headset's view, recenter intentionally
+        // restores them in front instead of preserving invisible bearings.
         var newDirections: [UUID: SIMD3<Float>] = [:]
         for panel in panels {
-            if let position = ultraWindowCenter(panel, size: eyeViewport,
-                                                right: false) {
-                newDirections[panel.id] = VRUltraWideWindowProjection.screenRay(
-                    at: position, viewport: eyeViewport)
-            }
+            let position = CGPoint(
+                x: eyeViewport.width / 2 + panel.x * eyeViewport.width / 2,
+                y: eyeViewport.height / 2 + panel.y * eyeViewport.height / 2)
+            newDirections[panel.id] = VRUltraWideWindowProjection.screenRay(
+                at: position, viewport: eyeViewport)
         }
         ultraPanelDirections = newDirections
         ultraWide.recenterMotion()
-        ultraNotice = "Mira 3DoF recentralizada"
+        ultraNotice = "Mira e janelas recentralizadas à frente"
     }
 
     private func eyeView(right: Bool, size: CGSize) -> some View {
