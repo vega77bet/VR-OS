@@ -416,3 +416,44 @@ verify(VRSettingsInputGeometry.isScroll(
     "A real 16px hand drag should scroll the Settings list")
 print("PASS: Settings Vision/physical search, back/close, table and scroll")
 print("      hit targets across small/medium/wide headset viewports")
+
+
+// V21 regression: Settings actually adjusts the Vision detector's activation
+// thresholds without losing two-frame debouncing or latching hysteresis.
+let middleThumb = CGPoint(x: 0.5, y: 0.5)
+let borderlineIndex = CGPoint(x: 0.595, y: 0.5) // ratio 0.475 for palm=0.20
+var lowSensitivity = VRPinchDetector()
+var highSensitivity = VRPinchDetector()
+for _ in 0..<4 {
+    verify(!lowSensitivity.update(thumb: middleThumb,
+                                  index: borderlineIndex,
+                                  palmWidth: 0.2, sensitivity: 0),
+           "Very low sensitivity must reject borderline finger separation")
+}
+verify(!highSensitivity.update(thumb: middleThumb,
+                                index: borderlineIndex,
+                                palmWidth: 0.2, sensitivity: 1),
+       "Very high sensitivity still requires two consecutive pinch frames")
+verify(highSensitivity.update(thumb: middleThumb,
+                              index: borderlineIndex,
+                              palmWidth: 0.2, sensitivity: 1),
+       "High sensitivity must recognize a wider finger gap after debounce")
+let hysteresisIndex = CGPoint(x: 0.635, y: 0.5) // ratio 0.675
+verify(highSensitivity.update(thumb: middleThumb,
+                              index: hysteresisIndex,
+                              palmWidth: 0.2, sensitivity: 1),
+       "High sensitivity pinch should stay latched in release hysteresis band")
+let releaseIndex = CGPoint(x: 0.67, y: 0.5) // ratio 0.85
+verify(highSensitivity.update(thumb: middleThumb,
+                              index: releaseIndex,
+                              palmWidth: 0.2, sensitivity: 1),
+       "First open-hand frame must not unpinch")
+verify(!highSensitivity.update(thumb: middleThumb,
+                               index: releaseIndex,
+                               palmWidth: 0.2, sensitivity: 1),
+       "Two open-hand frames must release even at high sensitivity")
+highSensitivity.reset()
+verify(!highSensitivity.pinching,
+       "Settings Vision detector reset must clear held hand gesture")
+print("PASS: Settings pinch sensitivity extreme thresholds, debounce and")
+print("      hysteresis without accidental click or stuck pinch")
