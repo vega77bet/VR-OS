@@ -84,10 +84,10 @@ final class VRWebSession: ObservableObject {
         self.app = app
         requestedURL = app.startURL
         address = app.startURL.absoluteString
-        favorites = (UserDefaults.standard.stringArray(forKey: favoritesKey) ?? [])
+        favorites = Array((UserDefaults.standard.stringArray(forKey: favoritesKey) ?? [])
             .compactMap(URL.init(string:))
             .filter { $0.scheme == "https" }
-            .suffix(4)
+            .suffix(4))
         message = app == .netflix
             ? "Filmes protegidos podem não tocar aqui. Use Safari se necessário."
             : nil
