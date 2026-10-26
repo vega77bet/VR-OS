@@ -1,9 +1,29 @@
 name: VROS
+schemes:
+  VROSRegression:
+    build:
+      targets:
+        VROSRegressionTests: all
+    test:
+      targets:
+        - VROSRegressionTests
 options:
   bundleIdPrefix: com.vega77bet
   deploymentTarget:
     iOS: "16.0"
 targets:
+  VROSRegressionTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: VROS
+        excludes: [VROSApp.swift]
+      - RegressionTests
+    settings:
+      base:
+        SWIFT_VERSION: "5.0"
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGNING_ALLOWED: NO
   VROS:
     type: application
     platform: iOS
@@ -25,3 +45,4 @@ targets:
         INFOPLIST_KEY_UIRequiresFullScreen: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         CODE_SIGNING_ALLOWED: NO
+

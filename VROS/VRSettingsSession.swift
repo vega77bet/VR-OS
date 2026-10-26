@@ -13,7 +13,10 @@ struct VRSettingsCommand: Identifiable {
 @MainActor
 final class VRSettingsSession: ObservableObject {
     @Published var page: VRSettingsPage = .home
-    @Published var searchText: String = ""
+    @Published var searchText: String = "" {
+        didSet { if searchText != oldValue { resetScroll() } }
+    }
+    private let defaults: UserDefaults
     // High-frequency scroll updates must NOT publish into the whole
     // SwiftUI/ARKit headset tree. UIKit mirrors the peer table directly.
     private(set) var scrollOffset: CGFloat = 0
@@ -23,46 +26,66 @@ final class VRSettingsSession: ObservableObject {
     @Published var notice: String?
     @Published var pendingConfirmation: String?
 
-    @Published var lens = VRLensSettings.load() {
-        didSet { lens.save() }
+    @Published var lens = VRLensSettings() {
+        didSet { lens.save(to: defaults) }
     }
-    @Published var cameraUltra = false
-    @Published var fullCameraFrame = true
-    @Published var invertUltraMotion = false
-    @Published var themeIndex = 0
-    @Published var webZoom: CGFloat = 1.0
-    @Published var cinemaFOV: CGFloat = 88
-    @Published var cinemaInvert = false
-    @Published var cinemaImmersive = true
-    @Published var cinemaSwapEyes = false
-    @Published var cinemaAutoControls = true
+    @Published var cameraUltra = false {
+        didSet { defaults.set(cameraUltra, forKey: "vros.ultra.enabled.v1") }
+    }
+    @Published var fullCameraFrame = true {
+        didSet { defaults.set(fullCameraFrame, forKey: "vros.ultra.fullFrame.v1") }
+    }
+    @Published var invertUltraMotion = false {
+        didSet { defaults.set(invertUltraMotion, forKey: "vros.ultra.invertMotion.v1") }
+    }
+    @Published var themeIndex = 0 {
+        didSet { defaults.set(themeIndex, forKey: "vros.selectedTheme.v1") }
+    }
+    @Published var webZoom: CGFloat = 1.0 {
+        didSet { defaults.set(Double(webZoom), forKey: "vros.webZoom.v1") }
+    }
+    @Published var cinemaFOV: CGFloat = 88 {
+        didSet { defaults.set(Double(cinemaFOV), forKey: "vros.cinema.fov.v1") }
+    }
+    @Published var cinemaInvert = false {
+        didSet { defaults.set(cinemaInvert, forKey: "vros.cinema.invert.v1") }
+    }
+    @Published var cinemaImmersive = true {
+        didSet { defaults.set(cinemaImmersive, forKey: "vros.cinema.immersive.v1") }
+    }
+    @Published var cinemaSwapEyes = false {
+        didSet { defaults.set(cinemaSwapEyes, forKey: "vros.cinema.swapEyes.v1") }
+    }
+    @Published var cinemaAutoControls = true {
+        didSet { defaults.set(cinemaAutoControls, forKey: "vros.cinema.autoControls.v1") }
+    }
 
     @Published var showSkeleton: Bool = true {
-        didSet { UserDefaults.standard.set(showSkeleton,
+        didSet { defaults.set(showSkeleton,
                                            forKey: "vros.settings.skeleton.v1") }
     }
     @Published var showCursor: Bool = true {
-        didSet { UserDefaults.standard.set(showCursor,
+        didSet { defaults.set(showCursor,
                                            forKey: "vros.settings.cursor.v1") }
     }
     @Published var cursorSize: CGFloat = 1 {
-        didSet { UserDefaults.standard.set(Double(cursorSize),
+        didSet { defaults.set(Double(cursorSize),
                                            forKey: "vros.settings.cursorSize.v1") }
     }
     @Published var pinchSensitivity: CGFloat = 0.5 {
-        didSet { UserDefaults.standard.set(Double(pinchSensitivity),
+        didSet { defaults.set(Double(pinchSensitivity),
                                            forKey: "vros.settings.pinch.v1") }
     }
     @Published var windowOpacity: CGFloat = 1 {
-        didSet { UserDefaults.standard.set(Double(windowOpacity),
+        didSet { defaults.set(Double(windowOpacity),
                                            forKey: "vros.settings.opacity.v1") }
     }
     @Published var defaultDepth: CGFloat = 1.6 {
-        didSet { UserDefaults.standard.set(Double(defaultDepth),
+        didSet { defaults.set(Double(defaultDepth),
                                            forKey: "vros.settings.defaultDepth.v1") }
     }
     @Published var showHUD: Bool = true {
-        didSet { UserDefaults.standard.set(showHUD,
+        didSet { defaults.set(showHUD,
                                            forKey: "vros.settings.hud.v1") }
     }
 
@@ -80,8 +103,10 @@ final class VRSettingsSession: ObservableObject {
         VRSettingsCatalog.sections(for: page, search: searchText)
     }
 
-    init() {
-        let d = UserDefaults.standard
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        lens = VRLensSettings.load(from: defaults)
+        let d = defaults
         func flag(_ key: String, otherwise: Bool) -> Bool {
             d.object(forKey: key) == nil ? otherwise : d.bool(forKey: key)
         }
@@ -102,9 +127,14 @@ final class VRSettingsSession: ObservableObject {
         defaultDepth = decimal("vros.settings.defaultDepth.v1", otherwise: 1.6,
                                min: 0.75, max: 3.5)
         showHUD = flag("vros.settings.hud.v1", otherwise: true)
-        let storedZoom = d.double(forKey: "vros.webZoom.v1")
-        webZoom = storedZoom > 0 ? max(0.65, min(1.55, CGFloat(storedZoom))) : 1
-        themeIndex = d.integer(forKey: "vros.selectedTheme.v1")
+        webZoom = decimal("vros.webZoom.v1", otherwise: 1, min: 0.65, max: 1.55)
+        let theme = d.integer(forKey: "vros.selectedTheme.v1")
+        themeIndex = (0...3).contains(theme) ? theme : 0
+        cameraUltra = flag("vros.ultra.enabled.v1", otherwise: false)
+        fullCameraFrame = flag("vros.ultra.fullFrame.v1", otherwise: true)
+        cinemaImmersive = flag("vros.cinema.immersive.v1", otherwise: true)
+        cinemaSwapEyes = flag("vros.cinema.swapEyes.v1", otherwise: false)
+        cinemaAutoControls = flag("vros.cinema.autoControls.v1", otherwise: true)
         invertUltraMotion = d.bool(forKey: "vros.ultra.invertMotion.v1")
         cinemaInvert = d.bool(forKey: "vros.cinema.invert.v1")
         let fov = d.double(forKey: "vros.cinema.fov.v1")
@@ -244,7 +274,8 @@ final class VRSettingsSession: ObservableObject {
             }
             return
         case .stepper:
-            step(row.id, direction == 0 ? 1 : direction)
+            guard direction != 0 else { return }
+            step(row.id, direction)
         case .toggle:
             flip(row.id)
         case .choice:
@@ -449,3 +480,4 @@ final class VRSettingsSession: ObservableObject {
         return max(0, min(1, (x - (width - 114)) / 92))
     }
 }
+

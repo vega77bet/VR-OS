@@ -79,6 +79,7 @@ final class CinemaModel: ObservableObject {
     private let screenHeight: CGFloat = 13.4
     private var player: AVPlayer?
     private var endPlaybackObserver: NSObjectProtocol?
+    private var playbackStatusObservation: NSKeyValueObservation?
     private var importedMovieURL: URL?
     private var movieImportID = UUID()
     private var initialOrientation: simd_quatf?
@@ -92,6 +93,7 @@ final class CinemaModel: ObservableObject {
         didSet {
             UserDefaults.standard.set(showControlsAutomatically,
                                       forKey: "vros.cinema.autoControls.v1")
+            revealControls()
         }
     }
     @Published private(set) var screenPitchDegrees: Float = 0
@@ -391,6 +393,8 @@ final class CinemaModel: ObservableObject {
                 UUID().uuidString + "." + url.pathExtension.lowercased())
             try FileManager.default.copyItem(at: url, to: dest)
             player?.pause()
+            playbackStatusObservation = nil
+            sourceAspect = 16.0 / 9.0
             if let previousObserver = endPlaybackObserver {
                 NotificationCenter.default.removeObserver(previousObserver)
                 endPlaybackObserver = nil
@@ -404,6 +408,19 @@ final class CinemaModel: ObservableObject {
             leftScreenMaterial.diffuse.contents = movie
             rightScreenMaterial.diffuse.contents = movie
             player = movie
+            playbackStatusObservation = movie.currentItem?.observe(
+                \.status, options: [.initial, .new]) { [weak self, weak movie] item, _ in
+                guard item.status == .failed else { return }
+                let message = item.error?.localizedDescription ?? "Formato de vídeo incompatível."
+                DispatchQueue.main.async {
+                    guard let self = self, self.player === movie else { return }
+                    self.player?.pause()
+                    self.playing = false
+                    self.errorMessage = "Não foi possível reproduzir: " + message
+                    self.updateLighting()
+                    self.revealControls()
+                }
+            }
             endPlaybackObserver = NotificationCenter.default.addObserver(
                 forName: .AVPlayerItemDidPlayToEndTime,
                 object: movie.currentItem,
@@ -429,6 +446,7 @@ final class CinemaModel: ObservableObject {
                 selectedMode = .twoD
             }
             updateStereoMaterials()
+            fitScreen()
             errorMessage = nil
             playing = true
             updateLighting()
@@ -1416,3 +1434,4 @@ struct CinemaEyeView: View {
         .buttonStyle(.plain)
     }
 }
+

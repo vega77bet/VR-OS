@@ -22,6 +22,17 @@ jobs:
       - name: Build unsigned app
         run: |
           xcodebuild -project VROS.xcodeproj -scheme VROS -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
+      - name: Test Settings session, persistence and UIKit controls
+        run: |
+          DEVICE_ID=$(xcrun simctl list devices available -j | ruby -rjson -e 'd=JSON.parse(STDIN.read)["devices"].values.flatten.find { |v| v["name"].start_with?("iPhone") }; abort "No iPhone simulator" unless d; puts d["udid"]')
+          xcodebuild -project VROS.xcodeproj -scheme VROSRegression -destination "platform=iOS Simulator,id=$DEVICE_ID" -derivedDataPath test-build -resultBundlePath TestResults.xcresult CODE_SIGNING_ALLOWED=NO test
+      - name: Upload regression results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: V21-regression-results
+          path: TestResults.xcresult
+          if-no-files-found: ignore
       - name: Package unsigned IPA
         run: |
           mkdir -p Payload

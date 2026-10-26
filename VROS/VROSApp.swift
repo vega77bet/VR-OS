@@ -1,4 +1,5 @@
 import ARKit
+import AVFoundation
 import SwiftUI
 import UIKit
 import simd
@@ -258,7 +259,10 @@ struct VRHomeView: View {
             UIDevice.current.isBatteryMonitoringEnabled = true
             runtime.setCameraPreviewEnabled(selectedTheme == .graphite)
             runtime.setCinemaMode(cinemaOpen)
-            if ultraWideMode {
+            if settings.cameraUltra && !ultraWideMode &&
+               AVCaptureDevice.authorizationStatus(for: .video) == .authorized {
+                toggleUltraWide()
+            } else if ultraWideMode {
                 // A reappearing root view must not restart ARKit while the
                 // physical ultrawide lens is owned by AVCapture.
                 runtime.stop()
@@ -452,8 +456,9 @@ struct VRHomeView: View {
                 ultraNotice = nil
                 runtime.setCameraPreviewEnabled(
                     selectedTheme == .graphite && !settingsOpen)
-                runtime.resume()
+                if scenePhase == .active { runtime.resume() }
                 cameraTransitioning = false
+                if !settingsOpen { settings.cameraUltra = false }
                 if settingsOpen && settings.cameraUltra { toggleUltraWide() }
             }
         } else {
@@ -475,6 +480,11 @@ struct VRHomeView: View {
             ultraNotice = nil
             dockExpanded = false
             ultraWide.start { started in
+                guard scenePhase == .active else {
+                    ultraWide.stop()
+                    cameraTransitioning = false
+                    return
+                }
                 if !started {
                     // No physical lens or camera permission: do not leave
                     // the user trapped in a black 0.5x mode.
@@ -487,6 +497,7 @@ struct VRHomeView: View {
                     runtime.resume()
                 }
                 cameraTransitioning = false
+                if started && !settingsOpen { settings.cameraUltra = true }
                 // A Settings switch may have been changed while capture
                 // was starting: apply the newest desired state afterwards.
                 if started && settingsOpen && !settings.cameraUltra {
@@ -1136,12 +1147,15 @@ struct VRHomeView: View {
     /// Map Vision's normalized joint coordinates through the exact video
     /// scaling used in this eye, including the optional full-frame 0.5x fit.
     private func mappedPoint(_ raw: CGPoint, size: CGSize) -> CGPoint {
-        let image = ultraWideMode ? ultraWide.image : runtime.cameraImage
-        guard let image = image else {
+        // Preview pixels are deliberately hidden in Settings and themes.
+        // Keep the same sensor dimensions so the pointer does not jump.
+        let resolution = ultraWideMode ? ultraWide.imageResolution :
+            (runtime.camera?.imageResolution ?? .zero)
+        guard resolution.width > 0, resolution.height > 0 else {
             return CGPoint(x: raw.x * size.width, y: raw.y * size.height)
         }
-        let iw = CGFloat(image.width)
-        let ih = CGFloat(image.height)
+        let iw = resolution.width
+        let ih = resolution.height
         let scale = (ultraWideMode && ultraFullFrame
             ? min(size.width / iw, size.height / ih)
             : max(size.width / iw, size.height / ih)) * settings.lens.cameraZoom
@@ -1951,3 +1965,4 @@ struct VRHomeView: View {
         }
     }
 }
+

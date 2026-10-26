@@ -85,8 +85,7 @@ struct VRLensSettings: Equatable {
         curvature = 0.85
     }
 
-    func save() {
-        let defaults = UserDefaults.standard
+    func save(to defaults: UserDefaults = .standard) {
         defaults.set(profile.rawValue, forKey: "vros.lens.profile.v1")
         defaults.set(Double(scale), forKey: "vros.lens.size.v1")
         defaults.set(Double(spacing), forKey: "vros.lens.spacing.v1")
@@ -95,8 +94,7 @@ struct VRLensSettings: Equatable {
         defaults.set(Double(curvature), forKey: "vros.lens.curve.v1")
     }
 
-    static func load() -> VRLensSettings {
-        let defaults = UserDefaults.standard
+    static func load(from defaults: UserDefaults = .standard) -> VRLensSettings {
         var value = VRLensSettings()
         if defaults.object(forKey: "vros.lens.profile.v1") != nil {
             value.profile = VRLensProfile(
@@ -118,6 +116,11 @@ struct VRLensSettings: Equatable {
         if defaults.object(forKey: "vros.lens.curve.v1") != nil {
             value.curvature = CGFloat(defaults.double(forKey: "vros.lens.curve.v1"))
         }
+        if !value.scale.isFinite { value.scale = 1 }
+        if !value.spacing.isFinite { value.spacing = 0 }
+        if !value.verticalOffset.isFinite { value.verticalOffset = 0 }
+        if !value.cameraZoom.isFinite { value.cameraZoom = 1 }
+        if !value.curvature.isFinite { value.curvature = 0.85 }
         value.scale = max(0.75, min(1.40, value.scale))
         value.spacing = max(-0.075, min(0.12, value.spacing))
         value.verticalOffset = max(-0.16, min(0.16, value.verticalOffset))
@@ -185,3 +188,4 @@ enum VRLensMenuGeometry {
         return nil
     }
 }
+

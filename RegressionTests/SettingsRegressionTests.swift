@@ -1,0 +1,157 @@
+import XCTest
+import SwiftUI
+import UIKit
+
+final class SettingsRegressionTests: XCTestCase {
+    @MainActor
+    func testEveryControlPersistsAcrossNewSession() throws {
+        let name = "vros.regression." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let session = VRSettingsSession(defaults: defaults)
+        for page in VRSettingsPage.allCases {
+            for row in VRSettingsCatalog.sections(for: page).flatMap(\.rows) {
+                switch row.kind {
+                case .toggle, .choice: session.perform(row)
+                case .stepper: session.perform(row, direction: 1)
+                case .slider: session.setNormalized(row.id, fraction: 0.8)
+                default: break
+                }
+            }
+        }
+        let reopened = VRSettingsSession(defaults: defaults)
+        for page in VRSettingsPage.allCases {
+            for row in VRSettingsCatalog.sections(for: page).flatMap(\.rows) {
+                XCTAssertEqual(reopened.value(for: row.id), session.value(for: row.id), row.id)
+                XCTAssertEqual(reopened.toggled(row.id), session.toggled(row.id), row.id)
+                XCTAssertEqual(reopened.selected(row.id), session.selected(row.id), row.id)
+            }
+        }
+        XCTAssertEqual(reopened.lens, session.lens)
+    }
+
+    @MainActor
+    func testResetRequiresConfirmationAndPersistsDefaults() throws {
+        let name = "vros.regression." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let session = VRSettingsSession(defaults: defaults)
+        session.cameraUltra = true
+        session.fullCameraFrame = false
+        session.themeIndex = 3
+        session.cinemaImmersive = false
+        session.cinemaSwapEyes = true
+        session.cinemaAutoControls = false
+        session.setNormalized("windows.opacity", fraction: 0)
+        let reset = try XCTUnwrap(VRSettingsCatalog.sections(for: .general)
+            .flatMap(\.rows).first { $0.id == "general.reset" })
+        session.perform(reset)
+        XCTAssertNil(session.command)
+        XCTAssertEqual(session.themeIndex, 3)
+        session.perform(reset)
+        XCTAssertNotNil(session.command)
+        let reopened = VRSettingsSession(defaults: defaults)
+        XCTAssertFalse(reopened.cameraUltra)
+        XCTAssertTrue(reopened.fullCameraFrame)
+        XCTAssertEqual(reopened.themeIndex, 0)
+        XCTAssertTrue(reopened.cinemaImmersive)
+        XCTAssertFalse(reopened.cinemaSwapEyes)
+        XCTAssertTrue(reopened.cinemaAutoControls)
+        XCTAssertEqual(reopened.windowOpacity, 1)
+    }
+
+    @MainActor
+    func testInvalidStoredNumbersHaveSafeDefaults() throws {
+        let name = "vros.regression." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        defaults.set(Double.nan, forKey: "vros.lens.size.v1")
+        defaults.set(Double.infinity, forKey: "vros.lens.zoom.v1")
+        defaults.set(Double.nan, forKey: "vros.webZoom.v1")
+        defaults.set(999, forKey: "vros.selectedTheme.v1")
+        let session = VRSettingsSession(defaults: defaults)
+        XCTAssertEqual(session.lens.scale, 1)
+        XCTAssertEqual(session.lens.cameraZoom, 1)
+        XCTAssertEqual(session.webZoom, 1)
+        XCTAssertEqual(session.themeIndex, 0)
+        session.setNormalized("cinema.fov", fraction: .nan)
+        XCTAssertEqual(session.cinemaFOV, 85)
+    }
+
+    @MainActor
+    func testStepperLabelDoesNotIncrement() throws {
+        let row = try XCTUnwrap(VRSettingsCatalog.sections(for: .hands)
+            .flatMap(\.rows).first { $0.id == "hands.cursorSize" })
+        let name = "vros.regression." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let session = VRSettingsSession(defaults: defaults)
+        session.perform(row)
+        XCTAssertEqual(session.cursorSize, 1)
+        session.perform(row, direction: 1)
+        XCTAssertEqual(session.cursorSize, 1.1, accuracy: 0.001)
+        session.perform(row, direction: -1)
+        XCTAssertEqual(session.cursorSize, 1, accuracy: 0.001)
+    }
+
+    @MainActor
+    func testSearchAndNavigationResetBothScrollOffsets() {
+        let session = VRSettingsSession()
+        let left = UITableView(frame: CGRect(x: 0, y: 0, width: 300, height: 200))
+        let right = UITableView(frame: left.frame)
+        session.primaryTable = left
+        session.secondaryTable = right
+        for table in [left, right] { table.contentSize = CGSize(width: 300, height: 1000) }
+        session.beginPhysicalScroll(rightEye: true)
+        right.contentOffset.y = 180
+        session.updateScroll(180, fromRightEye: true)
+        XCTAssertEqual(left.contentOffset.y, 180, accuracy: 0.01)
+        session.searchText = "camera"
+        XCTAssertEqual(session.scrollOffset, 0)
+        XCTAssertEqual(left.contentOffset.y, 0)
+        XCTAssertEqual(right.contentOffset.y, 0)
+        session.enter(.visor)
+        session.scrollBy(70)
+        XCTAssertEqual(right.contentOffset.y, left.contentOffset.y, accuracy: 0.01)
+        session.back()
+        XCTAssertEqual(session.page, .home)
+        XCTAssertEqual(session.scrollOffset, 0)
+    }
+
+    @MainActor
+    func testUIKitControlsChangeSharedSession() throws {
+        let name = "vros.regression." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let session = VRSettingsSession(defaults: defaults)
+        let toggleRow = try XCTUnwrap(VRSettingsCatalog.sections(for: .hands)
+            .flatMap(\.rows).first { $0.id == "hands.cursor" })
+        let left = VRSettingsTableCell(style: .default, reuseIdentifier: nil)
+        let right = VRSettingsTableCell(style: .default, reuseIdentifier: nil)
+        left.configure(row: toggleRow, session: session, enabled: true)
+        let control = try XCTUnwrap(left.contentView.subviews.compactMap { $0 as? UISwitch }.first)
+        control.isOn = false
+        control.sendActions(for: .valueChanged)
+        XCTAssertFalse(session.showCursor)
+        right.configure(row: toggleRow, session: session, enabled: true)
+        XCTAssertFalse(try XCTUnwrap(right.contentView.subviews.compactMap { $0 as? UISwitch }.first).isOn)
+        let sliderRow = try XCTUnwrap(VRSettingsCatalog.sections(for: .cinema)
+            .flatMap(\.rows).first { $0.id == "cinema.fov" })
+        left.configure(row: sliderRow, session: session, enabled: true)
+        left.slider.value = 1
+        left.slider.sendActions(for: .valueChanged)
+        right.configure(row: sliderRow, session: session, enabled: true)
+        XCTAssertEqual(session.cinemaFOV, 115)
+        XCTAssertEqual(right.slider.value, 1)
+    }
+
+    func testInvalidVisionSampleCancelsHeldPinch() {
+        var detector = VRPinchDetector()
+        for _ in 0..<2 {
+            _ = detector.update(thumb: .zero, index: .zero, palmWidth: 0.2)
+        }
+        XCTAssertTrue(detector.pinching)
+        XCTAssertFalse(detector.update(thumb: CGPoint(x: CGFloat.nan, y: 0),
+                                      index: .zero, palmWidth: 0.2))
+    }
+}

@@ -64,8 +64,7 @@ final class VRRuntime: NSObject, ObservableObject, ARSessionDelegate {
     private var filteredDepth: Float?
     // Vision-queue only. Updated safely by settings on the same serial queue.
     private var pinchSensitivity: CGFloat = 0.5
-    private var pinchLatched = false
-    private var pinchFrames = 0
+    private var pinchDetector = VRPinchDetector()
     private var missingFrames = 0
 
     override init() {
@@ -272,20 +271,9 @@ final class VRRuntime: NSObject, ObservableObject, ARSessionDelegate {
 
             missingFrames = 0
             let palm = palmSpan(next)
-            let pinchSize = max(palm, 0.04)
-            let pinchRatio = hypot(index.x - thumb.x, index.y - thumb.y) / pinchSize
-            let engage = 0.42 + (pinchSensitivity - 0.5) * 0.18
-            let release = 0.63 + (pinchSensitivity - 0.5) * 0.16
-            let target = pinchLatched ? pinchRatio < release : pinchRatio < engage
-            if target == pinchLatched {
-                pinchFrames = 0
-            } else {
-                pinchFrames += 1
-                if pinchFrames >= 2 {
-                    pinchLatched = target
-                    pinchFrames = 0
-                }
-            }
+            let pinching = pinchDetector.update(
+                thumb: thumb, index: index, palmWidth: palm,
+                sensitivity: pinchSensitivity)
 
             let depth = estimateDepth(joints: next, camera: frame.camera)
             let world: SIMD3<Float>? = depth.flatMap { d in
@@ -294,7 +282,7 @@ final class VRRuntime: NSObject, ObservableObject, ARSessionDelegate {
                                               y: index.y * viewport.height),
                                   viewport: viewport, depth: d, using: frame.camera)
             }
-            let state = TrackedHand(point: index, visible: true, pinching: pinchLatched,
+            let state = TrackedHand(point: index, visible: true, pinching: pinching,
                                     joints: next, estimatedDepth: depth, worldPoint: world)
             let count = next.compactMap { $0 }.count
             let message = depth.map { "Mão \(count)/21 · Z ≈ \(String(format: "%.2f", $0)) m" }
@@ -338,11 +326,11 @@ final class VRRuntime: NSObject, ObservableObject, ARSessionDelegate {
         guard missingFrames >= 3 else { return }
         filteredJoints = Array(repeating: nil, count: 21)
         filteredDepth = nil
-        pinchLatched = false
-        pinchFrames = 0
+        pinchDetector.reset()
         DispatchQueue.main.async { [weak self] in
             self?.hand = TrackedHand()
             self?.cameraStatus = "Mostre palma e dedos à câmera traseira"
         }
     }
 }
+

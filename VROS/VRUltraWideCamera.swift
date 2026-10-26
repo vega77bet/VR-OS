@@ -12,6 +12,7 @@ import simd
 final class VRUltraWideCamera: NSObject, ObservableObject,
                                AVCaptureVideoDataOutputSampleBufferDelegate {
     @Published private(set) var image: CGImage?
+    @Published private(set) var imageResolution = CGSize.zero
     @Published private(set) var status = "Preparando câmera 0,5x…"
     @Published private(set) var active = false
     @Published private(set) var hand = TrackedHand()
@@ -39,6 +40,14 @@ final class VRUltraWideCamera: NSObject, ObservableObject,
     private var pinchSensitivity: CGFloat = 0.5
     private var missingFrames = 0
     private var configured = false
+    private var lastResolution = CGSize.zero
+
+    private func imageResolutionNeedsUpdate(_ buffer: CVPixelBuffer) -> Bool {
+        let size = CGSize(width: CVPixelBufferGetWidth(buffer), height: CVPixelBufferGetHeight(buffer))
+        guard size != lastResolution else { return false }
+        lastResolution = size
+        return true
+    }
 
     override init() {
         super.init()
@@ -112,6 +121,7 @@ final class VRUltraWideCamera: NSObject, ObservableObject,
             output.alwaysDiscardsLateVideoFrames = true
             output.setSampleBufferDelegate(self, queue: outputQueue)
             guard capture.canAddOutput(output) else {
+                capture.removeInput(input)
                 capture.commitConfiguration()
                 DispatchQueue.main.async { self.status = "Falha ao receber vídeo 0,5x" }
                 return false
@@ -214,6 +224,13 @@ final class VRUltraWideCamera: NSObject, ObservableObject,
                        from connection: AVCaptureConnection) {
         frameIndex += 1
         guard let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        if imageResolutionNeedsUpdate(buffer) {
+            let resolution = CGSize(width: CVPixelBufferGetWidth(buffer),
+                                    height: CVPixelBufferGetHeight(buffer))
+            DispatchQueue.main.async { [weak self] in
+                self?.imageResolution = resolution
+            }
+        }
         if frameIndex % 2 == 0 && displayEnabled {
             let image = CIImage(cvPixelBuffer: buffer)
             if let cgImage = context.createCGImage(image, from: image.extent) {
@@ -299,3 +316,4 @@ final class VRUltraWideCamera: NSObject, ObservableObject,
         }
     }
 }
+
