@@ -249,6 +249,12 @@ struct VRHomeView: View {
                 ? min(1.55, max(0.65, CGFloat(savedWebZoom))) : 1.0
             ultraInvertMotion =
                 UserDefaults.standard.bool(forKey: "vros.ultra.invertMotion.v1")
+            if UserDefaults.standard.object(forKey: "vros.ultra.fullFrame.v1") != nil {
+                ultraFullFrame =
+                    UserDefaults.standard.bool(forKey: "vros.ultra.fullFrame.v1")
+            }
+            runtime.setPinchSensitivity(settings.pinchSensitivity)
+            ultraWide.setPinchSensitivity(settings.pinchSensitivity)
             UIDevice.current.isBatteryMonitoringEnabled = true
             runtime.setCameraPreviewEnabled(selectedTheme == .graphite)
             runtime.setCinemaMode(cinemaOpen)
@@ -267,6 +273,10 @@ struct VRHomeView: View {
         }
         .onChange(of: settings.revision) { _ in
             applySettingsChanges()
+        }
+        .onChange(of: ultraFullFrame) { enabled in
+            UserDefaults.standard.set(enabled,
+                                      forKey: "vros.ultra.fullFrame.v1")
         }
         .onChange(of: webWindowZoom) { zoom in
             UserDefaults.standard.set(Double(zoom), forKey: "vros.webZoom.v1")
@@ -1690,7 +1700,7 @@ struct VRHomeView: View {
             text: "",
             x: 0.08,
             y: -0.30,
-            depth: 1.3,
+            depth: Double(settings.defaultDepth),
             kind: .updates
         )
         panels.append(panel)
@@ -1720,7 +1730,7 @@ struct VRHomeView: View {
             text: app.description,
             x: 0,
             y: -0.02,
-            depth: 1.2,
+            depth: Double(settings.defaultDepth),
             kind: .web,
             webApp: app
         )
