@@ -205,6 +205,32 @@ struct VRHomeView: View {
         }
     }
 
+    private func toggleUltraWide() {
+        guard !cameraTransitioning, !cinemaOpen else { return }
+        cameraTransitioning = true
+        lastPinch = false
+        drag = nil
+        webPinchGesture = nil
+        notePinchGesture = nil
+        appsOpen = false
+        themeMenuOpen = false
+        if ultraWideMode {
+            // Wait for AVCapture to release the physical lens before ARKit resumes.
+            ultraWide.stop { [self] in
+                ultraWideMode = false
+                runtime.setCameraPreviewEnabled(selectedTheme == .graphite)
+                runtime.resume()
+                cameraTransitioning = false
+            }
+        } else {
+            // ARKit and AVCapture cannot simultaneously own the rear camera.
+            runtime.stop()
+            ultraWideMode = true
+            ultraWide.start()
+            cameraTransitioning = false
+        }
+    }
+
     private func eyeView(right: Bool, size: CGSize) -> some View {
         let w = size.width
         let h = size.height
