@@ -1,6 +1,15 @@
-# VR-OS 4.5 — 0,5x real com Vision e rastreamento de cabeça 3DoF
+# VR-OS 4.6 — visor curvo para VR Box + câmera 0,5x com rastreamento
 
 Aplicativo **experimental de realidade mista** para iPhone em modo paisagem, pensado para uso sentado com um headset simples tipo VR Box. **Não substitui o iOS** e não instala aplicativos iOS dentro das janelas.
+
+## Destaque V20 — dois visores curvos como na imagem de referência
+
+- **Novas aberturas ópticas:** em vez de duas metades retangulares ocupando toda a tela, dois blocos curvos sobre fundo preto, com centros mais próximos e tamanho/calibração independentes do tamanho da tela. O mesmo layout vale para Home ARKit, ultrawide 0,5x e Cinema.
+- **Perfil Referência (padrão):** cada olho usa 28,5% da largura e 60% da altura da tela; centros em 35% e 65% da largura, altura do centro em 62,5%, aproximadamente como na imagem enviada.
+- **Perfis VR Box + / Compacto:** alternativa com área maior ou visor menor, conforme o headset.
+- **Botão Visor no dock:** ajuste por toque ou pinça de tamanho, separação visual/IPD, altura, zoom digital e curvatura. Configuração persistente no iPhone. Não representa calibração óptica física.
+- **Central de Apps paginada:** todos os sete atalhos continuam acessíveis mesmo em visores compactos; menu Temas reduz o tamanho dos cartões.
+- **Limitações:** a máscara não aumenta FOV óptico nem altera a lente 0,5x, e o zoom digital acima de 100% **recorta** parte da câmera. A imagem de ambas as câmeras permanece monocular, copiada para os dois olhos. Consulte [V20_VISOR_LENTES.md](V20_VISOR_LENTES.md) para medidas e testes.
 
 ## Destaque V19 — ultrawide real com mãos e cabeça
 
@@ -24,7 +33,7 @@ Aplicativo **experimental de realidade mista** para iPhone em modo paisagem, pen
 ## Como controlar
 
 1. Coloque o iPhone na horizontal; execute o app e permita câmera/movimento.
-2. **Dock**: Janela, Apps, Cinema, Atualizar, Temas, Centro. Depois de selecionar, o Dock pode virar um botão pequeno no canto inferior esquerdo; toque ou faça pinça nesse botão para reabri-lo.
+2. **Dock**: Janela, Apps, Cinema, Atualizar, Temas, Centro, 0,5x/ARKit e Visor. Em Visor, selecione Referência, VR Box + ou Compacto e ajuste IPD visual e tamanho dos dois olhos. Depois de selecionar, o Dock pode virar um botão pequeno no canto inferior esquerdo; toque ou faça pinça nesse botão para reabri-lo.
 3. **Mover janela**: segure a pinça na **linha branca abaixo** do cartão e arraste a mão. A distância usa estimativa monocular e pode variar.
 4. **Nota longa**: role tocando, use ↑/↓ ou segure a pinça sobre o texto e mova a mão. A−/A+ mudam o tamanho da letra.
 5. **Site**: abra Apps, selecione a plataforma; expanda pelo ícone no cabeçalho para Modo Foco. Use setas de scroll, zoom de página, estrelinha para salvar favorito, ou pinça curta em links e pinça prolongada para rolar. Alguns sites exigem toque físico.
@@ -47,7 +56,7 @@ Aplicativo **experimental de realidade mista** para iPhone em modo paisagem, pen
 ```sh
 brew install xcodegen
 xcodegen generate
-swiftc VROS/VRGestureGeometry.swift VROS/VRCinemaGeometry.swift Tests/main.swift -o /tmp/vros-tests
+swiftc VROS/VRGestureGeometry.swift VROS/VRCinemaGeometry.swift VROS/VRUltraWideWindowProjection.swift VROS/VRPinchDetector.swift VROS/VRLensGeometry.swift Tests/main.swift -o /tmp/vros-tests
 /tmp/vros-tests
 xcodebuild -project VROS.xcodeproj -scheme VROS -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
 ```
@@ -58,4 +67,4 @@ O workflow `.github/workflows/build-ipa.yml` faz build e publica um **IPA unsign
 
 O manifesto público `https://vr-os-content-updates.vercel.app/manifest.json` fornece apenas **textos, templates de janelas, algumas cores e metadados de versão**. É validado, mantido em cache local e **não executa Swift nem atualiza recursos nativos**. Novos apps web/gestos/correções de código exigem outra IPA assinada. Os frames de câmera e pontos da mão são processados localmente.
 
-Para ver auditoria, alterações e roteiro de teste, leia `V17_AUDITORIA.md`.
+Para testes de visor e perfis, veja [V20_VISOR_LENTES.md](V20_VISOR_LENTES.md). Para as melhorias anteriores, consulte [V19_RASTREAMENTO_05X.md](V19_RASTREAMENTO_05X.md) e `V17_AUDITORIA.md`.
