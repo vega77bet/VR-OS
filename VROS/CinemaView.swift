@@ -61,6 +61,10 @@ private struct CinemaSeat {
 
 final class CinemaModel: ObservableObject {
     let scene = SCNScene()
+    // One rotating head rig keeps the stereo 64-mm separation aligned with
+    // the head direction. Previously each eye was rotated independently at
+    // a fixed WORLD-space X offset, corrupting stereo when looking sideways.
+    private let headRig = SCNNode()
     let leftCamera = SCNNode()
     let rightCamera = SCNNode()
     // Both eyes sample different halves of the same AVPlayer frame. Using
@@ -105,7 +109,7 @@ final class CinemaModel: ObservableObject {
     @Published var playing = false
     @Published var selectedMode: CinemaVideoMode = .twoD
     @Published var immersiveScreen = true
-    @Published var cinemaFovDegrees: CGFloat = 78
+    @Published var cinemaFovDegrees: CGFloat = 88
     @Published var swapEyes = false
     @Published var convergence: CGFloat = 0
     @Published var controlsVisible = true
@@ -260,8 +264,7 @@ final class CinemaModel: ObservableObject {
     private func applyHeadOrientation(_ delta: simd_quatf) {
         let corrected = invertTracking ? simd_inverse(delta) : delta
         let finalOrientation = simd_normalize(screenAimOrientation * corrected)
-        leftCamera.simdOrientation = finalOrientation
-        rightCamera.simdOrientation = finalOrientation
+        headRig.simdOrientation = finalOrientation
     }
 
     func adjustScreenHeight(_ direction: Float) {
@@ -417,32 +420,31 @@ final class CinemaModel: ObservableObject {
     }
 
     func adjustCinemaFOV(_ delta: CGFloat) {
-        cinemaFovDegrees = min(105, max(55, cinemaFovDegrees + delta))
+        cinemaFovDegrees = min(115, max(55, cinemaFovDegrees + delta))
         updateSeatPosition()
         revealControls()
     }
 
-    /// Camera translation is the seat position. MAX changes field of view,
-    /// not the physical seat, so users don't accidentally leave their chair.
+    /// Move the STEREO HEAD RIG as one object; eye offsets stay in its
+    /// local coordinates and therefore rotate correctly with head motion.
     private func updateSeatPosition(animated: Bool = false) {
         guard let selected = seats.first(where: { $0.id == currentSeatID }) else { return }
-        for (eye, offset) in [(leftCamera, Float(-0.032)),
-                              (rightCamera, Float(0.032))] {
-            // Wider viewing angle avoids cropping an ultra-wide cinema screen.
-            // The user can tune this for their headset lenses.
+        for eye in [leftCamera, rightCamera] {
+            // Each eye's viewport is tall/narrow (half a landscape iPhone).
+            // SceneKit defaults to VERTICAL FOV, shrinking horizontal FOV to
+            // around 30 degrees. Explicit horizontal FOV fixes the tiny image.
+            eye.camera?.projectionDirection = .horizontal
             eye.camera?.fieldOfView = immersiveScreen
-                ? cinemaFovDegrees : min(115, cinemaFovDegrees + 12)
-            let target = SCNVector3(selected.cameraPosition.x + offset,
-                                    selected.cameraPosition.y,
-                                    selected.cameraPosition.z)
-            eye.removeAction(forKey: "cinemaSeatTravel")
-            if animated {
-                let move = SCNAction.move(to: target, duration: 0.72)
-                move.timingMode = .easeInEaseOut
-                eye.runAction(move, forKey: "cinemaSeatTravel")
-            } else {
-                eye.position = target
-            }
+                ? cinemaFovDegrees : min(125, cinemaFovDegrees + 12)
+        }
+        let target = selected.cameraPosition
+        headRig.removeAction(forKey: "cinemaSeatTravel")
+        if animated {
+            let move = SCNAction.move(to: target, duration: 0.72)
+            move.timingMode = .easeInEaseOut
+            headRig.runAction(move, forKey: "cinemaSeatTravel")
+        } else {
+            headRig.position = target
         }
     }
 
@@ -848,15 +850,18 @@ final class CinemaModel: ObservableObject {
         screenBounceLight = screenLight.light
         scene.rootNode.addChildNode(screenLight)
 
-        // Two independent eyes, 64-mm interpupillary separation.
+        // One head rig with local ±32-mm eye offsets; unlike world-space
+        // offsets, this preserves IPD direction when the user turns their head.
+        scene.rootNode.addChildNode(headRig)
         for (index, eye) in [leftCamera, rightCamera].enumerated() {
             eye.camera = SCNCamera()
             eye.camera?.categoryBitMask = index == 0 ? (1 | 2 | 8) : (1 | 4 | 8)
-            eye.camera?.fieldOfView = 75
+            eye.camera?.projectionDirection = .horizontal
+            eye.camera?.fieldOfView = cinemaFovDegrees
             eye.camera?.zNear = 0.05
             eye.camera?.zFar = 90
-            eye.position = SCNVector3(index == 0 ? -0.032 : 0.032, 1.68, 3.25)
-            scene.rootNode.addChildNode(eye)
+            eye.position = SCNVector3(index == 0 ? -0.032 : 0.032, 0, 0)
+            headRig.addChildNode(eye)
         }
     }
 }
