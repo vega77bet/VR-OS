@@ -22,7 +22,8 @@ struct VRLensCalibrationView: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .foregroundStyle(.white.opacity(0.72))
-                .frame(maxWidth: .infinity, height: 14)
+                .frame(maxWidth: .infinity)
+                .frame(height: 14)
         }
         .padding(8)
         .frame(width: frame.width / interfaceScale,
