@@ -1169,9 +1169,18 @@ struct VRHomeView: View {
             let count = panels.count + 1
             panels.append(VRPanel(
                 title: "Janela \(count)", icon: "macwindow",
-                text: "Janela ancorada com ARKit.\n"
-                    + "Pegue a linha branca abaixo para mover em 3D.\n"
-                    + "Use Cinema para assistir aos seus arquivos MP4.",
+                text: "GUIA RÁPIDO DO VR-OS V17\n\n"
+                    + "1. Pinça na linha branca: arraste a janela pelo ambiente.\n\n"
+                    + "2. Segure a pinça sobre este texto e mova a mão para ROLAR a janela.\n\n"
+                    + "3. Use as setas ↑/↓ para subir e descer. A−/A+ deixam o texto menor ou maior.\n\n"
+                    + "4. Apps: YouTube, Netflix, Navegador, Twitch e Wikipedia. "
+                    + "A estrela salva favoritos, a lupa ajusta zoom e o ícone de expandir abre o Modo Foco.\n\n"
+                    + "5. Cinema: poltronas selecionadas por olhar por 1,5 s. "
+                    + "Use Centralizar e Mirar tela antes de testar os movimentos.\n\n"
+                    + "6. A dock vira um botão no canto para liberar a visão. "
+                    + "Toque nesse botão para reabrir as ferramentas.\n\n"
+                    + "7. O campo óptico depende das lentes do headset; "
+                    + "se sentir desconforto, pare e ajuste o encaixe.",
                 x: CGFloat((count % 3) - 1) * 0.15,
                 y: CGFloat(count % 2 == 0 ? -0.38 : -0.28),
                 depth: 1.6))
