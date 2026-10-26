@@ -1161,7 +1161,9 @@ struct VRHomeView: View {
     /// actions as UIKit touches. Dragging a slider never scrolls the page.
     private func processSettingsGesture(_ hand: TrackedHand, size: CGSize) {
         guard hand.visible else {
-            finishSettingsPinch(size: size)
+            // Vision losing the hand is NOT the same as fingers separating.
+            // Cancel held gestures without clicking any destructive control.
+            settingsGesture = nil
             lastPinch = false
             return
         }
