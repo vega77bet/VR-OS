@@ -66,6 +66,8 @@ final class VRRuntime: NSObject, ObservableObject, ARSessionDelegate {
     private var pinchSensitivity: CGFloat = 0.5
     private var pinchDetector = VRPinchDetector()
     private var missingFrames = 0
+    // Main-thread lifecycle intent also gates asynchronous permission replies.
+    private var startRequested = false
 
     override init() {
         super.init()
@@ -80,6 +82,7 @@ final class VRRuntime: NSObject, ObservableObject, ARSessionDelegate {
     }
 
     func start() {
+        startRequested = true
         guard ARWorldTrackingConfiguration.isSupported else {
             cameraStatus = "Este aparelho não suporta ARKit World Tracking"
             return
@@ -102,6 +105,7 @@ final class VRRuntime: NSObject, ObservableObject, ARSessionDelegate {
     }
 
     private func runSession(resuming: Bool = false) {
+        guard startRequested else { return }
         let config = ARWorldTrackingConfiguration()
         config.worldAlignment = .gravity
         config.planeDetection = [.horizontal, .vertical]
@@ -115,6 +119,11 @@ final class VRRuntime: NSObject, ObservableObject, ARSessionDelegate {
     }
 
     func resume() {
+        startRequested = true
+        guard ARWorldTrackingConfiguration.isSupported else {
+            start()
+            return
+        }
         guard AVCaptureDevice.authorizationStatus(for: .video) == .authorized else {
             start()
             return
@@ -123,7 +132,10 @@ final class VRRuntime: NSObject, ObservableObject, ARSessionDelegate {
     }
 
     func stop() {
+        startRequested = false
         session.pause()
+        hand = TrackedHand()
+        spatialTracking = false
     }
 
     /// Cinema renders its own stereo SceneKit scene. Avoid the expensive

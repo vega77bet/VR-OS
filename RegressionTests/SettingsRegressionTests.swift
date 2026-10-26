@@ -1,8 +1,47 @@
 import XCTest
 import SwiftUI
 import UIKit
+import SceneKit
 
 final class SettingsRegressionTests: XCTestCase {
+    @MainActor
+    func testCinemaCropsUseSeparateEyeHalvesAndCanSwap() throws {
+        let cinema = CinemaModel()
+        let screens = cinema.scene.rootNode.childNodes.filter {
+            $0.geometry is SCNPlane && ($0.categoryBitMask == 2 || $0.categoryBitMask == 4)
+        }.sorted { $0.categoryBitMask < $1.categoryBitMask }
+        XCTAssertEqual(screens.count, 2)
+        let left = try XCTUnwrap(screens.first?.geometry?.firstMaterial)
+        let right = try XCTUnwrap(screens.last?.geometry?.firstMaterial)
+        cinema.selectMode(.sbs)
+        XCTAssertEqual(left.diffuse.contentsTransform.m11, 0.5)
+        XCTAssertEqual(right.diffuse.contentsTransform.m41 - left.diffuse.contentsTransform.m41,
+                       cinema.swapEyes ? -0.5 : 0.5, accuracy: 0.0001)
+        cinema.toggleEyeOrder()
+        XCTAssertEqual(right.diffuse.contentsTransform.m41 - left.diffuse.contentsTransform.m41,
+                       cinema.swapEyes ? -0.5 : 0.5, accuracy: 0.0001)
+        cinema.selectMode(.overUnder)
+        XCTAssertEqual(left.diffuse.contentsTransform.m22, 0.5)
+        XCTAssertEqual(abs(right.diffuse.contentsTransform.m42 - left.diffuse.contentsTransform.m42),
+                       0.5, accuracy: 0.0001)
+        cinema.selectMode(.twoD)
+        XCTAssertEqual(left.diffuse.contentsTransform.m11, 1)
+        XCTAssertEqual(right.diffuse.contentsTransform.m41, 0)
+    }
+
+    @MainActor
+    func testLateMovieImportCannotAutoplayAfterExit() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString + ".mp4")
+        try Data([0, 1, 2]).write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let cinema = CinemaModel()
+        cinema.loadMovie(url)
+        cinema.exit()
+        try await Task.sleep(nanoseconds: 500_000_000)
+        XCTAssertFalse(cinema.playing)
+        XCTAssertTrue(cinema.controlsVisible)
+    }
     @MainActor
     func testEveryControlPersistsAcrossNewSession() throws {
         let name = "vros.regression." + UUID().uuidString

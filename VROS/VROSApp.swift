@@ -1218,12 +1218,15 @@ struct VRHomeView: View {
                         : VRSettingsScreen.toolbarHeight
                     settings.setNormalized(id, fraction: settings.sliderFraction(
                         x: pointer.x, width: size.width,
-                        localY: pointer.y - top))
+                        localY: gesture.start.y - top))
                 } else if VRSettingsInputGeometry.isScroll(
                     from: gesture.start, to: pointer) {
                     gesture.moved = true
-                    let desired = gesture.startingScroll - deltaY
-                    settings.scrollBy(desired - settings.scrollOffset)
+                    if VRSettingsInputGeometry.classify(gesture.start,
+                        viewport: size, page: settings.page) == .table {
+                        let desired = gesture.startingScroll - deltaY
+                        settings.scrollBy(desired - settings.scrollOffset)
+                    }
                 }
                 settingsGesture = gesture
             }
