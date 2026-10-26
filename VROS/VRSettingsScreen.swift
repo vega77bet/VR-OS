@@ -136,6 +136,11 @@ struct VRSettingsTable: UIViewRepresentable {
         table.showsVerticalScrollIndicator = true
         table.keyboardDismissMode = .interactive
         table.isScrollEnabled = true
+        // Disable independent UIKit rubber-band overscroll: the stretched
+        // eye and the mirrored eye would otherwise show different rows.
+        // Inertial scrolling remains enabled in both eye views.
+        table.bounces = false
+        table.alwaysBounceVertical = false
         table.isUserInteractionEnabled = true
         table.contentInsetAdjustmentBehavior = .never
         table.estimatedRowHeight = 0
