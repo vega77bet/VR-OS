@@ -58,6 +58,7 @@ final class VRRuntime: NSObject, ObservableObject, ARSessionDelegate {
     private var visionBusy = false
     // Owned exclusively by frameQueue, which is also ARSession's delegate queue.
     private var cinemaMode = false
+    private var cameraPreviewEnabled = true
 
     private var filteredJoints: [CGPoint?] = Array(repeating: nil, count: 21)
     private var filteredDepth: Float?
@@ -113,6 +114,17 @@ final class VRRuntime: NSObject, ObservableObject, ARSessionDelegate {
         frameQueue.async { [weak self] in
             self?.cinemaMode = enabled
         }
+        if enabled {
+            // Cinema shows its own 3D room; keep only the AR pose and Vision.
+            cameraImage = nil
+        }
+    }
+
+    func setCameraPreviewEnabled(_ enabled: Bool) {
+        frameQueue.async { [weak self] in
+            self?.cameraPreviewEnabled = enabled
+        }
+        if !enabled { cameraImage = nil }
     }
 
     /// Recenter means put the panels in front of the current camera pose.
@@ -165,12 +177,13 @@ final class VRRuntime: NSObject, ObservableObject, ARSessionDelegate {
         if case .normal = pose.trackingState { reliable = true }
         else { reliable = false }
 
-        // Home passthrough ~20 fps; Cinema needs pose but not camera images.
-        // Save CPU, battery and memory bandwidth by skipping CGImage in Cinema.
-        let displayStride = cinemaMode ? 6 : 3
+        // Only graphite Home displays the camera pixels. Themes and Cinema
+        // need camera pose for motion, not costly CGImage creation.
+        let pixelsRequired = cameraPreviewEnabled && !cinemaMode
+        let displayStride = pixelsRequired ? 3 : 6
         if frameIndex % displayStride == 0 {
             let output: CGImage?
-            if cinemaMode {
+            if !pixelsRequired {
                 output = nil
             } else {
                 let image = CIImage(cvPixelBuffer: frame.capturedImage)
