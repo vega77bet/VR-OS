@@ -126,6 +126,7 @@ struct VRHomeView: View {
     @State private var selectedTheme: VRTheme = .graphite
     @State private var themeMenuOpen = false
     @State private var appsOpen = false
+    @State private var appsPage = 0
     @State private var dockExpanded = true
     @State private var webSessions: [UUID: VRWebSession] = [:]
     @State private var noteSessions: [UUID: VRNoteSession] = [:]
@@ -929,7 +930,7 @@ struct VRHomeView: View {
                         }
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 86)
+                        .frame(height: min(86, max(44, (size.height - 94) / 2)))
                         .background(theme.surface, in: RoundedRectangle(cornerRadius: 12))
                         .overlay(RoundedRectangle(cornerRadius: 12)
                             .stroke(theme == selectedTheme ? theme.accent : Color.white.opacity(0.25),
@@ -1185,18 +1186,24 @@ struct VRHomeView: View {
         if appsOpen {
             let count = VRWebApp.allCases.count
             let warning = appsWarning != nil
-            if let index = VRGestureGeometry.appRow(
+            let pageCount = VRGestureGeometry.compactAppPageCount(
+                viewport: size, warning: warning, count: count)
+            if let direction = VRGestureGeometry.compactAppPageDelta(
                 at: pointer, viewport: size, count: count, warning: warning) {
+                appsPage = max(0, min(pageCount - 1, appsPage + direction))
+            } else if let index = VRGestureGeometry.compactAppRow(
+                at: pointer, viewport: size, count: count,
+                warning: warning, page: appsPage) {
                 openWebApp(VRWebApp.allCases[index])
-            } else if let fraction = VRGestureGeometry.appZoomFraction(
+            } else if let fraction = VRGestureGeometry.compactAppZoomFraction(
                 at: pointer, viewport: size, count: count, warning: warning) {
                 webWindowZoom = 0.65 + fraction * 0.90
             } else {
-                // A pinch outside the launcher closes it so the dock is usable.
+                // Tap outside to dismiss, but never select an invisible row.
                 let width = VRGestureGeometry.appMenuWidth(viewport: size)
                 let left = (size.width - width) / 2
-                let height = VRGestureGeometry.appMenuHeight(
-                    count: count, warning: warning)
+                let height = VRGestureGeometry.compactAppMenuHeight(
+                    viewport: size, warning: warning, count: count)
                 if pointer.x < left || pointer.x > left + width ||
                    abs(pointer.y - size.height / 2) > height / 2 {
                     appsOpen = false
@@ -1544,7 +1551,16 @@ struct VRHomeView: View {
     }
 
     private func appsLauncher(size: CGSize) -> some View {
-        VStack(spacing: 7) {
+        let count = VRWebApp.allCases.count
+        let warning = appsWarning != nil
+        let rows = VRGestureGeometry.compactAppRows(
+            viewport: size, warning: warning, count: count)
+        let pages = VRGestureGeometry.compactAppPageCount(
+            viewport: size, warning: warning, count: count)
+        let page = min(max(0, appsPage), pages - 1)
+        let visibleApps = Array(VRWebApp.allCases.dropFirst(page * rows)
+            .prefix(rows))
+        return VStack(spacing: VRGestureGeometry.appRowGap) {
             HStack {
                 Image(systemName: "square.grid.2x2.fill")
                 Text("CENTRAL DE APPS").tracking(0.7)
@@ -1574,7 +1590,23 @@ struct VRHomeView: View {
                     .minimumScaleFactor(0.75)
                     .frame(height: VRGestureGeometry.appWarningHeight)
             }
-            ForEach(VRWebApp.allCases) { app in
+            HStack(spacing: 2) {
+                Button { appsPage = max(0, page - 1) } label: {
+                    Text("◀ Ant.")
+                        .frame(maxWidth: .infinity)
+                }
+                .disabled(page == 0)
+                Text("\(page + 1)/\(pages)")
+                    .frame(maxWidth: .infinity)
+                Button { appsPage = min(pages - 1, page + 1) } label: {
+                    Text("Próx. ▶")
+                        .frame(maxWidth: .infinity)
+                }
+                .disabled(page >= pages - 1)
+            }
+            .font(.system(size: 9, weight: .semibold))
+            .frame(height: VRGestureGeometry.compactAppPagerHeight)
+            ForEach(visibleApps) { app in
                 Button { openWebApp(app) } label: {
                     HStack(spacing: 8) {
                         Image(systemName: app.symbol)
@@ -1643,7 +1675,11 @@ struct VRHomeView: View {
             if let newPanel = panels.last { registerUltraWindow(newPanel) }
         case 1:
             appsOpen.toggle()
-            if appsOpen { themeMenuOpen = false; lensMenuOpen = false }
+            if appsOpen {
+                appsPage = 0
+                themeMenuOpen = false
+                lensMenuOpen = false
+            }
         case 2:
             if ultraWideMode {
                 ultraNotice = "Cinema usa ARKit · volte ao modo normal"
