@@ -147,7 +147,11 @@ struct VRSettingsTable: UIViewRepresentable {
         table.dataSource = context.coordinator
         table.register(VRSettingsTableCell.self,
                        forCellReuseIdentifier: "settings-row")
-        if !rightEye { session.primaryTable = table }
+        if rightEye {
+            session.secondaryTable = table
+        } else {
+            session.primaryTable = table
+        }
         return table
     }
 
@@ -198,7 +202,9 @@ struct VRSettingsTable: UIViewRepresentable {
                 table.setContentOffset(CGPoint(x: 0, y: desired), animated: false)
             }
         }
-        if !rightEye && session.primaryTable !== table {
+        if rightEye {
+            if session.secondaryTable !== table { session.secondaryTable = table }
+        } else if session.primaryTable !== table {
             session.primaryTable = table
         }
     }
