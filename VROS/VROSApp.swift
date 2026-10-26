@@ -162,6 +162,7 @@ struct VRHomeView: View {
                 ? min(1.55, max(0.65, CGFloat(savedWebZoom))) : 1.0
             UIDevice.current.isBatteryMonitoringEnabled = true
             runtime.setCameraPreviewEnabled(selectedTheme == .graphite)
+            runtime.setCinemaMode(cinemaOpen)
             runtime.start()
             Task { await updates.check() }
         }
@@ -183,6 +184,7 @@ struct VRHomeView: View {
                 runtime.stop()
             } else if phase == .active && wasBackgrounded {
                 wasBackgrounded = false
+                runtime.setCinemaMode(cinemaOpen)
                 runtime.resume()
                 if cinemaOpen { cinema.enter(camera: runtime.camera) }
             }
