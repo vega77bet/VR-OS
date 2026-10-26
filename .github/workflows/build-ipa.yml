@@ -15,6 +15,10 @@ jobs:
         run: brew install xcodegen
       - name: Generate Xcode project
         run: xcodegen generate
+      - name: Test gesture and window geometry
+        run: |
+          swiftc VROS/VRGestureGeometry.swift Tests/main.swift -o "$RUNNER_TEMP/vros-geometry-tests"
+          "$RUNNER_TEMP/vros-geometry-tests"
       - name: Build unsigned app
         run: |
           xcodebuild -project VROS.xcodeproj -scheme VROS -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
