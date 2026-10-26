@@ -99,6 +99,9 @@ struct VRHomeView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var wasBackgrounded = false
     @StateObject private var runtime = VRRuntime()
+    @StateObject private var ultraWide = VRUltraWideCamera()
+    @State private var ultraWideMode = false
+    @State private var cameraTransitioning = false
     @StateObject private var updates = LiveUpdateManager()
     @State private var nextRemoteTemplateIndex = 0
     @State private var selectedTheme: VRTheme = .graphite
@@ -147,7 +150,7 @@ struct VRHomeView: View {
                 anchorPendingPanels(pose: pose, size: eyeSize)
             }
             .onReceive(runtime.$hand) { hand in
-                processGesture(hand, size: eyeSize)
+                if !ultraWideMode { processGesture(hand, size: eyeSize) }
             }
             .onReceive(updates.$manifest) { remote in
                 applyRemoteWindowContent(remote)
@@ -181,18 +184,50 @@ struct VRHomeView: View {
             if phase == .background {
                 wasBackgrounded = true
                 if cinemaOpen { cinema.exit() }
+                if ultraWideMode { ultraWide.stop() }
                 runtime.stop()
             } else if phase == .active && wasBackgrounded {
                 wasBackgrounded = false
-                runtime.setCinemaMode(cinemaOpen)
-                runtime.resume()
-                if cinemaOpen { cinema.enter(camera: runtime.camera) }
+                if ultraWideMode {
+                    ultraWide.start()
+                } else {
+                    runtime.setCinemaMode(cinemaOpen)
+                    runtime.resume()
+                    if cinemaOpen { cinema.enter(camera: runtime.camera) }
+                }
             }
         }
         .onDisappear {
             if cinemaOpen { cinema.exit() }
+            ultraWide.stop()
             runtime.setCinemaMode(false)
             runtime.stop()
+        }
+    }
+
+    private func toggleUltraWide() {
+        guard !cameraTransitioning, !cinemaOpen else { return }
+        cameraTransitioning = true
+        lastPinch = false
+        drag = nil
+        webPinchGesture = nil
+        notePinchGesture = nil
+        appsOpen = false
+        themeMenuOpen = false
+        if ultraWideMode {
+            // Wait for AVCapture to release the physical lens before ARKit resumes.
+            ultraWide.stop { [self] in
+                ultraWideMode = false
+                runtime.setCameraPreviewEnabled(selectedTheme == .graphite)
+                runtime.resume()
+                cameraTransitioning = false
+            }
+        } else {
+            // ARKit and AVCapture cannot simultaneously own the rear camera.
+            runtime.stop()
+            ultraWideMode = true
+            ultraWide.start()
+            cameraTransitioning = false
         }
     }
 
@@ -200,7 +235,24 @@ struct VRHomeView: View {
         let w = size.width
         let h = size.height
         return ZStack {
-            if selectedTheme == .cosmos {
+            if ultraWideMode {
+                if let frame = ultraWide.image {
+                    Image(decorative: frame, scale: 1, orientation: .up)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: w, height: h)
+                        .clipped()
+                        .allowsHitTesting(false)
+                } else {
+                    Color.black.overlay {
+                        VStack(spacing: 6) {
+                            ProgressView().tint(.white)
+                            Text(ultraWide.status).font(.system(size: 11))
+                        }
+                        .foregroundStyle(.white)
+                    }
+                }
+            } else if selectedTheme == .cosmos {
                 SpaceSkyView(camera: runtime.camera, size: size)
             } else if selectedTheme == .aurora || selectedTheme == .synthwave {
                 ThemeAtmosphereView(isAurora: selectedTheme == .aurora,
@@ -223,10 +275,36 @@ struct VRHomeView: View {
                 }
             }
 
-            if selectedTheme == .graphite {
+            if selectedTheme == .graphite && !ultraWideMode {
                 Color.black.opacity(0.10).allowsHitTesting(false)
             }
 
+            if ultraWideMode {
+                VStack {
+                    HStack {
+                        Spacer()
+                        Button { toggleUltraWide() } label: {
+                            Label("Voltar ao ARKit", systemImage: "arrow.uturn.backward")
+                                .font(.system(size: 11, weight: .bold))
+                                .padding(.horizontal, 11)
+                                .padding(.vertical, 8)
+                                .background(.black.opacity(0.78),
+                                            in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(cameraTransitioning)
+                    }
+                    Spacer()
+                    Text("0,5x ULTRAWIDE REAL · sem rastreamento ARKit")
+                        .font(.system(size: 10, weight: .bold))
+                        .padding(7)
+                        .background(.black.opacity(0.75), in: Capsule())
+                }
+                .foregroundStyle(.white)
+                .padding(13)
+            }
+
+            if !ultraWideMode {
             ForEach(panels) { panel in
                 if focusedWebPanelID == nil || focusedWebPanelID == panel.id,
                    let center = displayedPanelCenter(panel, size: size, right: right) {
@@ -241,7 +319,8 @@ struct VRHomeView: View {
                 }
             }
 
-            if focusedWebPanelID == nil {
+            }
+            if !ultraWideMode && focusedWebPanelID == nil {
                 statusBar(size: size)
                     .position(x: w / 2, y: 28)
 
@@ -331,6 +410,17 @@ struct VRHomeView: View {
                     dockButton("arrow.down.circle", "Atualizar", slot: 3, size: size)
                     dockButton("paintpalette.fill", "Temas", slot: 4, size: size)
                     dockButton("scope", "Centro", slot: 5, size: size)
+                    Button { toggleUltraWide() } label: {
+                        VStack(spacing: 3) {
+                            Image(systemName: "camera.aperture")
+                                .font(.system(size: 17))
+                            Text("0,5x").font(.system(size: 9, weight: .medium))
+                        }
+                        .foregroundStyle(.white)
+                        .frame(minWidth: 34)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(cameraTransitioning)
                 }
                 .padding(5)
                 .background(selectedTheme.surface.opacity(0.95),
