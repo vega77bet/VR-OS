@@ -432,9 +432,10 @@ final class CinemaModel: ObservableObject {
     private func updateSeatPosition(animated: Bool = false) {
         guard let selected = seats.first(where: { $0.id == currentSeatID }) else { return }
         for eye in [leftCamera, rightCamera] {
-            // Each eye's viewport is tall/narrow (half a landscape iPhone).
-            // SceneKit defaults to VERTICAL FOV, shrinking horizontal FOV to
-            // around 30 degrees. Explicit horizontal FOV fixes the tiny image.
+            // Each eye receives half the landscape display. SceneKit defaults
+            // to VERTICAL FOV; the visible horizontal angle then depends on
+            // the eye viewport aspect ratio. Explicit horizontal FOV makes the
+            // cinema's left-right framing consistent across screen sizes.
             eye.camera?.projectionDirection = .horizontal
             eye.camera?.fieldOfView = immersiveScreen
                 ? cinemaFovDegrees : min(125, cinemaFovDegrees + 12)
