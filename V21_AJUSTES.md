@@ -13,7 +13,7 @@ Versão **4.7.0 (build 21)**. O aplicativo **Ajustes** aparece como sexto item n
 | VROS/VROSApp.swift | App Ajustes no launcher, integração com ARKit, câmera, Cinema, janelas e Vision |
 | VROS/VRPinchDetector.swift | Histerese e sensibilidade configurável para mãos |
 
-As duas vistas são desenhadas dentro da máscara óptica curva introduzida na V20. Cada olho tem uma UITableView; ambos exibem as mesmas páginas, busca e opções. Ao rolar com o dedo, o olho que está sendo manipulado controla temporariamente o deslocamento e o outro acompanha. A pinça usa a tabela esquerda como referência, mas as duas vistas se movem sincronizadas.
+As duas vistas são desenhadas dentro da máscara óptica curva introduzida na V20. Cada olho tem uma UITableView; ambos exibem as mesmas páginas, busca e opções. Ao rolar com o dedo, o olho que está sendo manipulado controla temporariamente o deslocamento e o outro acompanha. A pinça usa a tabela esquerda como referência, mas as duas vistas se movem sincronizadas. **A sincronização ocorre diretamente entre as UITableViews**, sem publicar cada pixel de scroll para a árvore ARKit/SwiftUI; a inércia nativa permanece, mas o efeito de puxar além da borda foi desabilitado porque cada olho poderia mostrar uma elasticidade diferente.
 
 ## Categorias reais
 
@@ -55,3 +55,15 @@ O CI verifica compilação iOS Release e testes automatizados de geometria, busc
 8. Salvar opções do Cinema e confirmar que persistem depois de reiniciar.
 9. Confirmar limpeza de favoritos e restauro geral em dois toques; verificar os valores restaurados.
 10. Parar o uso em caso de tontura ou esforço ocular; verificar orientação, legibilidade e aquecimento por 10–15 minutos.
+
+## Refinamentos de estabilidade (revisão final)
+
+- **Rolagem estéreo:** qualquer olho pode receber o scroll de toque. O outro é posicionado diretamente na mesma altura, sem reconstruir a cena VR. Scroll por Vision usa o olho esquerdo como referência; a perda da mão cancela um gesto em andamento sem clicar.
+- **Cursor recuperável:** mesmo que o usuário desligue “Mostrar cursor” para o ambiente VR, os Ajustes exibem um **cursor temporário de calibração**, para que ele consiga voltar a ligar a opção pela pinça.
+- **Busca limpa ao reabrir:** a navegação de Ajustes começa sempre na lista completa, sem texto da busca anterior.
+- **Sliders persistentes:** a tabela atualiza os valores visíveis sem recriar as células enquanto um slider está sendo arrastado.
+- **Sensibilidade real:** testes de Vision confirmam que o limiar configurado altera o reconhecimento de pinça, mas mantém confirmação de dois quadros e histerese para evitar cliques espúrios.
+- **Câmera protegida:** ao alternar 0,5x em Ajustes, a ultrawide libera a câmera antes de retomar o ARKit; caso a captura falhe, a Home restaura ARKit. A alternância do modo de câmera não é guardada como modo de inicialização permanente.
+- **Restaurar preferências:** retorna as opções expostas neste app ao padrão e exige confirmação dupla. Preserva filmes, sites e outros conteúdos do usuário.
+
+**Teste ainda obrigatório antes de declarar ausência de bugs físicos:** conferir em iPhone 15 dentro do VR Box a ordem dos olhos, acessibilidade dos botões, estabilidade do cursor, legibilidade, rolagem e calibração real das lentes; testes de compilação e geometria não validam esses pontos.
