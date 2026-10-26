@@ -1362,11 +1362,15 @@ struct CinemaEyeView: View {
 
     private func handPoint(size: CGSize) -> CGPoint {
         let raw = runtime.hand.point
-        guard let image = runtime.cameraImage else {
+        // Cinema skips CGImage generation for performance, so use ARKit's
+        // native image resolution to preserve the correct fingertip crop.
+        let iw = runtime.camera?.imageResolution.width ??
+                 CGFloat(runtime.cameraImage?.width ?? 0)
+        let ih = runtime.camera?.imageResolution.height ??
+                 CGFloat(runtime.cameraImage?.height ?? 0)
+        guard iw > 0, ih > 0 else {
             return CGPoint(x: raw.x * size.width, y: raw.y * size.height)
         }
-        let iw = CGFloat(image.width)
-        let ih = CGFloat(image.height)
         let scale = max(size.width / iw, size.height / ih)
         return CGPoint(x: raw.x * iw * scale - (iw * scale - size.width) / 2,
                        y: raw.y * ih * scale - (ih * scale - size.height) / 2)
