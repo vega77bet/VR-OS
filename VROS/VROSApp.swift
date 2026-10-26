@@ -441,6 +441,9 @@ struct VRHomeView: View {
 
     private func toggleUltraWide() {
         guard !cameraTransitioning, !cinemaOpen else { return }
+        // Dock requests also update the shared desired mode. Keep that intent
+        // even if Settings closes before the capture transition completes.
+        if !settingsOpen { settings.cameraUltra = !ultraWideMode }
         cameraTransitioning = true
         lastPinch = false
         drag = nil
@@ -460,8 +463,7 @@ struct VRHomeView: View {
                     selectedTheme == .graphite && !settingsOpen)
                 if scenePhase == .active { runtime.resume() }
                 cameraTransitioning = false
-                if !settingsOpen { settings.cameraUltra = false }
-                if settingsOpen && settings.cameraUltra { toggleUltraWide() }
+                if settings.cameraUltra { toggleUltraWide() }
             }
         } else {
             // Snapshot the ARKit window screen positions before suspending it.
@@ -499,10 +501,9 @@ struct VRHomeView: View {
                     runtime.resume()
                 }
                 cameraTransitioning = false
-                if started && !settingsOpen { settings.cameraUltra = true }
                 // A Settings switch may have been changed while capture
                 // was starting: apply the newest desired state afterwards.
-                if started && settingsOpen && !settings.cameraUltra {
+                if started && !settings.cameraUltra {
                     toggleUltraWide()
                 }
             }
