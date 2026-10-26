@@ -114,6 +114,7 @@ struct VRHomeView: View {
     // Full sensor frame is the honest default for a REAL 0.5x image.
     // User can opt into fill, which crops the sides inside narrow eye viewports.
     @State private var ultraFullFrame = true
+    @State private var ultraInvertMotion = false
     @State private var ultraNotice: String?
     @State private var ultraPanelDirections: [UUID: SIMD3<Float>] = [:]
     @State private var ultraDrag: UltraWideDrag?
@@ -187,6 +188,8 @@ struct VRHomeView: View {
             let savedWebZoom = UserDefaults.standard.double(forKey: "vros.webZoom.v1")
             webWindowZoom = savedWebZoom > 0
                 ? min(1.55, max(0.65, CGFloat(savedWebZoom))) : 1.0
+            ultraInvertMotion =
+                UserDefaults.standard.bool(forKey: "vros.ultra.invertMotion.v1")
             UIDevice.current.isBatteryMonitoringEnabled = true
             runtime.setCameraPreviewEnabled(selectedTheme == .graphite)
             runtime.setCinemaMode(cinemaOpen)
@@ -269,6 +272,18 @@ struct VRHomeView: View {
             ultraWide.start()
             cameraTransitioning = false
         }
+    }
+
+    private var effectiveUltraRotation: simd_quatf {
+        ultraInvertMotion ? simd_inverse(ultraWide.motionDelta)
+                          : ultraWide.motionDelta
+    }
+
+    private func toggleUltraMotionDirection() {
+        ultraInvertMotion.toggle()
+        UserDefaults.standard.set(ultraInvertMotion,
+                                  forKey: "vros.ultra.invertMotion.v1")
+        recenterUltraWide()
     }
 
     private func recenterUltraWide() {
@@ -385,6 +400,10 @@ struct VRHomeView: View {
                         Button { ultraFullFrame.toggle() } label: {
                             Label(ultraFullFrame ? "Preencher" : "Tela toda",
                                   systemImage: "arrow.up.left.and.arrow.down.right")
+                                .frame(maxWidth: .infinity)
+                        }
+                        Button { toggleUltraMotionDirection() } label: {
+                            Text(ultraInvertMotion ? "Inv." : "Mov.")
                                 .frame(maxWidth: .infinity)
                         }
                         Button { toggleUltraWide() } label: {
@@ -695,7 +714,7 @@ struct VRHomeView: View {
             VRUltraWideWindowProjection.screenRay(
                 at: defaultPosition, viewport: size)
         guard let center = VRUltraWideWindowProjection.project(
-            direction, headRotation: ultraWide.motionDelta, viewport: size)
+            direction, headRotation: effectiveUltraRotation, viewport: size)
         else { return nil }
         let parallax = min(CGFloat(10), CGFloat(7 / max(panel.depth, 0.65)))
         return CGPoint(x: center.x + (right ? -parallax : parallax),
@@ -868,7 +887,7 @@ struct VRHomeView: View {
             ultraPanelDirections[held.panelID] =
                 VRUltraWideWindowProjection.anchoredDirection(
                     at: destination, viewport: size,
-                    headRotation: ultraWide.motionDelta)
+                    headRotation: effectiveUltraRotation)
         } else if hand.pinching, var webGesture = webPinchGesture {
             let dx = pointer.x - webGesture.initialPointer.x
             let dy = pointer.y - webGesture.initialPointer.y
@@ -960,10 +979,13 @@ struct VRHomeView: View {
     private func beganPinch(_ pointer: CGPoint, hand: TrackedHand, size: CGSize) {
         // A real hand pinch can also reach ultrawide's lens/headset switches.
         if ultraWideMode && pointer.y <= 44 {
-            if pointer.x < size.width / 3 {
+            let quarter = size.width / 4
+            if pointer.x < quarter {
                 recenterUltraWide()
-            } else if pointer.x < size.width * 2 / 3 {
+            } else if pointer.x < quarter * 2 {
                 ultraFullFrame.toggle()
+            } else if pointer.x < quarter * 3 {
+                toggleUltraMotionDirection()
             } else {
                 toggleUltraWide()
             }
@@ -1271,7 +1293,7 @@ struct VRHomeView: View {
         ultraPanelDirections[panel.id] =
             VRUltraWideWindowProjection.anchoredDirection(
                 at: point, viewport: eyeViewport,
-                headRotation: ultraWide.motionDelta)
+                headRotation: effectiveUltraRotation)
     }
 
     private func openRemoteWindow() {
