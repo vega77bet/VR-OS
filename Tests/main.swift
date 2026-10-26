@@ -158,3 +158,24 @@ let behind = VRUltraWideWindowProjection.project(
     viewport: ultraViewport)
 verify(behind == nil, "A 3DoF panel behind the user must not be displayed")
 print("PASS: 0.5x headset 3DoF projection/drag round trips and rotation")
+
+var ultraPinch = VRPinchDetector()
+let thumb = CGPoint(x: 0.5, y: 0.5)
+let closeTip = CGPoint(x: 0.53, y: 0.5)
+let thresholdTip = CGPoint(x: 0.61, y: 0.5)
+let openTip = CGPoint(x: 0.70, y: 0.5)
+verify(!ultraPinch.update(thumb: thumb, index: closeTip, palmWidth: 0.20),
+       "A single noisy Vision sample must not activate a pinch")
+verify(ultraPinch.update(thumb: thumb, index: closeTip, palmWidth: 0.20),
+       "Two consecutive closed-hand samples should activate a pinch")
+verify(ultraPinch.update(thumb: thumb, index: thresholdTip, palmWidth: 0.20),
+       "Mid-range pinch noise should stay latched due to hysteresis")
+verify(ultraPinch.update(thumb: thumb, index: openTip, palmWidth: 0.20),
+       "A single opening sample must not drop a pinch")
+verify(!ultraPinch.update(thumb: thumb, index: openTip, palmWidth: 0.20),
+       "Two opening samples should release a pinch")
+ultraPinch.update(thumb: thumb, index: closeTip, palmWidth: 0.20)
+ultraPinch.reset()
+verify(!ultraPinch.pinching,
+       "Vision camera reset must clear the last held pinch")
+print("PASS: ultrawide Vision pinch debouncing, release, hysteresis and reset")
