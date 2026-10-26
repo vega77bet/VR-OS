@@ -1,6 +1,7 @@
 import ARKit
 import SwiftUI
 import UIKit
+import simd
 
 @main
 struct VROSApp: App {
@@ -95,6 +96,14 @@ private struct NotePinchGesture {
     let startScrollY: CGFloat
 }
 
+/// In 0.5x mode we can drag angular window positions in two dimensions
+/// even though ARKit world translation is unavailable.
+private struct UltraWideDrag {
+    let panelID: UUID
+    let initialPointer: CGPoint
+    let initialCentre: CGPoint
+}
+
 struct VRHomeView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var wasBackgrounded = false
@@ -102,6 +111,14 @@ struct VRHomeView: View {
     @StateObject private var ultraWide = VRUltraWideCamera()
     @State private var ultraWideMode = false
     @State private var cameraTransitioning = false
+    // Full sensor frame is the honest default for a REAL 0.5x image.
+    // User can opt into fill, which crops the sides inside narrow eye viewports.
+    @State private var ultraFullFrame = true
+    @State private var ultraInvertMotion = false
+    @State private var ultraNotice: String?
+    @State private var ultraPanelDirections: [UUID: SIMD3<Float>] = [:]
+    @State private var ultraDrag: UltraWideDrag?
+    @State private var eyeViewport = CGSize(width: 200, height: 390)
     @StateObject private var updates = LiveUpdateManager()
     @State private var nextRemoteTemplateIndex = 0
     @State private var selectedTheme: VRTheme = .graphite
@@ -152,6 +169,14 @@ struct VRHomeView: View {
             .onReceive(runtime.$hand) { hand in
                 if !ultraWideMode { processGesture(hand, size: eyeSize) }
             }
+            .onReceive(ultraWide.$hand) { hand in
+                if ultraWideMode { processGesture(hand, size: eyeSize) }
+            }
+            .onAppear { eyeViewport = eyeSize }
+            .onChange(of: geometry.size) { nextSize in
+                eyeViewport = CGSize(width: nextSize.width / 2,
+                                     height: nextSize.height)
+            }
             .onReceive(updates.$manifest) { remote in
                 applyRemoteWindowContent(remote)
             }
@@ -163,10 +188,19 @@ struct VRHomeView: View {
             let savedWebZoom = UserDefaults.standard.double(forKey: "vros.webZoom.v1")
             webWindowZoom = savedWebZoom > 0
                 ? min(1.55, max(0.65, CGFloat(savedWebZoom))) : 1.0
+            ultraInvertMotion =
+                UserDefaults.standard.bool(forKey: "vros.ultra.invertMotion.v1")
             UIDevice.current.isBatteryMonitoringEnabled = true
             runtime.setCameraPreviewEnabled(selectedTheme == .graphite)
             runtime.setCinemaMode(cinemaOpen)
-            runtime.start()
+            if ultraWideMode {
+                // A reappearing root view must not restart ARKit while the
+                // physical ultrawide lens is owned by AVCapture.
+                runtime.stop()
+                ultraWide.start()
+            } else {
+                runtime.start()
+            }
             Task { await updates.check() }
         }
         .onChange(of: selectedTheme) { theme in
@@ -189,6 +223,7 @@ struct VRHomeView: View {
             } else if phase == .active && wasBackgrounded {
                 wasBackgrounded = false
                 if ultraWideMode {
+                    recenterUltraWide()
                     ultraWide.start()
                 } else {
                     runtime.setCinemaMode(cinemaOpen)
@@ -218,31 +253,85 @@ struct VRHomeView: View {
             // Wait for AVCapture to release the physical lens before ARKit resumes.
             ultraWide.stop { [self] in
                 ultraWideMode = false
+                ultraPanelDirections.removeAll()
+                ultraDrag = nil
+                ultraNotice = nil
                 runtime.setCameraPreviewEnabled(selectedTheme == .graphite)
                 runtime.resume()
                 cameraTransitioning = false
             }
         } else {
-            // ARKit and AVCapture cannot simultaneously own the rear camera.
+            // Snapshot the ARKit window screen positions before suspending it.
+            // In ultrawide mode, those points become ANGULAR bearings (3DoF)
+            // so head turns can keep windows in approximately fixed directions.
+            ultraPanelDirections.removeAll()
+            for panel in panels {
+                let location = windowCenter(panel, size: eyeViewport, right: false)
+                    ?? CGPoint(x: eyeViewport.width / 2,
+                               y: eyeViewport.height / 2)
+                ultraPanelDirections[panel.id] =
+                    VRUltraWideWindowProjection.screenRay(
+                        at: location, viewport: eyeViewport)
+            }
             runtime.stop()
             ultraWideMode = true
+            ultraNotice = nil
+            dockExpanded = false
             ultraWide.start()
             cameraTransitioning = false
         }
     }
 
+    private var effectiveUltraRotation: simd_quatf {
+        ultraInvertMotion ? simd_inverse(ultraWide.motionDelta)
+                          : ultraWide.motionDelta
+    }
+
+    private func toggleUltraMotionDirection() {
+        ultraInvertMotion.toggle()
+        UserDefaults.standard.set(ultraInvertMotion,
+                                  forKey: "vros.ultra.invertMotion.v1")
+        recenterUltraWide()
+    }
+
+    private func recenterUltraWide() {
+        guard ultraWideMode else { return }
+        // When windows are outside the headset's view, recenter intentionally
+        // restores them in front instead of preserving invisible bearings.
+        var newDirections: [UUID: SIMD3<Float>] = [:]
+        for panel in panels {
+            let position = CGPoint(
+                x: eyeViewport.width / 2 + panel.x * eyeViewport.width / 2,
+                y: eyeViewport.height / 2 + panel.y * eyeViewport.height / 2)
+            newDirections[panel.id] = VRUltraWideWindowProjection.screenRay(
+                at: position, viewport: eyeViewport)
+        }
+        ultraPanelDirections = newDirections
+        ultraWide.recenterMotion()
+        ultraNotice = "Mira e janelas recentralizadas à frente"
+    }
+
     private func eyeView(right: Bool, size: CGSize) -> some View {
         let w = size.width
         let h = size.height
+        let shownHand = ultraWideMode ? ultraWide.hand : runtime.hand
         return ZStack {
             if ultraWideMode {
                 if let frame = ultraWide.image {
-                    Image(decorative: frame, scale: 1, orientation: .up)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: w, height: h)
-                        .clipped()
-                        .allowsHitTesting(false)
+                    if ultraFullFrame {
+                        Image(decorative: frame, scale: 1, orientation: .up)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: w, height: h)
+                            .allowsHitTesting(false)
+                    } else {
+                        Image(decorative: frame, scale: 1, orientation: .up)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: w, height: h)
+                            .clipped()
+                            .allowsHitTesting(false)
+                    }
                 } else {
                     Color.black.overlay {
                         VStack(spacing: 6) {
@@ -279,32 +368,6 @@ struct VRHomeView: View {
                 Color.black.opacity(0.10).allowsHitTesting(false)
             }
 
-            if ultraWideMode {
-                VStack {
-                    HStack {
-                        Spacer()
-                        Button { toggleUltraWide() } label: {
-                            Label("Voltar ao ARKit", systemImage: "arrow.uturn.backward")
-                                .font(.system(size: 11, weight: .bold))
-                                .padding(.horizontal, 11)
-                                .padding(.vertical, 8)
-                                .background(.black.opacity(0.78),
-                                            in: Capsule())
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(cameraTransitioning)
-                    }
-                    Spacer()
-                    Text("0,5x ULTRAWIDE REAL · sem rastreamento ARKit")
-                        .font(.system(size: 10, weight: .bold))
-                        .padding(7)
-                        .background(.black.opacity(0.75), in: Capsule())
-                }
-                .foregroundStyle(.white)
-                .padding(13)
-            }
-
-            if !ultraWideMode {
             ForEach(panels) { panel in
                 if focusedWebPanelID == nil || focusedWebPanelID == panel.id,
                    let center = displayedPanelCenter(panel, size: size, right: right) {
@@ -319,10 +382,9 @@ struct VRHomeView: View {
                 }
             }
 
-            }
-            if !ultraWideMode && focusedWebPanelID == nil {
+            if focusedWebPanelID == nil {
                 statusBar(size: size)
-                    .position(x: w / 2, y: 28)
+                    .position(x: w / 2, y: ultraWideMode ? 76 : 28)
 
                 if themeMenuOpen {
                     themePicker(size: size).position(x: w / 2, y: h / 2)
@@ -336,18 +398,59 @@ struct VRHomeView: View {
                               y: dockExpanded ? dockCenterY(size) : h - 24)
             }
 
-            if runtime.hand.visible {
-                HandSkeletonOverlay(hand: runtime.hand) { joint in
+            if ultraWideMode {
+                VStack(spacing: 2) {
+                    HStack(spacing: 4) {
+                        Button { recenterUltraWide() } label: {
+                            Label("Mira", systemImage: "scope")
+                                .frame(maxWidth: .infinity)
+                        }
+                        Button { ultraFullFrame.toggle() } label: {
+                            Label(ultraFullFrame ? "Preencher" : "Tela toda",
+                                  systemImage: "arrow.up.left.and.arrow.down.right")
+                                .frame(maxWidth: .infinity)
+                        }
+                        Button { toggleUltraMotionDirection() } label: {
+                            Text(ultraInvertMotion ? "Inv." : "Mov.")
+                                .frame(maxWidth: .infinity)
+                        }
+                        Button { toggleUltraWide() } label: {
+                            Label("ARKit", systemImage: "arrow.uturn.backward")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .disabled(cameraTransitioning)
+                    }
+                    .font(.system(size: 9, weight: .bold))
+                    .labelStyle(.titleOnly)
+                    .padding(5)
+                    .background(.black.opacity(0.83),
+                                in: RoundedRectangle(cornerRadius: 10))
+                    Spacer(minLength: 0)
+                    Text(ultraNotice ??
+                         "0,5x REAL · mão Vision + cabeça 3DoF · sem 6DoF")
+                        .font(.system(size: 9, weight: .semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.65)
+                        .padding(6)
+                        .background(.black.opacity(0.78), in: Capsule())
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 5)
+            }
+
+            if shownHand.visible {
+                HandSkeletonOverlay(hand: shownHand) { joint in
                     mappedPoint(joint, size: size)
                 }
                 .allowsHitTesting(false)
 
-                let cursor = mappedPoint(runtime.hand.point, size: size)
+                let cursor = interactionPoint(shownHand.point, size: size)
                 ZStack {
                     Circle()
-                        .stroke(.white.opacity(0.9), lineWidth: runtime.hand.pinching ? 3 : 2)
-                        .frame(width: runtime.hand.pinching ? 29 : 21,
-                               height: runtime.hand.pinching ? 29 : 21)
+                        .stroke(.white.opacity(0.9), lineWidth: shownHand.pinching ? 3 : 2)
+                        .frame(width: shownHand.pinching ? 29 : 21,
+                               height: shownHand.pinching ? 29 : 21)
                     Circle().fill(.white).frame(width: 5, height: 5)
                 }
                 .shadow(color: .black, radius: 3)
@@ -364,10 +467,11 @@ struct VRHomeView: View {
         VStack(spacing: 3) {
             HStack(spacing: 5) {
                 Circle()
-                    .fill(runtime.spatialTracking ? Color.white : Color.gray)
+                    .fill((ultraWideMode ? ultraWide.active : runtime.spatialTracking)
+                          ? Color.white : Color.gray)
                     .frame(width: 5, height: 5)
                 Text("VR OS " + (Bundle.main.infoDictionary?["CFBundleShortVersionString"]
-                    as? String ?? "4.3"))
+                    as? String ?? "4.5"))
                     .tracking(0.5)
                     .font(.system(size: 10, weight: .semibold))
                     .lineLimit(1)
@@ -385,7 +489,11 @@ struct VRHomeView: View {
                     .fixedSize(horizontal: true, vertical: false)
                 }
             }
-            Text(runtime.cameraStatus)
+            Text(ultraWideMode
+                 ? (ultraWide.active
+                    ? "Vision: \(ultraWide.hand.visible ? "mão visível" : "sem mão") · cabeça \(ultraWide.motionAvailable ? "3DoF" : "indisponível")"
+                    : ultraWide.status)
+                 : runtime.cameraStatus)
                 .font(.system(size: 10))
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
@@ -403,24 +511,15 @@ struct VRHomeView: View {
     private func dock(size: CGSize) -> some View {
         Group {
             if dockExpanded {
-                HStack(spacing: 5) {
+                HStack(spacing: 3) {
                     dockButton("plus.rectangle.on.rectangle", "Janela", slot: 0, size: size)
                     dockButton("square.grid.2x2.fill", "Apps", slot: 1, size: size)
                     dockButton("film.stack.fill", "Cinema", slot: 2, size: size)
-                    dockButton("arrow.down.circle", "Atualizar", slot: 3, size: size)
+                    dockButton("arrow.down.circle", "Atual.", slot: 3, size: size)
                     dockButton("paintpalette.fill", "Temas", slot: 4, size: size)
                     dockButton("scope", "Centro", slot: 5, size: size)
-                    Button { toggleUltraWide() } label: {
-                        VStack(spacing: 3) {
-                            Image(systemName: "camera.aperture")
-                                .font(.system(size: 17))
-                            Text("0,5x").font(.system(size: 9, weight: .medium))
-                        }
-                        .foregroundStyle(.white)
-                        .frame(minWidth: 34)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(cameraTransitioning)
+                    dockButton("camera.aperture", ultraWideMode ? "ARKit" : "0,5x",
+                               slot: 6, size: size)
                 }
                 .padding(5)
                 .background(selectedTheme.surface.opacity(0.95),
@@ -453,7 +552,7 @@ struct VRHomeView: View {
                     .lineLimit(1).minimumScaleFactor(0.7)
             }
             .foregroundStyle(.white)
-            .frame(width: max(24, (size.width - 50) / 6), height: 48)
+            .frame(width: max(20, (size.width - 40) / 7), height: 48)
             .background(selectedTheme.accent.opacity(0.15),
                         in: RoundedRectangle(cornerRadius: 11))
         }
@@ -606,7 +705,28 @@ struct VRHomeView: View {
         if focusedWebPanelID == panel.id {
             return CGPoint(x: size.width / 2, y: size.height / 2)
         }
+        if ultraWideMode {
+            return ultraWindowCenter(panel, size: size, right: right)
+        }
         return windowCenter(panel, size: size, right: right)
+    }
+
+    /// Rotational head tracking only: windows retain approximate angular
+    /// bearings. This does not pretend to be spatial ARKit world tracking.
+    private func ultraWindowCenter(_ panel: VRPanel, size: CGSize,
+                                   right: Bool) -> CGPoint? {
+        let defaultPosition = CGPoint(
+            x: size.width / 2 + panel.x * size.width / 2,
+            y: size.height / 2 + panel.y * size.height / 2)
+        let direction = ultraPanelDirections[panel.id] ??
+            VRUltraWideWindowProjection.screenRay(
+                at: defaultPosition, viewport: size)
+        guard let center = VRUltraWideWindowProjection.project(
+            direction, headRotation: effectiveUltraRotation, viewport: size)
+        else { return nil }
+        let parallax = min(CGFloat(10), CGFloat(7 / max(panel.depth, 0.65)))
+        return CGPoint(x: center.x + (right ? -parallax : parallax),
+                       y: center.y)
     }
 
     /// The web windows are larger than note cards so sites can be used.
@@ -694,6 +814,11 @@ struct VRHomeView: View {
     private func panelWidth(_ size: CGSize) -> CGFloat { min(350, size.width * 0.75) }
     private func panelHeight(_ size: CGSize) -> CGFloat { min(180, size.height * 0.39) }
     private func windowScale(_ panel: VRPanel) -> CGFloat {
+        if ultraWideMode {
+            // No depth measurement in 3DoF; keep virtual depth manually.
+            let scale = min(2.5, max(0.3, CGFloat(1.5 / panel.depth)))
+            return panel.kind == .web ? scale * webWindowZoom : scale
+        }
         // Perspective must use the actual distance from the AR camera to
         // the window's world anchor, not a cosmetic scale tied to slider Z.
         guard let anchor = panel.anchor, let camera = runtime.camera else {
@@ -725,16 +850,30 @@ struct VRHomeView: View {
         }
     }
 
-    /// Image(decorative:) is .scaledToFill for each eye; use the SAME crop for joints.
+    /// Map Vision's normalized joint coordinates through the exact video
+    /// scaling used in this eye, including the optional full-frame 0.5x fit.
     private func mappedPoint(_ raw: CGPoint, size: CGSize) -> CGPoint {
-        guard let image = runtime.cameraImage else {
+        let image = ultraWideMode ? ultraWide.image : runtime.cameraImage
+        guard let image = image else {
             return CGPoint(x: raw.x * size.width, y: raw.y * size.height)
         }
         let iw = CGFloat(image.width)
         let ih = CGFloat(image.height)
-        let scale = max(size.width / iw, size.height / ih)
-        return CGPoint(x: raw.x * iw * scale - (iw * scale - size.width) / 2,
-                       y: raw.y * ih * scale - (ih * scale - size.height) / 2)
+        let scale = ultraWideMode && ultraFullFrame
+            ? min(size.width / iw, size.height / ih)
+            : max(size.width / iw, size.height / ih)
+        return CGPoint(x: raw.x * iw * scale + (size.width - iw * scale) / 2,
+                       y: raw.y * ih * scale + (size.height - ih * scale) / 2)
+    }
+
+    /// With the complete 0.5x image letterboxed, map the *interaction
+    /// cursor* across the whole eye so headset buttons remain reachable.
+    /// The drawn skeleton stays aligned to the true camera image crop.
+    private func interactionPoint(_ raw: CGPoint, size: CGSize) -> CGPoint {
+        if ultraWideMode && ultraFullFrame {
+            return CGPoint(x: raw.x * size.width, y: raw.y * size.height)
+        }
+        return mappedPoint(raw, size: size)
     }
 
     private func processGesture(_ hand: TrackedHand, size: CGSize) {
@@ -744,18 +883,29 @@ struct VRHomeView: View {
         guard hand.visible else {
             lastPinch = false
             drag = nil
+            ultraDrag = nil
             webPinchGesture = nil
             notePinchGesture = nil
             return
         }
 
-        let pointer = mappedPoint(hand.point, size: size)
+        let pointer = interactionPoint(hand.point, size: size)
         if hand.pinching && !lastPinch {
             beganPinch(pointer, hand: hand, size: size)
         } else if hand.pinching, var held = drag,
                   let index = panels.firstIndex(where: { $0.id == held.panelID }) {
             updateSpatialGrab(hand, pointer: pointer, held: &held, panelIndex: index)
             drag = held
+        } else if hand.pinching, let held = ultraDrag {
+            // True ultrawide Vision fingertip controls a 2D angular window
+            // anchor. No fake metre translation or depth data is invented.
+            let destination = CGPoint(
+                x: held.initialCentre.x + pointer.x - held.initialPointer.x,
+                y: held.initialCentre.y + pointer.y - held.initialPointer.y)
+            ultraPanelDirections[held.panelID] =
+                VRUltraWideWindowProjection.anchoredDirection(
+                    at: destination, viewport: size,
+                    headRotation: effectiveUltraRotation)
         } else if hand.pinching, var webGesture = webPinchGesture {
             let dx = pointer.x - webGesture.initialPointer.x
             let dy = pointer.y - webGesture.initialPointer.y
@@ -776,6 +926,7 @@ struct VRHomeView: View {
             webPinchGesture = nil
             notePinchGesture = nil
             drag = nil
+            ultraDrag = nil
         }
         lastPinch = hand.pinching
     }
@@ -844,6 +995,20 @@ struct VRHomeView: View {
     }
 
     private func beganPinch(_ pointer: CGPoint, hand: TrackedHand, size: CGSize) {
+        // A real hand pinch can also reach ultrawide's lens/headset switches.
+        if ultraWideMode && pointer.y <= 44 {
+            let quarter = size.width / 4
+            if pointer.x < quarter {
+                recenterUltraWide()
+            } else if pointer.x < quarter * 2 {
+                ultraFullFrame.toggle()
+            } else if pointer.x < quarter * 3 {
+                toggleUltraMotionDirection()
+            } else {
+                toggleUltraWide()
+            }
+            return
+        }
         if let focusedID = focusedWebPanelID {
             if let panel = panels.first(where: { $0.id == focusedID }) {
                 _ = beginWebPanelPinch(panel, pointer: pointer, size: size)
@@ -893,13 +1058,13 @@ struct VRHomeView: View {
                 return
             }
         } else {
-            let dockWidth = max(24, (size.width - 50) / 6) * 6 + 5 * 5 + 10
+            let dockWidth = max(20, (size.width - 40) / 7) * 7 + 3 * 6 + 10
             let dockLeft = (size.width - dockWidth) / 2
             if abs(pointer.y - dockCenterY(size)) <= 37 &&
                pointer.x >= dockLeft - 8 &&
                pointer.x <= dockLeft + dockWidth + 8 {
-                let cell = max(24, (size.width - 50) / 6) + 5
-                let slot = min(5, max(0, Int((pointer.x - dockLeft - 5) / cell)))
+                let cell = max(20, (size.width - 40) / 7) + 3
+                let slot = min(6, max(0, Int((pointer.x - dockLeft - 5) / cell)))
                 activateDock(slot)
                 dockExpanded = false
                 return
@@ -909,6 +1074,21 @@ struct VRHomeView: View {
         // Only the white line is a 3D movement handle. Its hit area is
         // larger than its visible thickness for comfortable hand gestures.
         for panel in panels.reversed() {
+            if ultraWideMode {
+                guard let center = displayedPanelCenter(
+                    panel, size: size, right: false) else { continue }
+                let handle = grabHandleCenter(center, panel: panel, size: size)
+                guard abs(pointer.x - handle.x) <=
+                          grabHandleWidth(panel, size: size) / 2 + 12,
+                      abs(pointer.y - handle.y) <= 21 else { continue }
+                ultraDrag = UltraWideDrag(
+                    panelID: panel.id, initialPointer: pointer,
+                    initialCentre: CGPoint(
+                        x: center.x - min(CGFloat(10),
+                            CGFloat(7 / max(panel.depth, 0.65))),
+                        y: center.y))
+                return
+            }
             guard let center = windowCenter(panel, size: size, right: false),
                   let anchor = panel.anchor,
                   let pose = runtime.camera, runtime.spatialTracking else { continue }
@@ -1103,6 +1283,8 @@ struct VRHomeView: View {
         if webSessions.count < 3 { appsWarning = nil }
         if notePinchGesture?.panelID == id { notePinchGesture = nil }
         if drag?.panelID == id { drag = nil }
+        if ultraDrag?.panelID == id { ultraDrag = nil }
+        ultraPanelDirections.removeValue(forKey: id)
         if webPinchGesture?.panelID == id { webPinchGesture = nil }
         if focusedWebPanelID == id { focusedWebPanelID = nil }
     }
@@ -1121,12 +1303,23 @@ struct VRHomeView: View {
         }
     }
 
+    private func registerUltraWindow(_ panel: VRPanel) {
+        guard ultraWideMode else { return }
+        let point = CGPoint(
+            x: eyeViewport.width / 2 + panel.x * eyeViewport.width / 2,
+            y: eyeViewport.height / 2 + panel.y * eyeViewport.height / 2)
+        ultraPanelDirections[panel.id] =
+            VRUltraWideWindowProjection.anchoredDirection(
+                at: point, viewport: eyeViewport,
+                headRotation: effectiveUltraRotation)
+    }
+
     private func openRemoteWindow() {
         let templates = updates.manifest.templates
         guard !templates.isEmpty else { return }
         let template = templates[nextRemoteTemplateIndex % templates.count]
         nextRemoteTemplateIndex += 1
-        panels.append(VRPanel(
+        let panel = VRPanel(
             title: template.title,
             icon: template.symbol,
             text: template.text,
@@ -1134,12 +1327,14 @@ struct VRHomeView: View {
             y: CGFloat(nextRemoteTemplateIndex % 2 == 0 ? -0.38 : -0.28),
             depth: template.depth,
             templateID: template.id
-        ))
+        )
+        panels.append(panel)
+        registerUltraWindow(panel)
     }
 
     private func openUpdatesWindow() {
         if panels.contains(where: { $0.kind == .updates }) { return }
-        panels.append(VRPanel(
+        let panel = VRPanel(
             title: "Atualizações online",
             icon: "arrow.down.circle",
             text: "",
@@ -1147,7 +1342,9 @@ struct VRHomeView: View {
             y: -0.30,
             depth: 1.3,
             kind: .updates
-        ))
+        )
+        panels.append(panel)
+        registerUltraWindow(panel)
     }
 
     private func openWebApp(_ app: VRWebApp) {
@@ -1172,6 +1369,7 @@ struct VRHomeView: View {
         )
         webSessions[newPanel.id] = browser
         panels.append(newPanel)
+        registerUltraWindow(newPanel)
         appsOpen = false
         themeMenuOpen = false
         dockExpanded = false
@@ -1259,7 +1457,7 @@ struct VRHomeView: View {
             let count = panels.count + 1
             panels.append(VRPanel(
                 title: "Janela \(count)", icon: "macwindow",
-                text: "GUIA RÁPIDO DO VR-OS V17\n\n"
+                text: "GUIA RÁPIDO DO VR-OS V19\n\n"
                     + "1. Pinça na linha branca: arraste a janela pelo ambiente.\n\n"
                     + "2. Segure a pinça sobre este texto e mova a mão para ROLAR a janela.\n\n"
                     + "3. Use as setas ↑/↓ para subir e descer. A−/A+ deixam o texto menor ou maior.\n\n"
@@ -1274,10 +1472,16 @@ struct VRHomeView: View {
                 x: CGFloat((count % 3) - 1) * 0.15,
                 y: CGFloat(count % 2 == 0 ? -0.38 : -0.28),
                 depth: 1.6))
+            if let newPanel = panels.last { registerUltraWindow(newPanel) }
         case 1:
             appsOpen.toggle()
             if appsOpen { themeMenuOpen = false }
         case 2:
+            if ultraWideMode {
+                ultraNotice = "Cinema usa ARKit · volte ao modo normal"
+                dockExpanded = false
+                return
+            }
             drag = nil
             webPinchGesture = nil
             appsOpen = false
@@ -1291,12 +1495,20 @@ struct VRHomeView: View {
         case 4:
             themeMenuOpen.toggle()
             if themeMenuOpen { appsOpen = false }
-        default:
-            for index in panels.indices {
-                panels[index].x = 0
-                panels[index].y = 0
-                panels[index].anchor = nil
+        case 5:
+            if ultraWideMode {
+                recenterUltraWide()
+            } else {
+                for index in panels.indices {
+                    panels[index].x = 0
+                    panels[index].y = 0
+                    panels[index].anchor = nil
+                }
             }
+        case 6:
+            toggleUltraWide()
+        default:
+            break
         }
     }
 }

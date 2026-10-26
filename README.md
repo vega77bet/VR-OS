@@ -1,8 +1,17 @@
-# VR-OS 4.3 — Cinema, janelas e apps web em VR para iPhone
+# VR-OS 4.5 — 0,5x real com Vision e rastreamento de cabeça 3DoF
 
 Aplicativo **experimental de realidade mista** para iPhone em modo paisagem, pensado para uso sentado com um headset simples tipo VR Box. **Não substitui o iOS** e não instala aplicativos iOS dentro das janelas.
 
-## O que existe na V17
+## Destaque V19 — ultrawide real com mãos e cabeça
+
+- O botão **0,5x** abre a câmera ultrawide física do iPhone. A V19 mantém **Vision** lendo a mesma captura para reconhecer mão, cursor, esqueleto e pinça.
+- O **Core Motion** oferece orientação da cabeça em **3DoF**, para movimentar a perspectiva das janelas em direções angulares aproximadas; o modo 0,5x **não oferece posição espacial 6DoF/SLAM do ARKit**.
+- A mão pode clicar em menus, rolar textos/sites e arrastar janelas em 2D/ângulo usando a pinça. Precisa que a lente traseira realmente enxergue a mão.
+- O cabeçalho da câmera 0,5x inclui **Mira** (recentralizar janelas), **Tela toda / Preencher** (mostrar sensor inteiro com barras pretas ou ampliar/cortar), **Mov./Inv.** (inverter direção de rotação) e **ARKit** (voltar ao rastreamento espacial completo).
+- Ao abrir 0,5x, ARKit é pausado para liberar câmera traseira; ao voltar, a ultrawide é desligada antes da retomada do ARKit. Cinema usa o modo ARKit.
+- Detalhes, limitações e testes em [V19_RASTREAMENTO_05X.md](V19_RASTREAMENTO_05X.md).
+
+## Recursos anteriores (V17–V18)
 
 - **Cinema virtual** com 72 poltronas, telão para arquivos locais MP4/MOV, modos 2D, SBS, H-SBS e OU, um AVPlayer para manter o vídeo dos dois olhos sincronizado, seleção de cadeira por toque, pinça ou **olhar fixamente por 1,5 s** para a bolinha.
 - **Ajustes de Cinema**: Centralizar, Mirar tela, Tela ↑/↓/←/→, FOV horizontal 55°–115°, MAX, inverter direção do movimento e trocar lados 3D. FOV, cadeira e calibração são persistidos localmente.
