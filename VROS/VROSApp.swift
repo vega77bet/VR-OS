@@ -340,12 +340,14 @@ struct VRHomeView: View {
                             .resizable()
                             .scaledToFit()
                             .frame(width: w, height: h)
+                            .scaleEffect(lens.cameraZoom)
                             .allowsHitTesting(false)
                     } else {
                         Image(decorative: frame, scale: 1, orientation: .up)
                             .resizable()
                             .scaledToFill()
                             .frame(width: w, height: h)
+                            .scaleEffect(lens.cameraZoom)
                             .clipped()
                             .allowsHitTesting(false)
                     }
@@ -368,6 +370,7 @@ struct VRHomeView: View {
                     .resizable()
                     .scaledToFill()
                     .frame(width: w, height: h)
+                    .scaleEffect(lens.cameraZoom)
                     .clipped()
                     .allowsHitTesting(false)
             } else {
@@ -408,6 +411,11 @@ struct VRHomeView: View {
                 }
                 if appsOpen {
                     appsLauncher(size: size).position(x: w / 2, y: h / 2)
+                }
+                if lensMenuOpen {
+                    lensCalibrationPanel(size: size)
+                        .position(x: w / 2, y: h / 2)
+                        .zIndex(10)
                 }
 
                 dock(size: size)
@@ -523,12 +531,15 @@ struct VRHomeView: View {
     }
 
     // The menu lives above the edge of the camera view so hands can reach it.
-    private func dockCenterY(_ size: CGSize) -> CGFloat { size.height * 0.91 }
+    private func dockCenterY(_ size: CGSize) -> CGFloat {
+        // Lens-shaped clipping would otherwise cut off the dock's last row.
+        min(size.height - 33, size.height * 0.82)
+    }
 
     private func dock(size: CGSize) -> some View {
         Group {
             if dockExpanded {
-                HStack(spacing: 3) {
+                HStack(spacing: 2) {
                     dockButton("plus.rectangle.on.rectangle", "Janela", slot: 0, size: size)
                     dockButton("square.grid.2x2.fill", "Apps", slot: 1, size: size)
                     dockButton("film.stack.fill", "Cinema", slot: 2, size: size)
@@ -537,6 +548,7 @@ struct VRHomeView: View {
                     dockButton("scope", "Centro", slot: 5, size: size)
                     dockButton("camera.aperture", ultraWideMode ? "ARKit" : "0,5x",
                                slot: 6, size: size)
+                    dockButton("viewfinder", "Visor", slot: 7, size: size)
                 }
                 .padding(5)
                 .background(selectedTheme.surface.opacity(0.95),
@@ -548,7 +560,7 @@ struct VRHomeView: View {
                     Image(systemName: "square.grid.2x2.fill")
                         .font(.system(size: 15))
                         .foregroundStyle(.white)
-                        .frame(width: 37, height: 37)
+                        .frame(width: 34, height: 34)
                         .background(selectedTheme.surface.opacity(0.93),
                                     in: RoundedRectangle(cornerRadius: 11))
                 }
@@ -569,7 +581,7 @@ struct VRHomeView: View {
                     .lineLimit(1).minimumScaleFactor(0.7)
             }
             .foregroundStyle(.white)
-            .frame(width: max(20, (size.width - 40) / 7), height: 48)
+            .frame(width: max(20, (size.width - 34) / 8), height: 42)
             .background(selectedTheme.accent.opacity(0.15),
                         in: RoundedRectangle(cornerRadius: 11))
         }
@@ -876,9 +888,9 @@ struct VRHomeView: View {
         }
         let iw = CGFloat(image.width)
         let ih = CGFloat(image.height)
-        let scale = ultraWideMode && ultraFullFrame
+        let scale = (ultraWideMode && ultraFullFrame
             ? min(size.width / iw, size.height / ih)
-            : max(size.width / iw, size.height / ih)
+            : max(size.width / iw, size.height / ih)) * lens.cameraZoom
         return CGPoint(x: raw.x * iw * scale + (size.width - iw * scale) / 2,
                        y: raw.y * ih * scale + (size.height - ih * scale) / 2)
     }
