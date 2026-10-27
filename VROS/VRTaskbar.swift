@@ -27,18 +27,16 @@ enum VRTaskbarAction: String, CaseIterable, Identifiable {
         }
     }
 
-    // Stable SF Symbol fallbacks keep the bar visible while the supplied
-    // VR-OS SVG asset catalog is being imported into the Xcode target.
-    var symbol: String {
+    var assetName: String {
         switch self {
-        case .home: return "house.fill"
-        case .apps: return "square.grid.2x2.fill"
-        case .cinema: return "film.stack.fill"
-        case .files: return "folder.fill"
-        case .photos: return "photo.on.rectangle"
-        case .browser: return "globe"
-        case .settings: return "gearshape.fill"
-        case .newWindow: return "plus.rectangle.on.rectangle"
+        case .home: return "home"
+        case .apps: return "more"
+        case .cinema: return "cinema"
+        case .files: return "files"
+        case .photos: return "photos"
+        case .browser: return "browser"
+        case .settings: return "settings"
+        case .newWindow: return "library"
         }
     }
 }
@@ -101,9 +99,12 @@ struct VRTaskbar: View {
                         onAction(action)
                     } label: {
                         VStack(spacing: 3) {
-                            Image(systemName: action.symbol)
-                                .font(.system(size: 18, weight: .semibold))
-                                .symbolRenderingMode(.hierarchical)
+                            VRIcon(
+                                name: action.assetName,
+                                state: selected ? .active : .normal,
+                                size: 20,
+                                accessibilityText: action.title
+                            )
                             Text(action.title)
                                 .font(VRDS.Font.micro)
                                 .lineLimit(1)
