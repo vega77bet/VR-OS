@@ -33,7 +33,7 @@ final class VRCinemaAudio {
                 let t = Double(i) / 44100
                 samples[i] = Float(sin(t * 2 * .pi * 60) * 0.5 + sin(t * 2 * .pi * 120) * 0.15)
             }
-            source.scheduleBuffer(buffer, options: .loops)
+            source.scheduleBuffer(buffer, at: nil, options: .loops, completionHandler: nil)
             configured = true
         }
         try engine.start()
