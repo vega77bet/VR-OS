@@ -181,7 +181,7 @@ final class CinemaModel: ObservableObject {
             forName: AVAudioSession.interruptionNotification, object: nil, queue: .main
         ) { [weak self] note in
             if (note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt) ==
-                AVAudioSession.InterruptionType.began.rawValue { self?.exit() }
+                AVAudioSession.InterruptionType.began.rawValue { self?.pausePlayback() }
         }
         if preferences.object(forKey: "vros.cinema.autoControls.v1") != nil {
             showControlsAutomatically =
@@ -263,6 +263,19 @@ final class CinemaModel: ObservableObject {
         motionReference = nil
         lastMotionTimestamp = 0
         player?.pause()
+        playing = false
+        controlsTask?.cancel()
+        controlsVisible = true
+        updateLighting()
+    }
+
+    // Audio interruptions and deleting the current movie pause media without
+    // leaving the room or disabling head tracking in the still-visible Cinema.
+    func pausePlayback() {
+        savePlaybackProgress()
+        movieImportID = UUID()
+        player?.pause()
+        roomAudio.stop()
         playing = false
         controlsTask?.cancel()
         controlsVisible = true
@@ -834,6 +847,18 @@ final class CinemaModel: ObservableObject {
             player.pause()
             playing = false
         } else {
+            do {
+                try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
+                try AVAudioSession.sharedInstance().setActive(true)
+            } catch {
+                errorMessage = "Não foi possível retomar o áudio: " + error.localizedDescription
+                revealControls()
+                return
+            }
+            if roomAmbience && presented {
+                do { try roomAudio.start() }
+                catch { roomAmbience = false; errorMessage = error.localizedDescription }
+            }
             let endTime = player.currentItem?.duration.seconds ?? .nan
             let current = player.currentTime().seconds
             if endTime.isFinite && endTime > 0 && current.isFinite &&
@@ -986,7 +1011,7 @@ final class CinemaModel: ObservableObject {
             pendingLibraryDelete = nil
             if let entry = library.entries.first(where: { $0.id == id }),
                library.url(for: entry) == currentLibraryURL {
-                exit()
+                pausePlayback()
                 player?.replaceCurrentItem(with: nil)
                 currentLibraryURL = nil
                 movieTitle = "Escolha um filme MP4"
