@@ -165,11 +165,15 @@ final class ProductivityTests: XCTestCase {
         store.setZoom(99); XCTAssertEqual(store.zoom, 4)
         store.setZoom(.nan); XCTAssertEqual(store.zoom, 4)
         store.moveImage(by: CGSize(width: 9999, height: -9999), viewport: CGSize(width: 100, height: 80))
-        XCTAssertEqual(store.pan, CGSize(width: 150, height: -120))
+        XCTAssertEqual(store.pan, CGSize(width: 150, height: -60))
         store.setZoom(1.5)
-        XCTAssertEqual(store.pan, CGSize(width: 25, height: -20))
+        XCTAssertEqual(store.pan, CGSize(width: 25, height: 0))
         for _ in 0..<5 { store.rotateImage() }
         XCTAssertEqual(store.quarterTurns, 1)
+        store.setZoom(4)
+        store.moveImage(by: CGSize(width: 9999, height: 9999), viewport: CGSize(width: 100, height: 80))
+        XCTAssertEqual(store.pan, CGSize(width: 30, height: 120),
+                       "Panning must use the fitted, rotated image, not just the viewport")
         await store.browsePhoto(1)
         XCTAssertEqual(store.preview?.id, second.id)
         XCTAssertEqual(store.zoom, 1); XCTAssertEqual(store.quarterTurns, 0)

@@ -34,7 +34,7 @@ Diagnóstico é uma fotografia do estado ao abrir/exportar, não um monitor de F
 - Busca/filtros combinados, ordenação, renomeação/favorito e reabertura; original preservado.
 - Falha ao gravar metadados reverte alterações em memória.
 - Texto com muitas quebras de linha e emoji: reconstrução integral de páginas e retomada após reiniciar; PDF com retomada de página.
-- Galeria, clamp de zoom/deslocamento, rotação/reset e abertura/exclusão por registro canônico.
+- Galeria, clamp de zoom/deslocamento pelo tamanho real da imagem ajustada e girada (sem arrastar para fora do visor), rotação/reset e abertura/exclusão por registro canônico.
 - Fechar durante decodificação não reabre a prévia.
 - Restauração de abas, URL ativa, isolamento por app, dados inválidos, duplicatas e limite de oito.
 - Backup completo, persistência e rejeição de versão/campos/limites inválidos sem mudança parcial.

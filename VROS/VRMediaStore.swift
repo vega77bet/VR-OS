@@ -56,6 +56,7 @@ final class VRMediaStore: ObservableObject {
     private var chunks: [String] = []
     private var chunkOffsets: [Int] = []
     private var readingViewport = CGSize(width: 200, height: 110)
+    private var imageViewport: CGSize?
     private var gallery: [UUID] = []
     private let folder: URL
     private var previewToken = UUID()
@@ -249,6 +250,8 @@ final class VRMediaStore: ObservableObject {
 
     func configureReadingViewport(_ size: CGSize) {
         guard size.width.isFinite, size.height.isFinite else { return }
+        imageViewport = size
+        clampPan()
         // Reserve a little space for SwiftUI's text rendering metrics.
         let next = CGSize(width: max(60, size.width - 4), height: max(40, size.height - 8))
         guard next != readingViewport else { return }
@@ -275,15 +278,26 @@ final class VRMediaStore: ObservableObject {
         pan = CGSize(width: pan.width * ratio, height: pan.height * ratio)
         zoom = next
         if zoom == 1 { pan = .zero }
+        clampPan()
     }
 
     func moveImage(by delta: CGSize, viewport: CGSize) {
         guard delta.width.isFinite, delta.height.isFinite,
               viewport.width.isFinite, viewport.height.isFinite, zoom > 1 else { return }
-        let x = max(0, viewport.width * (zoom - 1) / 2)
-        let y = max(0, viewport.height * (zoom - 1) / 2)
-        pan = CGSize(width: max(-x, min(x, pan.width + delta.width)),
-                     height: max(-y, min(y, pan.height + delta.height)))
+        imageViewport = viewport
+        pan = CGSize(width: pan.width + delta.width, height: pan.height + delta.height)
+        clampPan()
+    }
+
+    private func clampPan() {
+        guard let viewport = imageViewport, viewport.width > 0, viewport.height > 0 else { return }
+        var pixels = image?.size ?? viewport
+        if quarterTurns % 2 != 0 { pixels = CGSize(width: pixels.height, height: pixels.width) }
+        guard pixels.width > 0, pixels.height > 0 else { return }
+        let fit = min(viewport.width / pixels.width, viewport.height / pixels.height)
+        let x = max(0, (pixels.width * fit * zoom - viewport.width) / 2)
+        let y = max(0, (pixels.height * fit * zoom - viewport.height) / 2)
+        pan = CGSize(width: max(-x, min(x, pan.width)), height: max(-y, min(y, pan.height)))
     }
 
     func rotateImage() { quarterTurns = (quarterTurns + 1) % 4; pan = .zero }
@@ -325,6 +339,7 @@ final class VRMediaStore: ObservableObject {
         preview = nil; image = nil; text = nil; pdf = nil; pdfPage = 0
         textPages = 1; textPage = ""
         chunks = []; chunkOffsets = []; gallery = []; resetImage()
+        imageViewport = nil
     }
 
     func remove(_ requested: VRMediaEntry) throws {
