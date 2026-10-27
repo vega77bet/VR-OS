@@ -62,8 +62,19 @@ private struct CinemaSeat {
 
 final class CinemaModel: ObservableObject {
     let library = CinemaLibrary()
+    private let roomAudio = VRCinemaAudio()
+    private var presented = false
+    private var periodicObserver: Any?
+    private var audioInterruption: NSObjectProtocol?
+    @Published private(set) var movieVolume: Float = 1
+    @Published private(set) var movieMuted = false
+    @Published private(set) var roomAmbience = false
+    @Published private(set) var roomBrightness: CGFloat = 1
+    @Published var toolsSelected = false
     private var libraryObservation: AnyCancellable?
-    @Published var libraryVisible = false
+    @Published var libraryVisible = false {
+        didSet { if !libraryVisible { pendingLibraryDelete = nil } }
+    }
     @Published var libraryPage = 0
     @Published private var pendingLibraryDelete: UUID?
     let scene = SCNScene()
@@ -159,6 +170,19 @@ final class CinemaModel: ObservableObject {
         try? fileManager.removeItem(at: cacheFolder)
 
         let preferences = UserDefaults.standard
+        if preferences.object(forKey: "vros.cinema.volume.v1") != nil {
+            let savedVolume = preferences.float(forKey: "vros.cinema.volume.v1")
+            if savedVolume.isFinite { movieVolume = min(1, max(0, savedVolume)) }
+        }
+        movieMuted = preferences.bool(forKey: "vros.cinema.muted.v1")
+        let brightness = preferences.double(forKey: "vros.cinema.brightness.v1")
+        if brightness.isFinite && brightness >= 0.1 && brightness <= 1.5 { roomBrightness = brightness }
+        audioInterruption = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification, object: nil, queue: .main
+        ) { [weak self] note in
+            if (note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt) ==
+                AVAudioSession.InterruptionType.began.rawValue { self?.pausePlayback() }
+        }
         if preferences.object(forKey: "vros.cinema.autoControls.v1") != nil {
             showControlsAutomatically =
                 preferences.bool(forKey: "vros.cinema.autoControls.v1")
@@ -194,6 +218,9 @@ final class CinemaModel: ObservableObject {
     }
 
     deinit {
+        if let observer = periodicObserver { player?.removeTimeObserver(observer) }
+        if let observer = audioInterruption { NotificationCenter.default.removeObserver(observer) }
+        roomAudio.stop()
         motion.stopDeviceMotionUpdates()
         controlsTask?.cancel()
         if let observer = endPlaybackObserver {
@@ -205,6 +232,12 @@ final class CinemaModel: ObservableObject {
     }
 
     func enter(camera: ARCamera?) {
+        presented = true
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch { errorMessage = "Áudio indisponível: " + error.localizedDescription }
+        if roomAmbience { try? roomAudio.start() }
         setSeatSelectionMode(false)
         motion.stopDeviceMotionUpdates()
         lastARPose = camera
@@ -218,6 +251,11 @@ final class CinemaModel: ObservableObject {
     }
 
     func exit() {
+        savePlaybackProgress()
+        presented = false
+        roomAudio.stop()
+        libraryVisible = false
+
         // A copy finishing after exit/background must never start audio.
         movieImportID = UUID()
         setSeatSelectionMode(false)
@@ -225,6 +263,19 @@ final class CinemaModel: ObservableObject {
         motionReference = nil
         lastMotionTimestamp = 0
         player?.pause()
+        playing = false
+        controlsTask?.cancel()
+        controlsVisible = true
+        updateLighting()
+    }
+
+    // Audio interruptions and deleting the current movie pause media without
+    // leaving the room or disabling head tracking in the still-visible Cinema.
+    func pausePlayback() {
+        savePlaybackProgress()
+        movieImportID = UUID()
+        player?.pause()
+        roomAudio.stop()
         playing = false
         controlsTask?.cancel()
         controlsVisible = true
@@ -343,6 +394,7 @@ final class CinemaModel: ObservableObject {
         let corrected = invertTracking ? simd_inverse(delta) : delta
         let finalOrientation = simd_normalize(screenAimOrientation * corrected)
         headRig.simdOrientation = finalOrientation
+        if roomAudio.active { roomAudio.updateOrientation(finalOrientation) }
     }
 
     func adjustScreenHeight(_ direction: Float) {
@@ -373,6 +425,13 @@ final class CinemaModel: ObservableObject {
     }
 
     func resetPlacement() {
+        setMovieVolume(1)
+        setRoomBrightness(1)
+        movieMuted = false
+        player?.isMuted = false
+        UserDefaults.standard.set(false, forKey: "vros.cinema.muted.v1")
+        roomAmbience = false
+        roomAudio.stop()
         convergence = 0
         updateStereoMaterials()
         _ = selectSeat(30)
@@ -397,7 +456,7 @@ final class CinemaModel: ObservableObject {
         recenterHead()
     }
 
-    func loadMovie(_ url: URL, deleteSourceAfterImport: Bool = false) {
+    func loadMovie(_ url: URL, deleteSourceAfterImport: Bool = false, displayTitle: String? = nil) {
         // AVFoundation cannot reliably demux Matroska. Do not claim the
         // import succeeded when the user picks a .mkv.
         if url.pathExtension.lowercased() == "mkv" {
@@ -442,7 +501,7 @@ final class CinemaModel: ObservableObject {
                     if dest != url { try? FileManager.default.removeItem(at: dest) }
                     return
                 }
-                self.installMovie(dest, sourceURL: url, importID: importID)
+                self.installMovie(dest, sourceURL: url, importID: importID, displayTitle: displayTitle)
             } catch {
                 guard let self = self, self.movieImportID == importID else { return }
                 self.errorMessage = "Erro ao importar vídeo: " + error.localizedDescription
@@ -451,7 +510,9 @@ final class CinemaModel: ObservableObject {
         }
     }
 
-    private func installMovie(_ dest: URL, sourceURL url: URL, importID: UUID) {
+    private func installMovie(_ dest: URL, sourceURL url: URL, importID: UUID, displayTitle: String? = nil) {
+        savePlaybackProgress()
+        if let observer = periodicObserver { player?.removeTimeObserver(observer); periodicObserver = nil }
         player?.pause()
         playbackStatusObservation = nil
         sourceAspect = 16.0 / 9.0
@@ -465,12 +526,22 @@ final class CinemaModel: ObservableObject {
         // Library owns retained imports. Player cleanup only owns cache files.
         importedMovieURL = nil
         currentLibraryURL = dest
-        library.record(url: dest, title: url.deletingPathExtension().lastPathComponent)
+        library.record(url: dest, title: displayTitle ?? url.deletingPathExtension().lastPathComponent)
         let movie = AVPlayer(url: dest)
         movie.actionAtItemEnd = .pause
         leftScreenMaterial.diffuse.contents = movie
         rightScreenMaterial.diffuse.contents = movie
         player = movie
+        movie.volume = movieVolume
+        movie.isMuted = movieMuted
+        let savedEntry = library.entries.first { $0.filename == dest.lastPathComponent }
+        convergence = max(-0.02, min(0.02, CGFloat(savedEntry?.convergence ?? 0)))
+        if let seconds = savedEntry?.seconds, seconds.isFinite, seconds > 0, seconds <= 86400 {
+            movie.seek(to: CMTime(seconds: seconds, preferredTimescale: 600))
+        }
+        periodicObserver = movie.addPeriodicTimeObserver(forInterval: CMTime(seconds: 5, preferredTimescale: 1), queue: .main) { [weak self] _ in
+            self?.savePlaybackProgress()
+        }
         playbackStatusObservation = movie.currentItem?.observe(
             \.status, options: [.initial, .new]) { [weak self, weak movie] item, _ in
             guard item.status == .failed else { return }
@@ -722,7 +793,7 @@ final class CinemaModel: ObservableObject {
 
     private func configureEyeMaterial(_ material: SCNMaterial, rightEye: Bool) {
         let useRightHalf = swapEyes ? !rightEye : rightEye
-        let scaleX: Float
+        var scaleX: Float
         let scaleY: Float
         let translationX: Float
         let translationY: Float
@@ -751,9 +822,11 @@ final class CinemaModel: ObservableObject {
         // Set UV scale and offset independently. Multiplying translation
         // by scale can halve the right-eye offset and sample the centre seam.
         var transform = SCNMatrix4Identity
+        let margin: Float = selectedMode == .twoD ? 0 : abs(Float(convergence))
+        scaleX = max(0.01, scaleX - 2 * margin)
         transform.m11 = scaleX
         transform.m22 = scaleY
-        transform.m41 = translationX + shift
+        transform.m41 = translationX + margin + shift
         transform.m42 = translationY
         material.diffuse.contentsTransform = transform
         material.diffuse.wrapS = .clamp
@@ -774,6 +847,18 @@ final class CinemaModel: ObservableObject {
             player.pause()
             playing = false
         } else {
+            do {
+                try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
+                try AVAudioSession.sharedInstance().setActive(true)
+            } catch {
+                errorMessage = "Não foi possível retomar o áudio: " + error.localizedDescription
+                revealControls()
+                return
+            }
+            if roomAmbience && presented {
+                do { try roomAudio.start() }
+                catch { roomAmbience = false; errorMessage = error.localizedDescription }
+            }
             let endTime = player.currentItem?.duration.seconds ?? .nan
             let current = player.currentTime().seconds
             if endTime.isFinite && endTime > 0 && current.isFinite &&
@@ -819,6 +904,80 @@ final class CinemaModel: ObservableObject {
         }
     }
 
+
+    private func savePlaybackProgress() {
+        guard let url = currentLibraryURL, let player = player,
+              player.currentItem?.status == .readyToPlay else { return }
+        let seconds = player.currentTime().seconds
+        guard seconds.isFinite else { return }
+        let duration = player.currentItem?.duration.seconds ?? .nan
+        let position = duration.isFinite && seconds >= duration - 2 ? 0 : seconds
+        library.saveProgress(position, convergence: Double(convergence), for: url)
+    }
+
+    func setMovieVolume(_ raw: Float) {
+        guard raw.isFinite else { return }
+        movieVolume = max(0, min(1, raw))
+        player?.volume = movieVolume
+        UserDefaults.standard.set(movieVolume, forKey: "vros.cinema.volume.v1")
+    }
+
+    func setRoomBrightness(_ raw: CGFloat) {
+        guard raw.isFinite else { return }
+        roomBrightness = max(0.1, min(1.5, raw))
+        UserDefaults.standard.set(Double(roomBrightness), forKey: "vros.cinema.brightness.v1")
+        updateLighting()
+    }
+
+    var toolItems: [VRWorkspaceItem] {
+        [
+            ("mode", "Formato", selectedMode.rawValue, "rectangle.split.2x1"),
+            ("eyes", "Trocar olhos", swapEyes ? "Invertidos" : "Normal", "eye"),
+            ("conv-", "Convergência −", String(format: "%.3f", Double(convergence)), "minus"),
+            ("conv+", "Convergência +", "Ajustar profundidade 3D", "plus"),
+            ("seat-", "Assento anterior", currentSeatLabel, "chair.lounge"),
+            ("seat+", "Próximo assento", currentSeatLabel, "chair.lounge.fill"),
+            ("light-", "Menos luz", "\(Int(roomBrightness * 100))%", "sun.min"),
+            ("light+", "Mais luz", "\(Int(roomBrightness * 100))%", "sun.max"),
+            ("vol-", "Volume −", "\(Int(movieVolume * 100))%", "speaker.wave.1"),
+            ("vol+", "Volume +", "\(Int(movieVolume * 100))%", "speaker.wave.3"),
+            ("mute", "Mudo", movieMuted ? "Ativo" : "Desativado", "speaker.slash"),
+            ("ambience", "Projetor espacial", roomAmbience ? "Ativo" : "Desativado", "hifispeaker.fill"),
+            ("fov-", "Tela maior", "Aproximar campo visual", "plus.magnifyingglass"),
+            ("fov+", "Tela menor", "Ampliar campo visual", "minus.magnifyingglass")
+        ].map { VRWorkspaceItem(id: "tool." + $0.0, title: $0.1, detail: $0.2,
+            symbol: $0.3, command: .cinemaTool($0.0)) }
+    }
+
+    var panelItems: [VRWorkspaceItem] { toolsSelected ? toolItems : libraryItems }
+
+    func applyTool(_ key: String) {
+        switch key {
+        case "mode":
+            let modes = CinemaVideoMode.allCases
+            if let i = modes.firstIndex(of: selectedMode) { selectMode(modes[(i + 1) % modes.count]) }
+        case "eyes": toggleEyeOrder()
+        case "conv-": adjustConvergence(-1); savePlaybackProgress()
+        case "conv+": adjustConvergence(1); savePlaybackProgress()
+        case "seat-": _ = selectSeat((currentSeatID + 71) % 72)
+        case "seat+": _ = selectSeat((currentSeatID + 1) % 72)
+        case "light-": setRoomBrightness(roomBrightness - 0.1)
+        case "light+": setRoomBrightness(roomBrightness + 0.1)
+        case "vol-": setMovieVolume(movieVolume - 0.1)
+        case "vol+": setMovieVolume(movieVolume + 0.1)
+        case "mute":
+            movieMuted.toggle(); player?.isMuted = movieMuted
+            UserDefaults.standard.set(movieMuted, forKey: "vros.cinema.muted.v1")
+        case "ambience":
+            roomAmbience.toggle()
+            do { if roomAmbience && presented { try roomAudio.start() } else { roomAudio.stop() } }
+            catch { roomAmbience = false; errorMessage = error.localizedDescription }
+        case "fov-": adjustCinemaFOV(-5)
+        case "fov+": adjustCinemaFOV(5)
+        default: break
+        }
+    }
+
     var libraryItems: [VRWorkspaceItem] {
         library.entries.flatMap { entry in [
             VRWorkspaceItem(id: entry.id.uuidString, title: entry.title,
@@ -835,6 +994,7 @@ final class CinemaModel: ObservableObject {
 
     func selectLibrary(_ command: VRWorkspaceCommand) {
         switch command {
+        case let .cinemaTool(key): applyTool(key)
         case let .movie(id):
             guard let entry = library.entries.first(where: { $0.id == id }) else { return }
             libraryVisible = false
@@ -851,7 +1011,7 @@ final class CinemaModel: ObservableObject {
             pendingLibraryDelete = nil
             if let entry = library.entries.first(where: { $0.id == id }),
                library.url(for: entry) == currentLibraryURL {
-                exit()
+                pausePlayback()
                 player?.replaceCurrentItem(with: nil)
                 currentLibraryURL = nil
                 movieTitle = "Escolha um filme MP4"
@@ -869,16 +1029,16 @@ final class CinemaModel: ObservableObject {
     }
 
     func changeLibraryPage(_ delta: Int) {
-        libraryPage = max(0, min(max(0, (libraryItems.count - 1) / 6), libraryPage + delta))
+        libraryPage = max(0, min(max(0, (panelItems.count - 1) / 6), libraryPage + delta))
     }
 
     func updateLighting(animated: Bool = true) {
         SCNTransaction.begin()
         SCNTransaction.animationDuration = animated ? 1.5 : 0
-        ambientLight?.intensity = playing ? 75 : 230
-        screenBounceLight?.intensity = playing ? 210 : 95
+        ambientLight?.intensity = (playing ? 75 : 230) * roomBrightness
+        screenBounceLight?.intensity = (playing ? 210 : 95) * roomBrightness
         for light in roomLights {
-            light.intensity = playing ? 70 : 350
+            light.intensity = (playing ? 70 : 350) * roomBrightness
         }
         for node in accentNodes {
             node.opacity = playing ? 0.38 : 0.9
@@ -1203,54 +1363,9 @@ struct CinemaEyeView: View {
                 // Persistent access: controls can ALWAYS be reopened without
                 // requiring rear-camera hand tracking inside the VR headset.
                 VStack {
-                    HStack {
-                        Button {
-                            cinema.libraryPage = 0
-                            cinema.libraryVisible.toggle()
-                        } label: {
-                            Image(systemName: "books.vertical.fill")
-                                .font(.system(size: 12)).padding(7)
-                        }.buttonStyle(.plain)
-                        Button {
-                            cinema.toggleMenu()
-                        } label: {
-                            Label(cinema.controlsVisible ? "Ocultar" : "Menu",
-                                  systemImage: "line.3.horizontal")
-                                .font(.system(size: 10, weight: .bold))
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 7)
-                                .background(.black.opacity(0.75),
-                                            in: Capsule())
-                        }
-                        .buttonStyle(.plain)
-                        Spacer(minLength: 3)
-                        Button {
-                            cinema.toggleSeatSelection()
-                        } label: {
-                            Label(cinema.seatSelectionMode ? "Fechar assentos" : "Assentos",
-                                  systemImage: "chair.lounge.fill")
-                                .font(.system(size: 9, weight: .bold))
-                                .padding(.horizontal, 9)
-                                .padding(.vertical, 7)
-                                .background(cinema.seatSelectionMode
-                                    ? Color.blue.opacity(0.84) : .black.opacity(0.75),
-                                    in: Capsule())
-                        }
-                        .buttonStyle(.plain)
-                        Spacer(minLength: 3)
-                        Button { onExit() } label: {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 11, weight: .bold))
-                                .frame(width: 29, height: 29)
-                                .background(.black.opacity(0.75), in: Circle())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.top, 6)
+                    VRCinemaToolbar(viewport: geometry.size, action: headerAction)
                     Spacer()
                 }
-                .foregroundStyle(.white)
                 if cinema.seatSelectionMode {
                     ZStack {
                         Circle()
@@ -1481,8 +1596,8 @@ struct CinemaEyeView: View {
                             if point.x > box.midX + box.width / 6 { cinema.changeLibraryPage(1) }
                         } else if let slot = VRWorkspaceGeometry.item(at: point, in: geometry.size) {
                             let index = cinema.libraryPage * 6 + slot
-                            if cinema.libraryItems.indices.contains(index) {
-                                cinema.selectLibrary(cinema.libraryItems[index].command)
+                            if cinema.panelItems.indices.contains(index) {
+                                cinema.selectLibrary(cinema.panelItems[index].command)
                             }
                         }
                     }
@@ -1490,6 +1605,12 @@ struct CinemaEyeView: View {
                     return
                 }
                 if hand.visible && hand.pinching && !lastPinch {
+                    if let slot = VRCinemaToolbarGeometry.slot(
+                        at: handPoint(size: geometry.size), viewport: geometry.size) {
+                        headerAction(slot)
+                        lastPinch = true
+                        return
+                    }
                     if cinema.seatSelectionMode {
                         // First try the fingertip; aim at a seat marker with
                         // the centre reticle as a fallback for the VR Box.
@@ -1502,10 +1623,8 @@ struct CinemaEyeView: View {
                     } else {
                     let point = handPoint(size: geometry.size)
                     let bottom = geometry.size.height - 40
-                    if point.y < 42 && point.x < geometry.size.width * 0.5 {
-                        cinema.toggleMenu()
-                    } else if point.y < 42 {
-                        onExit()
+                    if point.y < 42 {
+                        // Only exact toolbar targets can activate a header action.
                     } else if point.y >= 44 && point.y <= 88 {
                         let slot = min(3, max(0, Int(point.x / max(1, geometry.size.width) * 4)))
                         cinema.selectMode(CinemaVideoMode.allCases[slot])
@@ -1538,11 +1657,11 @@ struct CinemaEyeView: View {
         .overlay {
             if cinema.libraryVisible {
                 GeometryReader { geometry in
-                    VRWorkspaceView(items: cinema.libraryItems, page: cinema.libraryPage,
-                        viewport: geometry.size, title: "BIBLIOTECA", onSelect: cinema.selectLibrary,
+                    VRWorkspaceView(items: cinema.panelItems, page: cinema.libraryPage,
+                        viewport: geometry.size, title: cinema.toolsSelected ? "CONTROLES" : "BIBLIOTECA", onSelect: cinema.selectLibrary,
                         onPage: cinema.changeLibraryPage,
                         onClose: { cinema.libraryVisible = false })
-                    if cinema.libraryItems.isEmpty {
+                    if cinema.panelItems.isEmpty {
                         Text("Importe um vídeo por Arquivos ou Fotos para iniciar a biblioteca.")
                             .font(.system(size: 11)).foregroundStyle(.white)
                             .padding(30).frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1563,6 +1682,22 @@ struct CinemaEyeView: View {
             case .failure(let error):
                 cinema.errorMessage = error.localizedDescription
             }
+        }
+    }
+
+    private func headerAction(_ slot: Int) {
+        switch slot {
+        case 0:
+            cinema.toolsSelected = true
+            cinema.libraryPage = 0
+            cinema.libraryVisible = true
+        case 1:
+            cinema.toolsSelected = false
+            cinema.libraryPage = 0
+            cinema.libraryVisible = true
+        case 2: cinema.toggleMenu()
+        case 3: cinema.toggleSeatSelection()
+        default: onExit()
         }
     }
 
