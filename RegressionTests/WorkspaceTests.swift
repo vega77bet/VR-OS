@@ -2,6 +2,29 @@ import XCTest
 import CoreGraphics
 
 final class WorkspaceTests: XCTestCase {
+    func testLibraryFavoritesAndHistorySurviveRestart() throws {
+        let suite = "vros.library.test." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let folder = CinemaLibrary.folder
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let url = folder.appendingPathComponent(UUID().uuidString + ".mp4")
+        try Data([0]).write(to: url)
+        defer {
+            try? FileManager.default.removeItem(at: url)
+            defaults.removePersistentDomain(forName: suite)
+        }
+        let library = CinemaLibrary(defaults: defaults)
+        library.record(url: url, title: "Teste")
+        let id = try XCTUnwrap(library.entries.first?.id)
+        library.toggleFavorite(id)
+        library.record(url: url, title: "Teste")
+        let restored = CinemaLibrary(defaults: defaults)
+        XCTAssertEqual(restored.entries.count, 1)
+        XCTAssertEqual(restored.entries.first?.id, id)
+        XCTAssertTrue(try XCTUnwrap(restored.entries.first).favorite)
+        XCTAssertEqual(restored.url(for: try XCTUnwrap(restored.entries.first)), url)
+    }
+
     @MainActor
     func testMinimizeFocusResizeAndClose() {
         let workspace = VRWorkspace()

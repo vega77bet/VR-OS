@@ -174,7 +174,7 @@ struct VRSettingsTable: UIViewRepresentable {
         let signature = session.page.rawValue + "#" + session.searchText +
             "#" + structuralIdentity
         let valuesSignature = sections.flatMap { $0.rows }.map {
-            "\($0.id):\(session.value(for: $0.id)):\(session.toggled($0.id)):\(session.selected($0.id))"
+            "\(session.largeText):\($0.id):\(session.value(for: $0.id)):\(session.toggled($0.id)):\(session.selected($0.id))"
         }.joined(separator: "|")
         if coordinator.signature != signature {
             let pageChanged = coordinator.page != session.page
@@ -381,6 +381,8 @@ final class VRSettingsTableCell: UITableViewCell {
         self.row = row
         self.session = session
         self.controlEnabled = enabled
+        headline.font = .systemFont(ofSize: session.largeText ? 13 : 11, weight: .medium)
+        detail.font = .systemFont(ofSize: session.largeText ? 10 : 8.5)
         headline.text = row.title
         detail.text = row.subtitle
         glyph.image = UIImage(systemName: row.symbol.isEmpty

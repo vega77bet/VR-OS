@@ -61,6 +61,9 @@ private struct CinemaSeat {
 }
 
 final class CinemaModel: ObservableObject {
+    let library = CinemaLibrary()
+    @Published var libraryVisible = false
+    @Published var libraryPage = 0
     let scene = SCNScene()
     // One rotating head rig keeps the stereo 64-mm separation aligned with
     // the head direction. Previously each eye was rotated independently at
@@ -413,11 +416,12 @@ final class CinemaModel: ObservableObject {
                         if access { url.stopAccessingSecurityScopedResource() }
                         if deleteSourceAfterImport { try? FileManager.default.removeItem(at: url) }
                     }
-                    let folder = FileManager.default.urls(
-                        for: .cachesDirectory, in: .userDomainMask)[0]
-                        .appendingPathComponent("Cinema", isDirectory: true)
+                    let folder = CinemaLibrary.folder
                     try FileManager.default.createDirectory(at: folder,
                                                             withIntermediateDirectories: true)
+                    if url.deletingLastPathComponent().standardizedFileURL == folder.standardizedFileURL {
+                        return url
+                    }
                     let dest = folder.appendingPathComponent(
                         UUID().uuidString + "." + url.pathExtension.lowercased())
                     do {
@@ -429,7 +433,7 @@ final class CinemaModel: ObservableObject {
                     }
                 }.value
                 guard let self = self, self.movieImportID == importID else {
-                    try? FileManager.default.removeItem(at: dest)
+                    if dest != url { try? FileManager.default.removeItem(at: dest) }
                     return
                 }
                 self.installMovie(dest, sourceURL: url, importID: importID)
@@ -452,7 +456,9 @@ final class CinemaModel: ObservableObject {
         if let previousFile = importedMovieURL {
             try? FileManager.default.removeItem(at: previousFile)
         }
-        importedMovieURL = dest
+        // Library owns retained imports. Player cleanup only owns cache files.
+        importedMovieURL = nil
+        library.record(url: dest, title: url.deletingPathExtension().lastPathComponent)
         let movie = AVPlayer(url: dest)
         movie.actionAtItemEnd = .pause
         leftScreenMaterial.diffuse.contents = movie
@@ -799,6 +805,33 @@ final class CinemaModel: ObservableObject {
         }
     }
 
+    var libraryItems: [VRWorkspaceItem] {
+        library.entries.flatMap { entry in [
+            VRWorkspaceItem(id: entry.id.uuidString, title: entry.title,
+                detail: "Reproduzir · histórico", symbol: "film.fill", command: .movie(entry.id)),
+            VRWorkspaceItem(id: entry.id.uuidString + ".favorite", title: entry.favorite ? "Favorito" : "Favoritar",
+                detail: entry.title, symbol: entry.favorite ? "star.fill" : "star",
+                command: .favoriteMovie(entry.id))
+        ]}
+    }
+
+    func selectLibrary(_ command: VRWorkspaceCommand) {
+        switch command {
+        case let .movie(id):
+            guard let entry = library.entries.first(where: { $0.id == id }) else { return }
+            libraryVisible = false
+            loadMovie(library.url(for: entry))
+        case let .favoriteMovie(id):
+            objectWillChange.send()
+            library.toggleFavorite(id)
+        default: break
+        }
+    }
+
+    func changeLibraryPage(_ delta: Int) {
+        libraryPage = max(0, min(max(0, (libraryItems.count - 1) / 6), libraryPage + delta))
+    }
+
     func updateLighting(animated: Bool = true) {
         SCNTransaction.begin()
         SCNTransaction.animationDuration = animated ? 1.5 : 0
@@ -1132,6 +1165,13 @@ struct CinemaEyeView: View {
                 VStack {
                     HStack {
                         Button {
+                            cinema.libraryPage = 0
+                            cinema.libraryVisible.toggle()
+                        } label: {
+                            Image(systemName: "books.vertical.fill")
+                                .font(.system(size: 12)).padding(7)
+                        }.buttonStyle(.plain)
+                        Button {
                             cinema.toggleMenu()
                         } label: {
                             Label(cinema.controlsVisible ? "Ocultar" : "Menu",
@@ -1390,6 +1430,25 @@ struct CinemaEyeView: View {
             }
             .onReceive(runtime.$hand) { hand in
                 guard !rightEye else { return }
+                if cinema.libraryVisible {
+                    if hand.visible && hand.pinching && !lastPinch {
+                        let point = handPoint(size: geometry.size)
+                        let box = VRWorkspaceGeometry.bounds(geometry.size)
+                        if point.y < box.minY + 36 && point.x > box.maxX - 45 {
+                            cinema.libraryVisible = false
+                        } else if point.y > box.maxY - 28 {
+                            if point.x < box.midX - box.width / 6 { cinema.changeLibraryPage(-1) }
+                            if point.x > box.midX + box.width / 6 { cinema.changeLibraryPage(1) }
+                        } else if let slot = VRWorkspaceGeometry.item(at: point, in: geometry.size) {
+                            let index = cinema.libraryPage * 6 + slot
+                            if cinema.libraryItems.indices.contains(index) {
+                                cinema.selectLibrary(cinema.libraryItems[index].command)
+                            }
+                        }
+                    }
+                    lastPinch = hand.visible && hand.pinching
+                    return
+                }
                 if hand.visible && hand.pinching && !lastPinch {
                     if cinema.seatSelectionMode {
                         // First try the fingertip; aim at a seat marker with
@@ -1434,6 +1493,22 @@ struct CinemaEyeView: View {
                     }
                 }
                 lastPinch = hand.visible && hand.pinching
+            }
+        }
+        .overlay {
+            if cinema.libraryVisible {
+                GeometryReader { geometry in
+                    VRWorkspaceView(items: cinema.libraryItems, page: cinema.libraryPage,
+                        viewport: geometry.size, onSelect: cinema.selectLibrary,
+                        onPage: cinema.changeLibraryPage,
+                        onClose: { cinema.libraryVisible = false })
+                    if cinema.libraryItems.isEmpty {
+                        Text("Importe um vídeo por Arquivos ou Fotos para iniciar a biblioteca.")
+                            .font(.system(size: 11)).foregroundStyle(.white)
+                            .padding(30).frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .allowsHitTesting(false)
+                    }
+                }
             }
         }
         .photosPicker(isPresented: rightEye ? .constant(false) : $pickingPhotoMovie,

@@ -47,7 +47,9 @@ final class VRWorkspace: ObservableObject {
 }
 
 enum VRWorkspaceCommand {
-    case settings, camera, center, theme, hud, updates
+    case settings, camera, center, theme, hud, updates, hands, motion
+    case scenery(Int)
+    case movie(UUID), favoriteMovie(UUID)
     case minimize(UUID), focus(UUID), smaller(UUID), larger(UUID), close(UUID)
 }
 

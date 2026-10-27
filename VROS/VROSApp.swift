@@ -180,6 +180,7 @@ struct VRHomeView: View {
     @StateObject private var workspace = VRWorkspace()
     @State private var workspaceOpen = false
     @State private var workspacePage = 0
+    @AppStorage("vros.scenery.v1") private var sceneryIndex = 0
     @State private var webSessions: [UUID: VRWebSession] = [:]
     @State private var noteSessions: [UUID: VRNoteSession] = [:]
     @State private var notePinchGesture: NotePinchGesture?
@@ -577,6 +578,9 @@ struct VRHomeView: View {
                         .foregroundStyle(.white)
                     }
                 }
+            } else if sceneryIndex != 0 {
+                VRSceneryView(scenery: VRScenery(rawValue: sceneryIndex) ?? .original,
+                              camera: runtime.camera)
             } else if selectedTheme == .cosmos {
                 SpaceSkyView(camera: runtime.camera, size: size)
             } else if selectedTheme == .aurora || selectedTheme == .synthwave {
@@ -693,15 +697,8 @@ struct VRHomeView: View {
 
             if shownHand.visible && settings.showCursor && !settingsOpen {
                 let cursor = interactionPoint(shownHand.point, size: size)
-                ZStack {
-                    Circle()
-                        .stroke(.white.opacity(0.9), lineWidth: shownHand.pinching ? 3 : 2)
-                        .frame(width: shownHand.pinching ? 29 : 21,
-                               height: shownHand.pinching ? 29 : 21)
-                    Circle().fill(.white).frame(width: 5, height: 5)
-                }
-                .shadow(color: .black, radius: 3)
-                .scaleEffect(settings.cursorSize)
+                VRPrecisionCursor(pinching: shownHand.pinching, size: settings.cursorSize,
+                                  reduceMotion: settings.reduceMotion)
                 .position(cursor)
                 .allowsHitTesting(false)
             }
@@ -1132,6 +1129,7 @@ struct VRHomeView: View {
     }
 
     private func chooseTheme(_ theme: VRTheme) {
+        sceneryIndex = 0
         selectedTheme = theme
         UserDefaults.standard.set(theme.rawValue, forKey: "vros.selectedTheme.v1")
         themeMenuOpen = false
@@ -1956,6 +1954,20 @@ struct VRHomeView: View {
             VRWorkspaceItem(id: "hud", title: "Barra de status", detail: settings.showHUD ? "Visível" : "Oculta", symbol: "rectangle.topthird.inset.filled", command: .hud),
             VRWorkspaceItem(id: "updates", title: "Atualizações", detail: "Buscar conteúdo", symbol: "arrow.down.circle.fill", command: .updates)
         ]
+        let hand = ultraWideMode ? ultraWide.hand : runtime.hand
+        items += [
+            VRWorkspaceItem(id: "hands", title: "Mãos e calibração",
+                detail: hand.visible ? "\(hand.joints.compactMap { $0 }.count)/21 pontos" : "Mostre a mão",
+                symbol: "hand.draw.fill", command: .hands),
+            VRWorkspaceItem(id: "motion", title: "Animações",
+                detail: settings.reduceMotion ? "Reduzidas" : "Ativas",
+                symbol: "sparkles", command: .motion)
+        ]
+        for scenery in VRScenery.allCases {
+            items.append(VRWorkspaceItem(id: "scene.\(scenery.rawValue)", title: scenery.title,
+                detail: sceneryIndex == scenery.rawValue ? "Selecionado" : "Aplicar ambiente",
+                symbol: "globe.americas.fill", command: .scenery(scenery.rawValue)))
+        }
         for panel in panels {
             let state = workspace.state(panel.id)
             items += [
@@ -1981,6 +1993,17 @@ struct VRHomeView: View {
         case .center: centreAllWindows()
         case .theme: workspaceOpen = false; themeMenuOpen = true
         case .hud: settings.showHUD.toggle()
+        case .hands:
+            workspaceOpen = false
+            openSettings()
+            settings.enter(.hands)
+            let hand = ultraWideMode ? ultraWide.hand : runtime.hand
+            settings.notice = hand.visible
+                ? "\(hand.joints.compactMap { $0 }.count)/21 pontos · ajuste a sensibilidade e teste a pinça"
+                : "Mostre a palma com boa luz e ajuste a sensibilidade"
+        case .motion: settings.reduceMotion.toggle()
+        case .movie, .favoriteMovie: break
+        case let .scenery(index): sceneryIndex = index
         case .updates:
             workspaceOpen = false
             openUpdatesWindow()
