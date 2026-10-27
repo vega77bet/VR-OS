@@ -707,8 +707,7 @@ struct VRHomeView: View {
                 }
 
                 dock(size: size)
-                    .position(x: dockExpanded ? w / 2 : max(32, w * 0.16),
-                              y: dockCenterY(size))
+                    .position(x: w / 2, y: dockCenterY(size))
             }
 
             if ultraWideMode {
@@ -909,56 +908,20 @@ struct VRHomeView: View {
     }
 
     private func dock(size: CGSize) -> some View {
-        Group {
-            if dockExpanded {
-                HStack(spacing: 2) {
-                    dockButton("plus.rectangle.on.rectangle", "Janela", slot: 0, size: size)
-                    dockButton("square.grid.2x2.fill", "Apps", slot: 1, size: size)
-                    dockButton("film.stack.fill", "Cinema", slot: 2, size: size)
-                    dockButton("slider.horizontal.3", "Central", slot: 3, size: size)
-                    dockButton("paintpalette.fill", "Temas", slot: 4, size: size)
-                    dockButton("scope", "Centro", slot: 5, size: size)
-                    dockButton("camera.aperture", ultraWideMode ? "ARKit" : "0,5x",
-                               slot: 6, size: size)
-                    dockButton("viewfinder", "Visor", slot: 7, size: size)
-                }
-                .padding(5)
-                .background(selectedTheme.surface.opacity(0.95),
-                            in: RoundedRectangle(cornerRadius: 17))
-                .overlay(RoundedRectangle(cornerRadius: 17)
-                    .stroke(Color.white.opacity(0.15), lineWidth: 1))
-            } else {
-                Button { dockExpanded = true } label: {
-                    Image(systemName: "square.grid.2x2.fill")
-                        .font(.system(size: 15))
-                        .foregroundStyle(.white)
-                        .frame(width: 34, height: 34)
-                        .background(selectedTheme.surface.opacity(0.93),
-                                    in: RoundedRectangle(cornerRadius: 11))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Abrir menu do VR-OS")
-            }
-        }
+        VRTaskbar(viewport: size,
+                  active: activeTaskbarAction(),
+                  reduceMotion: settings.reduceMotion,
+                  onAction: activateTaskbar)
     }
 
-    private func dockButton(_ symbol: String, _ label: String, slot: Int,
-                            size: CGSize) -> some View {
-        Button {
-            activateDock(slot)
-        } label: {
-            VStack(spacing: 3) {
-                VRChromeIcon(symbol: symbol, accent: selectedTheme.accent)
-                    .frame(width: 26, height: 26)
-                Text(label).font(.system(size: 9, weight: .medium))
-                    .lineLimit(1).minimumScaleFactor(0.7)
-            }
-            .foregroundStyle(.white)
-            .frame(width: max(20, (size.width - 34) / 8), height: 42)
-            .background(selectedTheme.accent.opacity(0.15),
-                        in: RoundedRectangle(cornerRadius: 11))
-        }
-        .buttonStyle(.plain)
+    private func activeTaskbarAction() -> VRTaskbarAction? {
+        if settingsOpen { return .settings }
+        if cinemaOpen { return .cinema }
+        if appsOpen { return .apps }
+        if mediaMode == false && workspaceOpen { return .files }
+        if mediaMode == true && workspaceOpen { return .photos }
+        if workspaceOpen { return .home }
+        return nil
     }
 
     private func panelView(_ panel: VRPanel, size: CGSize,
@@ -1619,28 +1582,10 @@ struct VRHomeView: View {
             } else { themeMenuOpen = false }
             return
         }
-        // When hidden, the dock shrinks to a small bottom-left launcher.
-        // Otherwise its large touch area blocked the website grab handle.
-        if !dockExpanded {
-            let collapsedX = max(32, size.width * 0.16)
-            if abs(pointer.x - collapsedX) < 28 &&
-               abs(pointer.y - dockCenterY(size)) < 28 {
-                dockExpanded = true
-                return
-            }
-        } else {
-            let cellWidth = max(20, (size.width - 34) / 8)
-            let dockWidth = cellWidth * 8 + 2 * 7 + 10
-            let dockLeft = (size.width - dockWidth) / 2
-            if abs(pointer.y - dockCenterY(size)) <= 29 &&
-               pointer.x >= dockLeft &&
-               pointer.x <= dockLeft + dockWidth {
-                let cell = cellWidth + 2
-                let slot = min(7, max(0, Int((pointer.x - dockLeft - 5) / cell)))
-                activateDock(slot)
-                dockExpanded = false
-                return
-            }
+        // The taskbar uses the same rectangles for drawing and Vision.
+        if let action = VRTaskbarGeometry.action(at: pointer, viewport: size) {
+            activateTaskbar(action)
+            return
         }
 
         // Only the white line is a 3D movement handle. Its hit area is
@@ -2344,6 +2289,32 @@ struct VRHomeView: View {
         runtime.setCinemaMode(false)
         dockExpanded = false
         lastPinch = false
+    }
+
+    private func activateTaskbar(_ action: VRTaskbarAction) {
+        switch action {
+        case .home:
+            mediaMode = nil
+            workspacePage = 0
+            workspaceOpen.toggle()
+            appsOpen = false
+            themeMenuOpen = false
+            lensMenuOpen = false
+        case .apps:
+            activateDock(1)
+        case .cinema:
+            activateDock(2)
+        case .files:
+            performWorkspace(.files)
+        case .photos:
+            performWorkspace(.photos)
+        case .browser:
+            openLauncherApp(.web(.browser))
+        case .settings:
+            openSettings()
+        case .newWindow:
+            activateDock(0)
+        }
     }
 
     private func activateDock(_ slot: Int) {
