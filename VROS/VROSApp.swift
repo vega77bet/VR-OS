@@ -877,8 +877,8 @@ struct VRHomeView: View {
 
     // The menu lives above the edge of the camera view so hands can reach it.
     private func dockCenterY(_ size: CGSize) -> CGFloat {
-        // Lens-shaped clipping would otherwise cut off the dock's last row.
-        min(size.height - 33, size.height * 0.82)
+        // Rendering, Vision hit-testing and placement share one rectangle.
+        VRTaskbarGeometry.barRect(viewport: size).midY
     }
 
     /// Adjust the OPTICAL viewport, not the physical 0.5x camera.

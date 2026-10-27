@@ -1,13 +1,23 @@
 # V45 — Barra de tarefas
 
-V45 replaces the old dock with a single, predictable binocular taskbar.
+V45 replaces the old eight-button dock with a single, predictable binocular
+taskbar. It uses one geometry model for rendering and Vision hit-testing, so
+the left and right eyes receive the same action coordinates.
 
-The taskbar uses the supplied VR-OS SVG family for its eight primary actions:
-Central, Apps, Cinema, Arquivos, Fotos, Navegador, Ajustes and Janela.
-The first integration imports the default and active vector states into the
-Xcode asset catalog; the remaining states stay available for the next screens.
+Primary actions:
+- Central
+- Apps
+- Cinema
+- Arquivos
+- Fotos
+- Navegador
+- Ajustes
+- Janela
 
-Rendering and Vision hit-testing share the same VRTaskbarGeometry rectangles.
-The bar has a dedicated bottom safe area, selected feedback, enlarged pinch
-hit regions and reduced-motion support. The old 0.5x camera action is not
-exposed by the new taskbar.
+The bar keeps 44pt-class interaction targets, selected-state feedback, a
+bottom safe area and reduced-motion support. The old camera 0.5x action is no
+longer exposed by the taskbar.
+
+The supplied SVG asset pack is represented through stable action names and
+will replace the temporary SF Symbol fallbacks when its xcassets catalog is
+imported into the application target.

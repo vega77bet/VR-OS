@@ -83,58 +83,55 @@ struct VRTaskbar: View {
     var body: some View {
         let bar = VRTaskbarGeometry.barRect(viewport: viewport)
 
-        ZStack(alignment: .topLeading) {
+        HStack(spacing: 0) {
+            ForEach(VRTaskbarAction.allCases) { action in
+                let selected = active == action
+                Button {
+                    onAction(action)
+                } label: {
+                    VStack(spacing: 3) {
+                        VRIcon(
+                            name: action.assetName,
+                            state: selected ? .active : .normal,
+                            size: 20,
+                            accessibilityText: action.title
+                        )
+                        Text(action.title)
+                            .font(VRDS.Font.micro)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.62)
+                    }
+                    .foregroundStyle(selected ? VRDS.Color.accent : VRDS.Color.primary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(
+                        selected
+                            ? VRDS.Color.accent.opacity(0.18)
+                            : Color.clear,
+                        in: RoundedRectangle(cornerRadius: 15, style: .continuous)
+                    )
+                    .overlay(alignment: .bottom) {
+                        Capsule()
+                            .fill(selected ? VRDS.Color.accent : .clear)
+                            .frame(width: 18, height: 2)
+                            .padding(.bottom, 4)
+                    }
+                    .contentShape(RoundedRectangle(cornerRadius: 15))
+                }
+                .buttonStyle(VRTaskbarButtonStyle(reduceMotion: reduceMotion))
+                .accessibilityLabel(action.title)
+            }
+        }
+        .padding(5)
+        .frame(width: bar.width, height: bar.height)
+        .background(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .fill(VRDS.Color.surface.opacity(0.96))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .stroke(VRDS.Color.borderStrong, lineWidth: 1)
-                )
-                .shadow(color: .black.opacity(0.45), radius: 12, y: 5)
-
-            HStack(spacing: 0) {
-                ForEach(VRTaskbarAction.allCases) { action in
-                    let selected = active == action
-                    Button {
-                        onAction(action)
-                    } label: {
-                        VStack(spacing: 3) {
-                            VRIcon(
-                                name: action.assetName,
-                                state: selected ? .active : .normal,
-                                size: 20,
-                                accessibilityText: action.title
-                            )
-                            Text(action.title)
-                                .font(VRDS.Font.micro)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.62)
-                        }
-                        .foregroundStyle(selected ? VRDS.Color.accent : VRDS.Color.primary)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(
-                            selected
-                                ? VRDS.Color.accent.opacity(0.18)
-                                : Color.clear,
-                            in: RoundedRectangle(cornerRadius: 15, style: .continuous)
-                        )
-                        .overlay(alignment: .bottom) {
-                            Capsule()
-                                .fill(selected ? VRDS.Color.accent : .clear)
-                                .frame(width: 18, height: 2)
-                                .padding(.bottom, 4)
-                        }
-                        .contentShape(RoundedRectangle(cornerRadius: 15))
-                    }
-                    .buttonStyle(VRTaskbarButtonStyle(reduceMotion: reduceMotion))
-                    .accessibilityLabel(action.title)
-                }
-            }
-            .padding(5)
-            .frame(width: bar.width, height: bar.height)
-            .position(x: bar.midX, y: bar.midY)
-        }
-        .frame(width: viewport.width, height: viewport.height)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(VRDS.Color.borderStrong, lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.45), radius: 12, y: 5)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Barra de tarefas do VR-OS")
     }
