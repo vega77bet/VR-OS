@@ -1961,7 +1961,10 @@ struct VRHomeView: View {
                 symbol: "hand.draw.fill", command: .hands),
             VRWorkspaceItem(id: "motion", title: "Animações",
                 detail: settings.reduceMotion ? "Reduzidas" : "Ativas",
-                symbol: "sparkles", command: .motion)
+                symbol: "sparkles", command: .motion),
+            VRWorkspaceItem(id: "calibrate", title: "Calibrar pinça",
+                detail: "Ative com a pinça fechada", symbol: "hand.pinch.fill",
+                command: .calibrateHands)
         ]
         for scenery in VRScenery.allCases {
             items.append(VRWorkspaceItem(id: "scene.\(scenery.rawValue)", title: scenery.title,
@@ -2002,6 +2005,22 @@ struct VRHomeView: View {
                 ? "\(hand.joints.compactMap { $0 }.count)/21 pontos · ajuste a sensibilidade e teste a pinça"
                 : "Mostre a palma com boa luz e ajuste a sensibilidade"
         case .motion: settings.reduceMotion.toggle()
+        case .calibrateHands:
+            let hand = ultraWideMode ? ultraWide.hand : runtime.hand
+            workspaceOpen = false
+            openSettings()
+            settings.enter(.hands)
+            guard hand.visible, hand.pinching,
+                  let thumb = hand.joints[4], let tip = hand.joints[8],
+                  let index = hand.joints[5], let little = hand.joints[17] else {
+                settings.notice = "Feche a pinça sobre Calibrar na Central com boa luz"
+                return
+            }
+            let palm = max(0.04, hypot(index.x - little.x, index.y - little.y))
+            let ratio = hypot(thumb.x - tip.x, thumb.y - tip.y) / palm
+            let sensitivity = max(0, min(1, (ratio + 0.06 - 0.43) / 0.18 + 0.5))
+            settings.setNormalized("hands.sensitivity", fraction: sensitivity)
+            settings.notice = "Amostra de pinça aplicada; teste abrir e fechar a mão"
         case .movie, .favoriteMovie: break
         case let .scenery(index): sceneryIndex = index
         case .updates:

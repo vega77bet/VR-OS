@@ -1,5 +1,7 @@
 import Foundation
 import Combine
+import AVFoundation
+import UIKit
 
 struct CinemaLibraryEntry: Codable, Identifiable {
     let id: UUID
@@ -15,6 +17,7 @@ final class CinemaLibrary: ObservableObject {
             .appendingPathComponent("VRMovieLibrary", isDirectory: true)
     }
     @Published private(set) var entries: [CinemaLibraryEntry] = []
+    @Published private(set) var covers: [UUID: UIImage] = [:]
     private let defaults: UserDefaults
     private let key = "vros.cinema.library.v1"
 
@@ -27,6 +30,7 @@ final class CinemaLibrary: ObservableObject {
                 FileManager.default.fileExists(atPath: Self.folder.appendingPathComponent($0.filename).path)
             }
         }
+        for entry in entries { loadCover(entry) }
     }
 
     func url(for entry: CinemaLibraryEntry) -> URL {
@@ -43,6 +47,8 @@ final class CinemaLibrary: ObservableObject {
         }
         entries.sort { $0.lastPlayed > $1.lastPlayed }
         persist()
+        if let entry = entries.first(where: { $0.filename == url.lastPathComponent }),
+           covers[entry.id] == nil { loadCover(entry) }
     }
 
     func toggleFavorite(_ id: UUID) {
@@ -53,5 +59,17 @@ final class CinemaLibrary: ObservableObject {
 
     private func persist() {
         if let data = try? JSONEncoder().encode(entries) { defaults.set(data, forKey: key) }
+    }
+
+    private func loadCover(_ entry: CinemaLibraryEntry) {
+        let source = url(for: entry)
+        Task.detached(priority: .utility) { [weak self] in
+            guard let self = self else { return }
+            let generator = AVAssetImageGenerator(asset: AVURLAsset(url: source))
+            generator.appliesPreferredTrackTransform = true
+            generator.maximumSize = CGSize(width: 160, height: 100)
+            guard let result = try? await generator.image(at: .zero) else { return }
+            await MainActor.run { self.covers[entry.id] = UIImage(cgImage: result.image) }
+        }
     }
 }

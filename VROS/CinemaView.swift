@@ -62,6 +62,7 @@ private struct CinemaSeat {
 
 final class CinemaModel: ObservableObject {
     let library = CinemaLibrary()
+    private var libraryObservation: AnyCancellable?
     @Published var libraryVisible = false
     @Published var libraryPage = 0
     let scene = SCNScene()
@@ -139,6 +140,9 @@ final class CinemaModel: ObservableObject {
     @Published var showPicker = false
 
     init() {
+        libraryObservation = library.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
         // Previous versions copied every imported movie into Documents
         // without deleting it. No release exposed these internal copies to
         // the picker; clear them, then use Caches for temporary playback.
@@ -808,7 +812,8 @@ final class CinemaModel: ObservableObject {
     var libraryItems: [VRWorkspaceItem] {
         library.entries.flatMap { entry in [
             VRWorkspaceItem(id: entry.id.uuidString, title: entry.title,
-                detail: "Reproduzir · histórico", symbol: "film.fill", command: .movie(entry.id)),
+                detail: "Reproduzir · histórico", symbol: "film.fill",
+                command: .movie(entry.id), artwork: library.covers[entry.id]),
             VRWorkspaceItem(id: entry.id.uuidString + ".favorite", title: entry.favorite ? "Favorito" : "Favoritar",
                 detail: entry.title, symbol: entry.favorite ? "star.fill" : "star",
                 command: .favoriteMovie(entry.id))

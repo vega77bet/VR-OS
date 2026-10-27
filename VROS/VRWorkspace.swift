@@ -47,7 +47,7 @@ final class VRWorkspace: ObservableObject {
 }
 
 enum VRWorkspaceCommand {
-    case settings, camera, center, theme, hud, updates, hands, motion
+    case settings, camera, center, theme, hud, updates, hands, motion, calibrateHands
     case scenery(Int)
     case movie(UUID), favoriteMovie(UUID)
     case minimize(UUID), focus(UUID), smaller(UUID), larger(UUID), close(UUID)
@@ -59,6 +59,7 @@ struct VRWorkspaceItem: Identifiable {
     let detail: String
     let symbol: String
     let command: VRWorkspaceCommand
+    var artwork: UIImage? = nil
 }
 
 /// The same rectangles drive SwiftUI buttons and Vision hit testing.
@@ -119,8 +120,14 @@ struct VRWorkspaceView: View {
                     let rect = VRWorkspaceGeometry.cell(slot, in: viewport)
                     Button { onSelect(item.command) } label: {
                         HStack(spacing: 5) {
-                            VRChromeIcon(symbol: item.symbol, accent: .cyan)
-                                .frame(width: 24, height: 24)
+                            if let artwork = item.artwork {
+                                Image(uiImage: artwork).resizable().scaledToFill()
+                                    .frame(width: 28, height: 28).clipped()
+                                    .clipShape(RoundedRectangle(cornerRadius: 5))
+                            } else {
+                                VRChromeIcon(symbol: item.symbol, accent: .cyan)
+                                    .frame(width: 24, height: 24)
+                            }
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(item.title).font(.system(size: 10, weight: .semibold))
                                 Text(item.detail).font(.system(size: 8))
