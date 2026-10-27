@@ -9,6 +9,7 @@ struct CinemaLibraryEntry: Codable, Identifiable {
     var title: String
     var favorite: Bool
     var lastPlayed: Date
+    var mode: String? = nil
 }
 
 final class CinemaLibrary: ObservableObject {
@@ -54,6 +55,12 @@ final class CinemaLibrary: ObservableObject {
     func toggleFavorite(_ id: UUID) {
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
         entries[index].favorite.toggle()
+        persist()
+    }
+
+    func saveMode(_ mode: String, for url: URL) {
+        guard let index = entries.firstIndex(where: { $0.filename == url.lastPathComponent }) else { return }
+        entries[index].mode = mode
         persist()
     }
 

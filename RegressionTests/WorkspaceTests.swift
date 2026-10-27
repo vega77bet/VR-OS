@@ -17,11 +17,13 @@ final class WorkspaceTests: XCTestCase {
         library.record(url: url, title: "Teste")
         let id = try XCTUnwrap(library.entries.first?.id)
         library.toggleFavorite(id)
+        library.saveMode("H-SBS", for: url)
         library.record(url: url, title: "Teste")
         let restored = CinemaLibrary(defaults: defaults)
         XCTAssertEqual(restored.entries.count, 1)
         XCTAssertEqual(restored.entries.first?.id, id)
         XCTAssertTrue(try XCTUnwrap(restored.entries.first).favorite)
+        XCTAssertEqual(restored.entries.first?.mode, "H-SBS")
         XCTAssertEqual(restored.url(for: try XCTUnwrap(restored.entries.first)), url)
     }
 

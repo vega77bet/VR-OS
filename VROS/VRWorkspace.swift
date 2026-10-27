@@ -89,6 +89,7 @@ struct VRWorkspaceView: View {
     let items: [VRWorkspaceItem]
     let page: Int
     let viewport: CGSize
+    var title: String = "CENTRAL VR"
     let onSelect: (VRWorkspaceCommand) -> Void
     let onPage: (Int) -> Void
     let onClose: () -> Void
@@ -106,7 +107,7 @@ struct VRWorkspaceView: View {
                 .position(x: box.midX, y: box.midY)
             HStack {
                 Image(systemName: "slider.horizontal.3")
-                Text("CENTRAL VR").tracking(1)
+                Text(title).tracking(1)
                 Spacer()
                 Button(action: onClose) { Image(systemName: "xmark.circle.fill") }
             }

@@ -433,6 +433,7 @@ struct VRHomeView: View {
                     session.clearFavorites()
                 }
             case .restoreAll:
+                sceneryIndex = 0
                 centreAllWindows()
                 cinema.resetPlacement()
                 UserDefaults.standard.removeObject(forKey: "vros.note.fontSize.v1")
@@ -2022,7 +2023,9 @@ struct VRHomeView: View {
             settings.setNormalized("hands.sensitivity", fraction: sensitivity)
             settings.notice = "Amostra de pinça aplicada; teste abrir e fechar a mão"
         case .movie, .favoriteMovie: break
-        case let .scenery(index): sceneryIndex = index
+        case let .scenery(index):
+            sceneryIndex = index
+            if index != 0 && ultraWideMode { toggleUltraWide() }
         case .updates:
             workspaceOpen = false
             openUpdatesWindow()

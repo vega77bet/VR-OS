@@ -85,6 +85,7 @@ final class CinemaModel: ObservableObject {
     private var endPlaybackObserver: NSObjectProtocol?
     private var playbackStatusObservation: NSKeyValueObservation?
     private var importedMovieURL: URL?
+    private var currentLibraryURL: URL?
     private var movieImportID = UUID()
     private var initialOrientation: simd_quatf?
     private let motion = CMMotionManager()
@@ -462,6 +463,7 @@ final class CinemaModel: ObservableObject {
         }
         // Library owns retained imports. Player cleanup only owns cache files.
         importedMovieURL = nil
+        currentLibraryURL = dest
         library.record(url: dest, title: url.deletingPathExtension().lastPathComponent)
         let movie = AVPlayer(url: dest)
         movie.actionAtItemEnd = .pause
@@ -491,7 +493,8 @@ final class CinemaModel: ObservableObject {
             self.updateLighting()
             self.revealControls()
         }
-        movieTitle = url.deletingPathExtension().lastPathComponent
+        movieTitle = library.entries.first(where: { $0.filename == dest.lastPathComponent })?.title ??
+            url.deletingPathExtension().lastPathComponent
         let name = movieTitle.lowercased()
         if name.contains("h-sbs") || name.contains("hsbs") ||
            name.contains("half-sbs") || name.contains("half_sbs") {
@@ -505,6 +508,11 @@ final class CinemaModel: ObservableObject {
         } else {
             selectedMode = .twoD
         }
+        if let saved = library.entries.first(where: { $0.filename == dest.lastPathComponent })?.mode,
+           let mode = CinemaVideoMode(rawValue: saved) {
+            selectedMode = mode
+        }
+        library.saveMode(selectedMode.rawValue, for: dest)
         updateStereoMaterials()
         fitScreen()
         errorMessage = nil
@@ -570,6 +578,7 @@ final class CinemaModel: ObservableObject {
 
     func selectMode(_ mode: CinemaVideoMode) {
         selectedMode = mode
+        if let url = currentLibraryURL { library.saveMode(mode.rawValue, for: url) }
         updateStereoMaterials()
         fitScreen()
         revealControls()
@@ -1504,7 +1513,7 @@ struct CinemaEyeView: View {
             if cinema.libraryVisible {
                 GeometryReader { geometry in
                     VRWorkspaceView(items: cinema.libraryItems, page: cinema.libraryPage,
-                        viewport: geometry.size, onSelect: cinema.selectLibrary,
+                        viewport: geometry.size, title: "BIBLIOTECA", onSelect: cinema.selectLibrary,
                         onPage: cinema.changeLibraryPage,
                         onClose: { cinema.libraryVisible = false })
                     if cinema.libraryItems.isEmpty {
