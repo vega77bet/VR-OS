@@ -11,7 +11,7 @@ Branch: vr-os-22-29-evolution. PR #30. Sem merge na principal.
 | V26 | Texto maior nas células de Ajustes e redução de animações, ambos persistidos e restauráveis | Novas categorias completas de acessibilidade e desempenho |
 | V27 | Chrome e ícones seguem cores dos quatro temas existentes | Renovação completa dos quatro cenários originais |
 | V28 | Oceano, Floresta, Nebulosa e Cyberpunk procedurais com resposta à pose ARKit; seleção persistida | Texturas refinadas e teste de conforto 360° |
-| V29 | Biblioteca persistente de filmes, miniaturas reais, favoritos, histórico e restauração do modo estéreo | Busca, filtros, gestão de espaço e retomada por tempo |
+| V29 | Biblioteca persistente de filmes, miniaturas reais, favoritos, histórico e restauração do modo estéreo | Busca, filtros e retomada por tempo |
 
 O pacote reúne primeiras implementações funcionais das oito áreas. Não significa que oito versões completas e sem bugs foram certificadas. A versão instalada continua identificada como build 22 experimental.
 
@@ -24,7 +24,7 @@ Para calibrar a mão, mantenha uma pinça fechada sobre Calibrar na Central com 
 
 Ambientes procedurais usam a pose do ARKit. Selecionar um deles durante o passthrough 0,5x retorna ao ARKit. Escolher Tema original restaura o tema anterior. Os desenhos são cenários estilizados, não fotografias panorâmicas.
 
-No Cinema, o botão de livros no alto abre a biblioteca binocular. Importe via Arquivos/Fotos. **Os vídeos passam a ser guardados em Documentos/VRMovieLibrary para persistir entre execuções**, em vez de somente no cache temporário. A biblioteca gera miniaturas, mantém favoritos e ordena por última abertura. O arquivo é copiado em segundo plano. O original não é alterado. A biblioteca ainda não possui interface de exclusão; considere o espaço disponível antes de importar filmes grandes.
+No Cinema, o botão de livros no alto abre a biblioteca binocular. Importe via Arquivos/Fotos. **Os vídeos passam a ser guardados em Documentos/VRMovieLibrary para persistir entre execuções**, em vez de somente no cache temporário. A biblioteca gera miniaturas, mantém favoritos e ordena por última abertura. O arquivo é copiado em segundo plano. O original não é alterado. Excluir cópia exige duas ativações e apaga somente o arquivo dentro da biblioteca. Considere o espaço disponível antes de importar filmes grandes.
 
 ## Validação
 O Actions mantém os testes V21, compila iPhone Release e executa XCTest antes da IPA. WorkspaceTests cobre minimizar/foco/restauração/fechamento, limites de escala, alvos Vision em visores pequenos e persistência de biblioteca/favoritos/modo estéreo. Os testes de preferências percorrem também os novos controles.

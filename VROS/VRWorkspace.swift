@@ -50,6 +50,7 @@ enum VRWorkspaceCommand {
     case settings, camera, center, theme, hud, updates, hands, motion, calibrateHands
     case scenery(Int)
     case movie(UUID), favoriteMovie(UUID)
+    case deleteMovie(UUID)
     case minimize(UUID), focus(UUID), smaller(UUID), larger(UUID), close(UUID)
 }
 

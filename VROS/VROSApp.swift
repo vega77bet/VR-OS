@@ -2022,7 +2022,7 @@ struct VRHomeView: View {
             let sensitivity = max(0, min(1, (ratio + 0.06 - 0.43) / 0.18 + 0.5))
             settings.setNormalized("hands.sensitivity", fraction: sensitivity)
             settings.notice = "Amostra de pinça aplicada; teste abrir e fechar a mão"
-        case .movie, .favoriteMovie: break
+        case .movie, .favoriteMovie, .deleteMovie: break
         case let .scenery(index):
             sceneryIndex = index
             if index != 0 && ultraWideMode { toggleUltraWide() }

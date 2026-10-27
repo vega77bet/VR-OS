@@ -64,6 +64,16 @@ final class CinemaLibrary: ObservableObject {
         persist()
     }
 
+    func remove(_ id: UUID) throws {
+        guard let entry = entries.first(where: { $0.id == id }) else { return }
+        let target = url(for: entry)
+        guard target.deletingLastPathComponent().standardizedFileURL == Self.folder.standardizedFileURL else { return }
+        try FileManager.default.removeItem(at: target)
+        entries.removeAll { $0.id == id }
+        covers.removeValue(forKey: id)
+        persist()
+    }
+
     private func persist() {
         if let data = try? JSONEncoder().encode(entries) { defaults.set(data, forKey: key) }
     }

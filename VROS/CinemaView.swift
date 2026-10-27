@@ -65,6 +65,7 @@ final class CinemaModel: ObservableObject {
     private var libraryObservation: AnyCancellable?
     @Published var libraryVisible = false
     @Published var libraryPage = 0
+    @Published private var pendingLibraryDelete: UUID?
     let scene = SCNScene()
     // One rotating head rig keeps the stereo 64-mm separation aligned with
     // the head direction. Previously each eye was rotated independently at
@@ -825,7 +826,10 @@ final class CinemaModel: ObservableObject {
                 command: .movie(entry.id), artwork: library.covers[entry.id]),
             VRWorkspaceItem(id: entry.id.uuidString + ".favorite", title: entry.favorite ? "Favorito" : "Favoritar",
                 detail: entry.title, symbol: entry.favorite ? "star.fill" : "star",
-                command: .favoriteMovie(entry.id))
+                command: .favoriteMovie(entry.id)),
+            VRWorkspaceItem(id: entry.id.uuidString + ".delete",
+                title: pendingLibraryDelete == entry.id ? "Confirmar exclusão" : "Excluir cópia",
+                detail: entry.title, symbol: "trash", command: .deleteMovie(entry.id))
         ]}
     }
 
@@ -838,6 +842,28 @@ final class CinemaModel: ObservableObject {
         case let .favoriteMovie(id):
             objectWillChange.send()
             library.toggleFavorite(id)
+            pendingLibraryDelete = nil
+        case let .deleteMovie(id):
+            guard pendingLibraryDelete == id else {
+                pendingLibraryDelete = id
+                return
+            }
+            pendingLibraryDelete = nil
+            if let entry = library.entries.first(where: { $0.id == id }),
+               library.url(for: entry) == currentLibraryURL {
+                exit()
+                player?.replaceCurrentItem(with: nil)
+                currentLibraryURL = nil
+                movieTitle = "Escolha um filme MP4"
+            }
+            do {
+                try library.remove(id)
+                changeLibraryPage(0)
+            } catch {
+                libraryVisible = false
+                errorMessage = "Não foi possível excluir a cópia: " + error.localizedDescription
+                revealControls()
+            }
         default: break
         }
     }
