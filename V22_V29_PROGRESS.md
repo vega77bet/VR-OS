@@ -1,33 +1,35 @@
-# Pacote V22–V29
+# Pacote V22–V29 — implementação experimental
+Base V21: 734ed1cc7cb74fa15e9c2c5d3e0ed3e33d7e653d.
+Branch: vr-os-22-29-evolution. PR #30. Sem merge na principal.
 
-Base: V21, commit 734ed1cc7cb74fa15e9c2c5d3e0ed3e33d7e653d.
-Branch: vr-os-22-29-evolution. Nenhuma versão deste pacote autoriza merge na principal.
-
-## Estado da implementação
-
-| Etapa | Implementado nesta entrega | Ainda necessário |
+| Etapa | Implementado | Refinamentos pendentes |
 | --- | --- | --- |
-| V22 — interface | Ícones compostos com gradiente, iluminação e contorno; Central VR paginada; acesso a Ajustes, câmera, centralização, temas, HUD e atualizações | Ícones vetoriais exclusivos, refinamento da barra superior e animações |
-| V23 — janelas | Estado binocular compartilhado; minimizar/restaurar sem destruir sessão, foco para qualquer janela, tamanho independente da profundidade e fechamento | Redimensionamento pelos cantos e arraste físico; validar pinça em todos os modos |
-| V24 — cursor | Mantém o cursor e detector da V21 | Estados de alvo, progresso e feedback novos |
-| V25 — mãos | Mantém Vision, sensibilidade e debounce testados da V21 | Calibração guiada e diagnóstico de detecção |
-| V26 — Ajustes | Central abre Ajustes reais; preferências existentes preservadas | Novas categorias e acessibilidade |
-| V27 — temas | Central acessa os quatro temas existentes | Refinamento visual dos quatro ambientes |
-| V28 — ambientes | Não implementado | Novos ambientes procedurais e seleção binocular |
-| V29 — Cinema | Mantém importação e reprodução da V21 | Biblioteca persistente, capas, favoritos e histórico |
+| V22 | Dock com ícones compostos, gradiente, iluminação e contorno; Central paginada com ações reais | Ícones vetoriais exclusivos e barra superior renovada |
+| V23 | Estado binocular de janelas; minimizar/restaurar sem destruir sessão; maximizar com saída sempre disponível; escala independente da profundidade; fechar | Arraste de redimensionamento pelos cantos e validação física |
+| V24 | Cursor com estado visual de pinça, contraste e animação opcional | Hover por alvo e anel de progresso contextual |
+| V25 | Diagnóstico de pontos da mão; acesso direto à sensibilidade; calibração por amostra da pinça fechada | Calibração guiada em múltiplos passos e avaliação com mãos reais |
+| V26 | Texto maior nas células de Ajustes e redução de animações, ambos persistidos e restauráveis | Novas categorias completas de acessibilidade e desempenho |
+| V27 | Chrome e ícones seguem cores dos quatro temas existentes | Renovação completa dos quatro cenários originais |
+| V28 | Oceano, Floresta, Nebulosa e Cyberpunk procedurais com resposta à pose ARKit; seleção persistida | Texturas refinadas e teste de conforto 360° |
+| V29 | Biblioteca persistente de filmes, miniaturas reais, favoritos, histórico e restauração do modo estéreo | Busca, filtros, gestão de espaço e retomada por tempo |
 
-Esta branch é uma entrega incremental. Não representa oito versões concluídas.
+O pacote reúne primeiras implementações funcionais das oito áreas. Não significa que oito versões completas e sem bugs foram certificadas. A versão instalada continua identificada como build 22 experimental.
 
-## Interação
+## Uso
+O antigo botão Atualizações do Dock passa a se chamar Central. Atualizações continuam no primeiro painel; páginas seguintes oferecem mãos, acessibilidade, ambientes e ações por janela. Cada olho usa a mesma página e os mesmos alvos de pinça.
 
-O antigo botão Atualizações do Dock passa a se chamar Central. As atualizações continuam acessíveis no primeiro painel da Central. As páginas seguintes têm ações por janela, incluindo restaurar janelas minimizadas.
+Minimizar mantém a sessão. A Central restaura janelas minimizadas. Maximizar preserva a âncora e oferece Restaurar no alto, por toque ou pinça. Escala de tamanho não altera profundidade. Redimensionamento é incremental pelos comandos Aumentar/Diminuir da Central.
 
-A apresentação da janela é independente de sua âncora AR e de sua profundidade. Minimizar preserva a sessão web/nota. Fechar remove também os estados da Central. Maximizar não altera a âncora, permitindo retornar ao local anterior.
+Para calibrar a mão, mantenha uma pinça fechada sobre Calibrar na Central com boa luz. A amostra ajusta o limiar do detector; confira o resultado em Mãos e gestos. É uma estimativa por amostra, não uma medição física.
 
-O mesmo VRWorkspaceGeometry calcula a posição de cada botão SwiftUI e o alvo Vision. A lista é paginada para evitar scroll divergente entre olhos. Ações pelo toque e pela pinça usam o mesmo dispatcher.
+Ambientes procedurais usam a pose do ARKit. Selecionar um deles durante o passthrough 0,5x retorna ao ARKit. Escolher Tema original restaura o tema anterior. Os desenhos são cenários estilizados, não fotografias panorâmicas.
 
-## Testes
+No Cinema, o botão de livros no alto abre a biblioteca binocular. Importe via Arquivos/Fotos. **Os vídeos passam a ser guardados em Documentos/VRMovieLibrary para persistir entre execuções**, em vez de somente no cache temporário. A biblioteca gera miniaturas, mantém favoritos e ordena por última abertura. O arquivo é copiado em segundo plano. O original não é alterado. A biblioteca ainda não possui interface de exclusão; considere o espaço disponível antes de importar filmes grandes.
 
-WorkspaceTests verifica limites de tamanho, minimizar/focar/restaurar/fechar e correspondência entre botões e alvos Vision em duas dimensões de visor. O workflow mantém todos os testes da V21, compila para iPhone e executa XCTest no simulador antes de empacotar a IPA.
+## Validação
+O Actions mantém os testes V21, compila iPhone Release e executa XCTest antes da IPA. WorkspaceTests cobre minimizar/foco/restauração/fechamento, limites de escala, alvos Vision em visores pequenos e persistência de biblioteca/favoritos/modo estéreo. Os testes de preferências percorrem também os novos controles.
 
-Teste físico pendente: tamanho/legibilidade dos novos ícones, acesso à Central com VR Box, recuperar janela minimizada, alternar foco sem perder câmera, ajustar tamanho sem alterar profundidade, ARKit/0,5x e pinça em cada cartão.
+Validar no iPhone/VR Box: legibilidade, pinça real, calibração, troca ARKit/0,5x, sincronização percebida, ambientes durante movimento, importação de arquivos grandes/iCloud, miniaturas, reabertura de favoritos, aquecimento e espaço livre. A compilação não comprova esses comportamentos.
+
+## Limites
+Dois WebViews podem divergir em sites dinâmicos/DRM. Ultrawide continua Vision + CoreMotion 3DoF; ARKit oferece o modo separado 6DoF. Estes recursos não alteram as limitações físicas da câmera ou do headset.
