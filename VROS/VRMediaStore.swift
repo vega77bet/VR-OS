@@ -37,6 +37,8 @@ final class VRMediaStore: ObservableObject {
     @Published private(set) var text: String?
     @Published private(set) var pdf: PDFDocument?
     @Published private(set) var pdfPage = 0
+    @Published private(set) var textPages = 1
+    @Published private(set) var textPage = ""
     private let folder: URL
     private var previewToken = UUID()
 
@@ -133,11 +135,14 @@ final class VRMediaStore: ObservableObject {
                 let result = try await Task.detached { try String(contentsOf: source, encoding: .utf8) }.value
                 guard previewToken == token else { return }
                 text = result
+                textPages = max(1, (result.count + 119) / 120)
+                textPage = String(result.prefix(120))
             case .pdf:
                 // PDFDocument is read on the main actor and shared between eyes.
                 guard let document = PDFDocument(url: source), !document.isLocked,
                       document.pageCount > 0 else { throw MediaError.decode }
                 pdf = document
+                image = document.page(at: 0)?.thumbnail(of: CGSize(width: 650, height: 900), for: .mediaBox)
             case .movie: return
             }
             preview = entry
@@ -145,18 +150,24 @@ final class VRMediaStore: ObservableObject {
     }
 
     func changePage(_ delta: Int) {
-        if let pdf = pdf { pdfPage = max(0, min(pdf.pageCount - 1, pdfPage + delta)) }
-        else if text != nil { pdfPage = max(0, min(max(0, ((text?.count ?? 0) - 1) / 450), pdfPage + delta)) }
+        if let pdf = pdf {
+            let next = max(0, min(pdf.pageCount - 1, pdfPage + delta))
+            if next != pdfPage {
+                pdfPage = next
+                image = pdf.page(at: next)?.thumbnail(of: CGSize(width: 650, height: 900), for: .mediaBox)
+            }
+        } else if text != nil {
+            pdfPage = max(0, min(textPages - 1, pdfPage + delta))
+            textPage = String((text ?? "").dropFirst(pdfPage * 120).prefix(120))
+        }
     }
 
-    var textPage: String {
-        guard let text = text else { return "" }
-        return String(text.dropFirst(pdfPage * 450).prefix(450))
-    }
+    var pageCount: Int { pdf?.pageCount ?? textPages }
 
     func closePreview() {
         previewToken = UUID()
         preview = nil; image = nil; text = nil; pdf = nil; pdfPage = 0
+        textPages = 1; textPage = ""
     }
 
     func remove(_ entry: VRMediaEntry) throws {
@@ -198,20 +209,21 @@ struct VRMediaPreview: View {
             }.font(.system(size: 10, weight: .bold)).frame(height: 34)
             if let image = store.image {
                 Image(uiImage: image).resizable().scaledToFit().frame(maxHeight: .infinity)
-            } else if let pdf = store.pdf, let page = pdf.page(at: store.pdfPage) {
-                Image(uiImage: page.thumbnail(of: CGSize(width: 1000, height: 1400), for: .mediaBox))
-                    .resizable().scaledToFit().frame(maxHeight: .infinity)
             } else {
                 Text(store.textPage).font(.system(size: 12))
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
-            HStack {
-                Button("Anterior") { store.changePage(-1) }
-                Spacer()
-                Text("\(store.pdfPage + 1)").font(.system(size: 10))
-                Spacer()
-                Button("Próxima") { store.changePage(1) }
-            }.font(.system(size: 10)).frame(height: 30)
+            if store.pdf != nil || store.text != nil {
+                HStack {
+                    Button("Anterior") { store.changePage(-1) }
+                        .disabled(store.pdfPage == 0)
+                    Spacer()
+                    Text("\(store.pdfPage + 1)/\(store.pageCount)").font(.system(size: 10))
+                    Spacer()
+                    Button("Próxima") { store.changePage(1) }
+                        .disabled(store.pdfPage + 1 >= store.pageCount)
+                }.font(.system(size: 10)).frame(height: 30)
+            }
         }.padding(10).background(Color(white: 0.06)).foregroundStyle(.white)
     }
 }

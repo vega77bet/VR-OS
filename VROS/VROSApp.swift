@@ -2155,11 +2155,15 @@ struct VRHomeView: View {
         case let .newTab(id): webSessions[id]?.newTab(); webRevision += 1
         case let .nextTab(id): webSessions[id]?.nextTab(); webRevision += 1
         case let .closeTab(id): webSessions[id]?.closeActiveTab(); webRevision += 1
-        case let .clearHistory(id): webSessions[id]?.clearHistory(); webRevision += 1; changeWorkspacePage(0)
+        case .clearHistory:
+            for browser in webSessions.values { browser.clearHistory() }
+            webRevision += 1; changeWorkspacePage(0)
         case let .history(id, url):
             guard let browser = webSessions[id] else { return }
             browser.address = url
             browser.navigate()
+            if workspace.state(id).minimized { workspace.minimize(id) }
+            focusedWebPanelID = id
             workspaceOpen = false
         case let .scenery(index):
             sceneryIndex = index
