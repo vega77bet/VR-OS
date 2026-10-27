@@ -175,7 +175,9 @@ enum VRSettingsCatalog {
                     choice("theme.3", "Synthwave", "Grade retrofuturista", "waveform.path")
                 ]),
                 group("INTERFACE", [
-                    toggle("appearance.hud", "Mostrar barra de status", "Versão, relógio e câmera")
+                    toggle("appearance.hud", "Mostrar barra de status", "Versão, relógio e câmera"),
+                    toggle("appearance.motion", "Reduzir animações", "Suavização do novo cursor"),
+                    toggle("appearance.text", "Texto maior", "Aumenta os textos das linhas dos Ajustes")
                 ])
             ]
         case .cinema:
@@ -289,3 +291,4 @@ enum VRSettingsCatalog {
                       kind: .information)
     }
 }
+

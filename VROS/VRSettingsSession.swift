@@ -84,6 +84,12 @@ final class VRSettingsSession: ObservableObject {
         didSet { defaults.set(Double(defaultDepth),
                                            forKey: "vros.settings.defaultDepth.v1") }
     }
+    @Published var reduceMotion = false {
+        didSet { defaults.set(reduceMotion, forKey: "vros.reduceMotion.v1") }
+    }
+    @Published var largeText = false {
+        didSet { defaults.set(largeText, forKey: "vros.largeText.v1") }
+    }
     @Published var showHUD: Bool = true {
         didSet { defaults.set(showHUD,
                                            forKey: "vros.settings.hud.v1") }
@@ -127,6 +133,8 @@ final class VRSettingsSession: ObservableObject {
         defaultDepth = decimal("vros.settings.defaultDepth.v1", otherwise: 1.6,
                                min: 0.75, max: 3.5)
         showHUD = flag("vros.settings.hud.v1", otherwise: true)
+        reduceMotion = flag("vros.reduceMotion.v1", otherwise: false)
+        largeText = flag("vros.largeText.v1", otherwise: false)
         webZoom = decimal("vros.webZoom.v1", otherwise: 1, min: 0.65, max: 1.55)
         let theme = d.integer(forKey: "vros.selectedTheme.v1")
         themeIndex = (0...3).contains(theme) ? theme : 0
@@ -212,6 +220,8 @@ final class VRSettingsSession: ObservableObject {
         case "hands.skeleton": return showSkeleton
         case "hands.cursor": return showCursor
         case "appearance.hud": return showHUD
+        case "appearance.motion": return reduceMotion
+        case "appearance.text": return largeText
         case "cinema.invert": return cinemaInvert
         case "cinema.immersive": return cinemaImmersive
         case "cinema.eyes": return cinemaSwapEyes
@@ -320,6 +330,8 @@ final class VRSettingsSession: ObservableObject {
         case "hands.skeleton": showSkeleton.toggle()
         case "hands.cursor": showCursor.toggle()
         case "appearance.hud": showHUD.toggle()
+        case "appearance.motion": reduceMotion.toggle()
+        case "appearance.text": largeText.toggle()
         case "cinema.invert": cinemaInvert.toggle()
         case "cinema.immersive": cinemaImmersive.toggle()
         case "cinema.eyes": cinemaSwapEyes.toggle()
@@ -377,6 +389,8 @@ final class VRSettingsSession: ObservableObject {
         windowOpacity = 1
         defaultDepth = 1.6
         showHUD = true
+        reduceMotion = false
+        largeText = false
         themeIndex = 0
         fullCameraFrame = true
         invertUltraMotion = false
