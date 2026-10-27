@@ -160,6 +160,13 @@ final class VRSettingsSession: ObservableObject {
         if page != .home { enter(.home) }
     }
 
+    func didRestoreBackup() {
+        command = nil; pendingConfirmation = nil
+        resetScroll()
+        notice = "Backup de preferências restaurado"
+        revision += 1
+    }
+
     func resetScroll() {
         scrollOwnerRightEye = false
         scrollOffset = 0

@@ -192,6 +192,8 @@ struct VRHomeView: View {
     @State private var dockExpanded = true
     @StateObject private var workspace = VRWorkspace()
     @StateObject private var media = VRMediaStore()
+    @StateObject private var productivity = VRProductivityTools()
+    @State private var mediaDragPoint: CGPoint?
     @State private var mediaMode: Bool? // nil=Central; false=Files; true=Photos
     @State private var importingMedia = false
     @State private var pickingImage = false
@@ -297,14 +299,12 @@ struct VRHomeView: View {
             Task { await updates.check() }
         }
         .fileImporter(isPresented: $importingMedia,
-            allowedContentTypes: [.image, .pdf, .plainText, .movie],
-            allowsMultipleSelection: false) { result in
-                if case let .success(urls) = result, let url = urls.first {
-                    Task { await media.importFile(url) }
-                } else if case let .failure(error) = result {
-                    media.message = error.localizedDescription
-                }
-            }
+            allowedContentTypes: productivity.importingBackup ? [.json] : [.image, .pdf, .plainText, .movie],
+            allowsMultipleSelection: false, onCompletion: handleFileImport)
+        .modifier(VRProductivityDialogs(tools: productivity, media: media, settings: settings,
+            onRestore: { sceneryIndex = $0; applySettingsChanges() },
+            onLibraryChanged: { workspacePage = 0; pendingMediaDelete = nil }))
+        .onChange(of: media.entries.count) { _ in changeWorkspacePage(0) }
         .photosPicker(isPresented: $pickingImage, selection: $pickedImage, matching: .images)
         .onChange(of: pickedImage) { item in
             guard let item = item else { return }
@@ -366,6 +366,23 @@ struct VRHomeView: View {
         }
     }
 
+    private func handleFileImport(_ result: Result<[URL], Error>) {
+        let backup = productivity.importingBackup
+        productivity.importingBackup = false
+        switch result {
+        case let .success(urls):
+            guard let url = urls.first else { return }
+            Task {
+                if backup { await productivity.readBackup(url) }
+                else { await media.importFile(url) }
+            }
+        case let .failure(error):
+            guard (error as NSError).code != NSUserCancelledError else { return }
+            if backup { productivity.dialog = .message(error.localizedDescription) }
+            else { media.message = error.localizedDescription }
+        }
+    }
+
     @ViewBuilder
     private func lensEye(right: Bool, size: CGSize) -> some View {
         if cinemaOpen {
@@ -381,16 +398,7 @@ struct VRHomeView: View {
     /// creating a mock preferences screen with nonfunctional controls.
     private func openSettings() {
         guard !cinemaOpen else { return }
-        settings.cameraUltra = ultraWideMode
-        settings.fullCameraFrame = ultraFullFrame
-        settings.invertUltraMotion = ultraInvertMotion
-        settings.themeIndex = selectedTheme.rawValue
-        settings.webZoom = webWindowZoom
-        settings.cinemaFOV = cinema.cinemaFovDegrees
-        settings.cinemaInvert = cinema.invertTracking
-        settings.cinemaImmersive = cinema.immersiveScreen
-        settings.cinemaSwapEyes = cinema.swapEyes
-        settings.cinemaAutoControls = cinema.showControlsAutomatically
+        synchronizeRuntimePreferences()
         appsOpen = false
         lensMenuOpen = false
         themeMenuOpen = false
@@ -405,6 +413,19 @@ struct VRHomeView: View {
         runtime.setCameraPreviewEnabled(false)
         ultraWide.setDisplayEnabled(false)
         dockExpanded = false
+    }
+
+    private func synchronizeRuntimePreferences() {
+        settings.cameraUltra = ultraWideMode
+        settings.fullCameraFrame = ultraFullFrame
+        settings.invertUltraMotion = ultraInvertMotion
+        settings.themeIndex = selectedTheme.rawValue
+        settings.webZoom = webWindowZoom
+        settings.cinemaFOV = cinema.cinemaFovDegrees
+        settings.cinemaInvert = cinema.invertTracking
+        settings.cinemaImmersive = cinema.immersiveScreen
+        settings.cinemaSwapEyes = cinema.swapEyes
+        settings.cinemaAutoControls = cinema.showControlsAutomatically
     }
 
     private func closeSettings() {
@@ -762,6 +783,7 @@ struct VRHomeView: View {
 
             if workspaceOpen {
                 VRWorkspaceView(items: workspaceItems, page: workspacePage, viewport: size,
+                    title: mediaMode == nil ? "CENTRAL VR" : (mediaMode == true ? "FOTOS" : "ARQUIVOS"),
                     onSelect: performWorkspace, onPage: changeWorkspacePage,
                     onClose: { workspaceOpen = false })
                     .zIndex(45)
@@ -774,8 +796,13 @@ struct VRHomeView: View {
                     .frame(maxWidth: w * 0.9).position(x: w / 2, y: h - 20)
                     .allowsHitTesting(false).zIndex(47)
             }
-            if media.preview != nil {
+            if media.preview != nil || media.loadingPreview {
                 VRMediaPreview(store: media).frame(width: w, height: h).zIndex(60)
+                if shownHand.visible {
+                    VRPrecisionCursor(pinching: shownHand.pinching, size: settings.cursorSize,
+                                      reduceMotion: settings.reduceMotion)
+                        .position(interactionPoint(shownHand.point, size: size)).zIndex(61)
+                }
             }
             if settingsOpen {
                 VRSettingsScreen(session: settings, rightEye: right,
@@ -1343,19 +1370,31 @@ struct VRHomeView: View {
     }
 
     private func processGesture(_ hand: TrackedHand, size: CGSize) {
+        guard productivity.dialog == nil, !productivity.exporting, !importingMedia, !pickingImage else {
+            lastPinch = hand.visible && hand.pinching
+            mediaDragPoint = nil
+            return
+        }
         if settingsOpen {
             processSettingsGesture(hand, size: size)
             return
         }
-        if media.preview != nil {
-            if hand.visible && hand.pinching && !lastPinch {
+        if media.preview != nil || media.loadingPreview {
+            if hand.visible && hand.pinching {
                 let point = interactionPoint(hand.point, size: size)
-                if point.y < 44 && point.x > size.width * 0.65 { media.closePreview() }
-                else if point.y > size.height - 48 {
-                    if point.x < size.width / 3 { media.changePage(-1) }
-                    if point.x > size.width * 2 / 3 { media.changePage(1) }
+                let content = VRMediaPreviewGeometry.content(size)
+                if !lastPinch {
+                    if let action = VRMediaPreviewGeometry.action(at: point, in: size) {
+                        media.performPreview(action)
+                    } else if content.contains(point), media.image != nil, media.zoom > 1 {
+                        mediaDragPoint = point
+                    }
+                } else if let previous = mediaDragPoint {
+                    media.moveImage(by: CGSize(width: point.x - previous.x, height: point.y - previous.y),
+                                    viewport: content.size)
+                    mediaDragPoint = point
                 }
-            }
+            } else { mediaDragPoint = nil }
             lastPinch = hand.visible && hand.pinching
             return
         }
@@ -1891,6 +1930,12 @@ struct VRHomeView: View {
     }
 
     private func openWebApp(_ app: VRWebApp) {
+        if let existing = panels.first(where: { $0.webApp == app && webSessions[$0.id] != nil }) {
+            if workspace.state(existing.id).minimized { workspace.minimize(existing.id) }
+            focusedWebPanelID = existing.id
+            appsOpen = false
+            return
+        }
         // Each web app uses one WKWebView per eye. Keep a small cap so five
         // streaming apps cannot exhaust an iPhone's memory in the headset.
         guard webSessions.count < 3 else {
@@ -2018,12 +2063,34 @@ struct VRHomeView: View {
                 VRWorkspaceItem(id: "media.back", title: "Central", detail: "Voltar", symbol: "chevron.left", command: .mediaBack),
                 VRWorkspaceItem(id: "media.import", title: photos ? "Escolher fotos" : "Importar arquivo",
                     detail: media.importing ? "Importando…" : "O original é preservado", symbol: "plus",
-                    command: photos ? .importPhoto : .importFile)
+                    command: photos ? .importPhoto : .importFile),
+                VRWorkspaceItem(id: "media.search", title: "Buscar", detail: media.query.isEmpty ? "Por nome" : media.query,
+                    symbol: "magnifyingglass", command: .mediaSearch),
+                VRWorkspaceItem(id: "media.sort", title: "Ordenar", detail: media.sort.title,
+                    symbol: "arrow.up.arrow.down", command: .mediaSort),
+                VRWorkspaceItem(id: "media.favorites", title: "Favoritos", detail: media.favoritesOnly ? "Somente favoritos" : "Todos os itens",
+                    symbol: "star.fill", command: .mediaFavorites),
+                VRWorkspaceItem(id: "media.filter", title: photos ? "Limpar filtros" : "Tipo de arquivo",
+                    detail: photos ? "Mostrar todas as fotos" : (media.kindFilter?.rawValue ?? "Todos"),
+                    symbol: "line.3.horizontal.decrease.circle", command: photos ? .mediaReset : .mediaFilter),
+                VRWorkspaceItem(id: "media.reset", title: "Limpar busca e filtros", detail: "Voltar à lista completa",
+                    symbol: "arrow.counterclockwise", command: .mediaReset)
             ]
-            for entry in media.entries where !photos || entry.kind == .image {
+            let visible = media.visibleEntries(photosOnly: photos)
+            if visible.isEmpty {
+                list[2] = VRWorkspaceItem(id: "media.search", title: "Nenhum resultado", detail: "Buscar por outro nome",
+                    symbol: "magnifyingglass", command: .mediaSearch)
+            }
+            for entry in visible {
                 list.append(VRWorkspaceItem(id: entry.id.uuidString, title: entry.title,
-                    detail: entry.kind.rawValue, symbol: entry.kind == .image ? "photo" : "doc",
+                    detail: ByteCountFormatter.string(fromByteCount: entry.bytes, countStyle: .file),
+                    symbol: entry.kind == .image ? "photo" : "doc",
                     command: .mediaOpen(entry.id)))
+                list.append(VRWorkspaceItem(id: entry.id.uuidString + ".favorite",
+                    title: entry.favorite == true ? "Remover favorito" : "Favoritar", detail: entry.title,
+                    symbol: entry.favorite == true ? "star.fill" : "star", command: .mediaFavorite(entry.id)))
+                list.append(VRWorkspaceItem(id: entry.id.uuidString + ".rename", title: "Renomear", detail: entry.title,
+                    symbol: "pencil", command: .mediaRename(entry.id)))
                 list.append(VRWorkspaceItem(id: entry.id.uuidString + ".delete",
                     title: pendingMediaDelete == entry.id ? "Confirmar exclusão" : "Excluir cópia",
                     detail: entry.title, symbol: "trash", command: .mediaDelete(entry.id)))
@@ -2042,6 +2109,12 @@ struct VRHomeView: View {
         items += [
             VRWorkspaceItem(id: "files", title: "Arquivos", detail: "Cópias locais", symbol: "folder.fill", command: .files),
             VRWorkspaceItem(id: "photos", title: "Fotos", detail: "Imagens importadas", symbol: "photo", command: .photos)
+        ]
+        items += [
+            VRWorkspaceItem(id: "diagnostics", title: "Diagnóstico", detail: "Câmera, mão e temperatura", symbol: "waveform.path.ecg", command: .diagnostics),
+            VRWorkspaceItem(id: "diagnostics.export", title: "Exportar diagnóstico", detail: "Relatório local em texto", symbol: "square.and.arrow.up", command: .exportDiagnostics),
+            VRWorkspaceItem(id: "backup.export", title: "Salvar ajustes", detail: "Exportar backup JSON", symbol: "externaldrive.badge.checkmark", command: .exportBackup),
+            VRWorkspaceItem(id: "backup.restore", title: "Restaurar backup", detail: "Escolher arquivo de ajustes", symbol: "arrow.counterclockwise.circle", command: .restoreBackup)
         ]
         let hand = ultraWideMode ? ultraWide.hand : runtime.hand
         items += [
@@ -2075,6 +2148,15 @@ struct VRHomeView: View {
                         detail: "Alternativa para streaming protegido", symbol: "safari",
                         command: .externalWeb(panel.id))
                 ]
+                if browser.lastClosedURL != nil {
+                    items.append(VRWorkspaceItem(id: "\(panel.id).tab.reopen", title: "Reabrir aba fechada", detail: panel.title,
+                        symbol: "arrow.uturn.backward", command: .reopenTab(panel.id)))
+                }
+                for (index, tab) in browser.tabs.enumerated() {
+                    items.append(VRWorkspaceItem(id: "\(panel.id).tab.\(tab.id)",
+                        title: "Aba \(index + 1)" + (tab.id == browser.activeTabID ? " · ativa" : ""),
+                        detail: tab.url.host ?? tab.url.absoluteString, symbol: "globe", command: .selectTab(panel.id, tab.id)))
+                }
                 for (index, url) in browser.history.prefix(6).enumerated() {
                     items.append(VRWorkspaceItem(id: "\(panel.id).history.\(index)",
                         title: url.host ?? "Histórico", detail: url.absoluteString,
@@ -2099,6 +2181,7 @@ struct VRHomeView: View {
     }
 
     private func performWorkspace(_ command: VRWorkspaceCommand) {
+        defer { if workspaceOpen { changeWorkspacePage(0) } }
         switch command {
         case .settings: workspaceOpen = false; openSettings()
         case .camera: toggleUltraWide()
@@ -2132,11 +2215,33 @@ struct VRHomeView: View {
             settings.notice = "Amostra de pinça aplicada; teste abrir e fechar a mão"
         case .files, .photos:
             if case .photos = command { mediaMode = true } else { mediaMode = false }
+            media.resetFilters()
             workspacePage = 0; pendingMediaDelete = nil; workspaceOpen = true
             appsOpen = false; media.message = nil
         case .mediaBack: mediaMode = nil; workspacePage = 0; pendingMediaDelete = nil
-        case .importFile: if !media.importing { importingMedia = true }
+        case .importFile: if !media.importing { productivity.importingBackup = false; importingMedia = true }
         case .importPhoto: if !media.importing { pickingImage = true }
+        case .mediaSearch:
+            productivity.draft = media.query; productivity.dialog = .search
+        case .mediaSort:
+            media.sort = VRMediaSort(rawValue: (media.sort.rawValue + 1) % VRMediaSort.allCases.count) ?? .recent
+            workspacePage = 0; pendingMediaDelete = nil
+        case .mediaFavorites:
+            media.favoritesOnly.toggle(); workspacePage = 0; pendingMediaDelete = nil
+        case .mediaFilter:
+            let kinds: [VRMediaKind?] = [nil, .image, .text, .pdf, .movie]
+            let index = kinds.firstIndex(where: { $0 == media.kindFilter }) ?? 0
+            media.kindFilter = kinds[(index + 1) % kinds.count]
+            workspacePage = 0; pendingMediaDelete = nil
+        case .mediaReset: media.resetFilters(); workspacePage = 0; pendingMediaDelete = nil
+        case let .mediaFavorite(id):
+            pendingMediaDelete = nil
+            do { try media.toggleFavorite(id); changeWorkspacePage(0) }
+            catch { media.message = error.localizedDescription }
+        case let .mediaRename(id):
+            guard let entry = media.entries.first(where: { $0.id == id }) else { return }
+            pendingMediaDelete = nil
+            productivity.draft = entry.title; productivity.dialog = .rename(id)
         case let .mediaOpen(id):
             pendingMediaDelete = nil
             guard let entry = media.entries.first(where: { $0.id == id }) else { return }
@@ -2148,7 +2253,10 @@ struct VRHomeView: View {
                 workspaceOpen = false
                 activateDock(2)
                 cinema.loadMovie(media.url(for: entry), displayTitle: entry.title)
-            } else { Task { await media.open(entry) } }
+            } else {
+                let gallery = media.visibleEntries(photosOnly: true).map(\.id)
+                Task { await media.open(entry, gallery: gallery) }
+            }
         case let .mediaDelete(id):
             guard let entry = media.entries.first(where: { $0.id == id }) else { return }
             guard pendingMediaDelete == id else { pendingMediaDelete = id; return }
@@ -2160,6 +2268,32 @@ struct VRHomeView: View {
         case let .externalWeb(id): webSessions[id]?.openInSafari()
         case let .nextTab(id): webSessions[id]?.nextTab(); webRevision += 1
         case let .closeTab(id): webSessions[id]?.closeActiveTab(); webRevision += 1
+        case let .reopenTab(id): webSessions[id]?.reopenClosedTab(); webRevision += 1; changeWorkspacePage(0)
+        case let .selectTab(id, tab): webSessions[id]?.selectTab(tab); webRevision += 1
+        case .diagnostics:
+            let text = diagnosticReport()
+            if let index = panels.firstIndex(where: { $0.templateID == "local.diagnostics" }) {
+                panels[index].text = text
+                noteSessions[panels[index].id]?.text = text
+                noteSessions[panels[index].id]?.scroll(to: 0)
+                if workspace.state(panels[index].id).minimized { workspace.minimize(panels[index].id) }
+            } else {
+                let panel = VRPanel(title: "Diagnóstico VR-OS", icon: "waveform.path.ecg", text: text,
+                    depth: Double(settings.defaultDepth), templateID: "local.diagnostics")
+                panels.append(panel); registerUltraWindow(panel)
+            }
+            workspaceOpen = false
+        case .exportDiagnostics:
+            productivity.export(Data(diagnosticReport().utf8), type: .plainText, filename: "VR-OS-diagnostico")
+        case .exportBackup:
+            do {
+                synchronizeRuntimePreferences()
+                let backup = VRSettingsBackup(settings: settings, scenery: sceneryIndex)
+                productivity.export(try backup.encoded(), type: .json, filename: "VR-OS-ajustes")
+            } catch { productivity.dialog = .message(error.localizedDescription) }
+        case .restoreBackup:
+            guard !cameraTransitioning else { return }
+            productivity.importingBackup = true; importingMedia = true
         case .clearHistory:
             for browser in webSessions.values { browser.clearHistory() }
             webRevision += 1; changeWorkspacePage(0)
@@ -2188,6 +2322,20 @@ struct VRHomeView: View {
         case let .larger(id): workspace.resize(id, by: 0.1)
         case let .close(id): close(id); changeWorkspacePage(0)
         }
+    }
+
+    private func diagnosticReport() -> String {
+        let hand = ultraWideMode ? ultraWide.hand : runtime.hand
+        let bytes = media.entries.reduce(Int64(0)) { total, entry in
+            let result = total.addingReportingOverflow(entry.bytes)
+            return result.overflow ? Int64.max : result.partialValue
+        }
+        return VRDiagnostics.report(camera: ultraWideMode ? ultraWide.status : runtime.cameraStatus,
+            tracking: ultraWideMode ? (ultraWide.motionAvailable ? "3DoF" : "Sem sensor") :
+                (runtime.spatialTracking ? "ARKit normal" : "ARKit limitado"),
+            handPoints: hand.visible ? hand.joints.compactMap { $0 }.count : 0,
+            pinching: hand.visible && hand.pinching, mediaCount: media.entries.count,
+            mediaBytes: bytes, webCount: webSessions.count)
     }
 
     private func exitCinema() {

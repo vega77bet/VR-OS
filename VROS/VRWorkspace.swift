@@ -53,8 +53,12 @@ enum VRWorkspaceCommand {
     case deleteMovie(UUID)
     case files, photos, importFile, importPhoto, mediaBack
     case mediaOpen(UUID), mediaDelete(UUID)
+    case mediaSearch, mediaSort, mediaFilter, mediaFavorites, mediaReset
+    case mediaFavorite(UUID), mediaRename(UUID)
+    case diagnostics, exportDiagnostics, exportBackup, restoreBackup
     case cinemaTool(String)
     case newTab(UUID), nextTab(UUID), closeTab(UUID), history(UUID, String)
+    case selectTab(UUID, UUID), reopenTab(UUID)
     case clearHistory(UUID)
     case externalWeb(UUID)
     case minimize(UUID), focus(UUID), smaller(UUID), larger(UUID), close(UUID)
