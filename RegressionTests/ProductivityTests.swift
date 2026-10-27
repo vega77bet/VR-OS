@@ -325,19 +325,47 @@ final class ProductivityTests: XCTestCase {
         let store = VRMediaStore(folder: folder.appendingPathComponent("owned"))
         await store.importFile(source); await store.open(try XCTUnwrap(store.entries.first))
         for size in [CGSize(width: 242, height: 236), CGSize(width: 304, height: 342)] {
-            let controller = UIHostingController(rootView: VRMediaPreview(store: store))
-            let window = UIWindow(frame: CGRect(origin: .zero, size: size))
-            window.rootViewController = controller; window.isHidden = false
-            controller.view.frame = window.bounds
-            controller.view.setNeedsLayout(); controller.view.layoutIfNeeded()
-            let image = UIGraphicsImageRenderer(size: size).image { _ in
-                controller.view.drawHierarchy(in: controller.view.bounds, afterScreenUpdates: true)
-            }
+            store.configureReadingViewport(VRMediaPreviewGeometry.content(size).size)
+            let image = try renderPreview(store, size: size, eyes: 1)
             let attachment = XCTAttachment(image: image)
             attachment.name = "V37-43-preview-\(Int(size.width))x\(Int(size.height))"
             attachment.lifetime = .keepAlways; add(attachment)
+            XCTAssertEqual(image.size, size)
             XCTAssertGreaterThan(try XCTUnwrap(image.pngData()).count, 1000)
-            window.isHidden = true
+            let pair = try renderPreview(store, size: size, eyes: 2)
+            let cg = try XCTUnwrap(pair.cgImage)
+            let half = cg.width / 2
+            let left = try XCTUnwrap(cg.cropping(to: CGRect(x: 0, y: 0, width: CGFloat(half), height: CGFloat(cg.height))))
+            let right = try XCTUnwrap(cg.cropping(to: CGRect(x: CGFloat(half), y: 0, width: CGFloat(half), height: CGFloat(cg.height))))
+            XCTAssertEqual(UIImage(cgImage: left).pngData(), UIImage(cgImage: right).pngData(),
+                           "Both rendered eye previews must be pixel-identical")
+            let stereo = XCTAttachment(image: pair)
+            stereo.name = "V37-43-both-eyes-\(Int(size.width))"
+            stereo.lifetime = .keepAlways; add(stereo)
         }
+        let photoURL = folder.appendingPathComponent("quadrantes.png")
+        let photo = UIGraphicsImageRenderer(size: CGSize(width: 640, height: 320)).image { ctx in
+            for (index, color) in [UIColor.cyan, .orange, .purple, .green].enumerated() {
+                color.setFill()
+                ctx.fill(CGRect(x: CGFloat((index % 2) * 320), y: CGFloat((index / 2) * 160), width: 320, height: 160))
+            }
+        }
+        try XCTUnwrap(photo.pngData()).write(to: photoURL)
+        await store.importFile(photoURL); await store.open(try XCTUnwrap(store.entries.first))
+        store.rotateImage()
+        let rotated = XCTAttachment(image: try renderPreview(store, size: CGSize(width: 242, height: 236), eyes: 2))
+        rotated.name = "V37-43-rotated-photo-both-eyes"
+        rotated.lifetime = .keepAlways; add(rotated)
+    }
+
+    @MainActor
+    private func renderPreview(_ store: VRMediaStore, size: CGSize, eyes: Int) throws -> UIImage {
+        let renderer = ImageRenderer(content: HStack(spacing: 0) {
+            ForEach(0..<eyes, id: \.self) { _ in
+                VRMediaPreview(store: store).frame(width: size.width, height: size.height)
+            }
+        }.environment(\.colorScheme, .dark))
+        renderer.scale = 2
+        return try XCTUnwrap(renderer.uiImage)
     }
 }

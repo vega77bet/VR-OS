@@ -38,7 +38,7 @@ Diagnóstico é uma fotografia do estado ao abrir/exportar, não um monitor de F
 - Fechar durante decodificação não reabre a prévia.
 - Restauração de abas, URL ativa, isolamento por app, dados inválidos, duplicatas e limite de oito.
 - Backup completo, persistência e rejeição de versão/campos/limites inválidos sem mudança parcial.
-- Geometria dos botões sem sobreposição ao conteúdo e renderização em duas dimensões de lente, com imagens anexadas ao xcresult.
+- Geometria dos botões sem sobreposição ao conteúdo; renderização exata em duas dimensões de lente, comparação pixel a pixel das prévias dos dois olhos e foto girada, com imagens anexadas ao xcresult.
 - Suíte anterior de Ajustes, Cinema, gestos, lentes e biblioteca permanece no Actions.
 
 Referências de APIs: [FileExporter](https://developer.apple.com/documentation/swiftui/view/fileexporter(ispresented:document:contenttype:defaultfilename:oncompletion:)) e [WKNavigationDelegate](https://developer.apple.com/documentation/webkit/wknavigationdelegate).
