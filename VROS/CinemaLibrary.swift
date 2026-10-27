@@ -10,6 +10,8 @@ struct CinemaLibraryEntry: Codable, Identifiable {
     var favorite: Bool
     var lastPlayed: Date
     var mode: String? = nil
+    var seconds: Double? = nil
+    var convergence: Double? = nil
 }
 
 final class CinemaLibrary: ObservableObject {
@@ -61,6 +63,14 @@ final class CinemaLibrary: ObservableObject {
     func saveMode(_ mode: String, for url: URL) {
         guard let index = entries.firstIndex(where: { $0.filename == url.lastPathComponent }) else { return }
         entries[index].mode = mode
+        persist()
+    }
+
+    func saveProgress(_ seconds: Double, convergence: Double, for url: URL) {
+        guard seconds.isFinite, convergence.isFinite,
+              let index = entries.firstIndex(where: { $0.filename == url.lastPathComponent }) else { return }
+        entries[index].seconds = max(0, seconds)
+        entries[index].convergence = max(-0.02, min(0.02, convergence))
         persist()
     }
 

@@ -65,6 +65,10 @@ enum VRWebApp: String, CaseIterable, Identifiable {
 @MainActor
 final class VRWebSession: ObservableObject {
     let app: VRWebApp
+    @Published private(set) var tabs: [VRBrowserTab] = []
+    @Published private(set) var activeTabID = UUID()
+    @Published private(set) var history: [URL] = []
+    private let defaults: UserDefaults
     @Published var address: String
     @Published private(set) var requestedURL: URL
     @Published private(set) var canGoBack = false
@@ -80,11 +84,17 @@ final class VRWebSession: ObservableObject {
     weak var primary: WKWebView?
     weak var secondary: WKWebView?
 
-    init(app: VRWebApp) {
+    init(app: VRWebApp, defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         self.app = app
         requestedURL = app.startURL
         address = app.startURL.absoluteString
-        favorites = Array((UserDefaults.standard.stringArray(forKey: favoritesKey) ?? [])
+        let tab = VRBrowserTab(url: app.startURL)
+        tabs = [tab]
+        activeTabID = tab.id
+        history = (defaults.stringArray(forKey: "vros.web.history.v1") ?? []).compactMap(URL.init(string:))
+            .filter { $0.scheme == "https" && $0.user == nil && $0.password == nil }
+        favorites = Array((defaults.stringArray(forKey: favoritesKey) ?? [])
             .compactMap(URL.init(string:))
             .filter { $0.scheme == "https" }
             .suffix(4))
@@ -93,25 +103,61 @@ final class VRWebSession: ObservableObject {
             : nil
     }
 
+
+    func newTab() {
+        guard tabs.count < 8 else { message = "Limite de oito abas por janela"; return }
+        saveActiveTab()
+        let tab = VRBrowserTab(url: app.startURL)
+        tabs.append(tab)
+        selectTab(tab.id)
+    }
+
+    private func saveActiveTab() {
+        if let index = tabs.firstIndex(where: { $0.id == activeTabID }) {
+            tabs[index].url = requestedURL
+        }
+    }
+
+    func selectTab(_ id: UUID) {
+        guard tabs.contains(where: { $0.id == id }) else { return }
+        saveActiveTab()
+        guard let tab = tabs.first(where: { $0.id == id }) else { return }
+        primary?.stopLoading()
+        secondary?.stopLoading()
+        primary = nil
+        secondary = nil
+        activeTabID = id
+        requestedURL = tab.url
+        address = tab.url.absoluteString
+        canGoBack = false; canGoForward = false; loading = false
+        message = nil
+    }
+
+    func nextTab() {
+        guard let index = tabs.firstIndex(where: { $0.id == activeTabID }), !tabs.isEmpty else { return }
+        selectTab(tabs[(index + 1) % tabs.count].id)
+    }
+
+    func closeActiveTab() {
+        guard tabs.count > 1 else { goHome(); return }
+        let old = activeTabID
+        if let next = tabs.first(where: { $0.id != old }) { selectTab(next.id) }
+        tabs.removeAll { $0.id == old }
+    }
+
+    func clearHistory() {
+        history = []
+        defaults.removeObject(forKey: "vros.web.history.v1")
+    }
+
     func clearFavorites() {
         favorites.removeAll()
-        UserDefaults.standard.removeObject(forKey: favoritesKey)
+        defaults.removeObject(forKey: favoritesKey)
     }
 
     func navigate() {
-        let input = address.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !input.isEmpty else { return }
-        var target: URL?
-        if input.contains(" ") || (!input.contains(".") && !input.contains("://")) {
-            var components = URLComponents(string: "https://www.google.com/search")
-            components?.queryItems = [URLQueryItem(name: "q", value: input)]
-            target = components?.url
-        } else {
-            target = URL(string: input.contains("://") ? input : "https://" + input)
-        }
-        guard let url = target, url.scheme?.lowercased() == "https",
-              url.host != nil else {
-            message = "Digite um endereço HTTPS válido ou um termo de pesquisa."
+        guard let url = VRBrowserURL.resolve(address) else {
+            message = "Digite um endereço HTTPS válido ou uma pesquisa."
             return
         }
         message = nil
@@ -148,6 +194,12 @@ final class VRWebSession: ObservableObject {
         if let url = webView.url, url.scheme == "https" {
             address = url.absoluteString
             if requestedURL != url { requestedURL = url }
+            if let index = tabs.firstIndex(where: { $0.id == activeTabID }) { tabs[index].url = url }
+            var recent = (defaults.stringArray(forKey: "vros.web.history.v1") ?? []).compactMap(URL.init(string:))
+            recent.removeAll { $0 == url }
+            recent.insert(url, at: 0)
+            history = Array(recent.prefix(50))
+            defaults.set(history.map(\.absoluteString), forKey: "vros.web.history.v1")
         }
     }
 
@@ -177,7 +229,7 @@ final class VRWebSession: ObservableObject {
             favorites.append(url)
             message = "Página salva nos favoritos."
         }
-        UserDefaults.standard.set(favorites.map(\.absoluteString),
+        defaults.set(favorites.map(\.absoluteString),
                                   forKey: favoritesKey)
     }
 
@@ -331,6 +383,13 @@ private struct VRWebSurface: UIViewRepresentable {
         }
     }
 
+    static func dismantleUIView(_ view: WKWebView, coordinator: Coordinator) {
+        view.stopLoading()
+        view.navigationDelegate = nil
+        view.uiDelegate = nil
+        view.loadHTMLString("", baseURL: nil)
+    }
+
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         let session: VRWebSession
         let rightEye: Bool
@@ -369,6 +428,12 @@ private struct VRWebSurface: UIViewRepresentable {
             if (error as NSError).code == NSURLErrorCancelled { return }
             session.loading = false
             session.message = error.localizedDescription
+        }
+
+        func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+            if rightEye { webView.reload(); return }
+            session.loading = false
+            session.message = "O processo web foi encerrado. Use Recarregar ou Safari."
         }
 
         // Sites often open login/search pages in a new tab. Reuse the same
@@ -466,6 +531,7 @@ struct VRWebWindow: View {
             }
 
             VRWebSurface(session: session, rightEye: rightEye)
+                .id(session.activeTabID)
                 .background(Color.black)
                 .clipShape(RoundedRectangle(cornerRadius: 7))
 
@@ -500,3 +566,4 @@ struct VRWebWindow: View {
         .opacity(disabled ? 0.4 : 1)
     }
 }
+
