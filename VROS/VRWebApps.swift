@@ -68,7 +68,9 @@ final class VRWebSession: ObservableObject {
     @Published private(set) var tabs: [VRBrowserTab] = []
     @Published private(set) var activeTabID = UUID()
     @Published private(set) var history: [URL] = []
+    @Published private(set) var lastClosedURL: URL?
     private let defaults: UserDefaults
+    private var tabsKey: String { "vros.web.tabs.v1." + app.rawValue }
     @Published var address: String
     @Published private(set) var requestedURL: URL
     @Published private(set) var canGoBack = false
@@ -92,11 +94,22 @@ final class VRWebSession: ObservableObject {
         let tab = VRBrowserTab(url: app.startURL)
         tabs = [tab]
         activeTabID = tab.id
+        if let data = defaults.data(forKey: tabsKey), data.count <= 100_000,
+           let snapshot = try? JSONDecoder().decode(VRBrowserSnapshot.self, from: data) {
+            var seen = Set<UUID>()
+            let restored = Array(snapshot.tabs.filter {
+                VRBrowserURL.isAllowed($0.url) && seen.insert($0.id).inserted
+            }.prefix(8))
+            if let selected = restored.first(where: { $0.id == snapshot.active }) ?? restored.first {
+                tabs = restored; activeTabID = selected.id
+                requestedURL = selected.url; address = selected.url.absoluteString
+            }
+        }
         history = (defaults.stringArray(forKey: "vros.web.history.v1") ?? []).compactMap(URL.init(string:))
-            .filter { $0.scheme == "https" && $0.user == nil && $0.password == nil }
+            .filter(VRBrowserURL.isAllowed)
         favorites = Array((defaults.stringArray(forKey: favoritesKey) ?? [])
             .compactMap(URL.init(string:))
-            .filter { $0.scheme == "https" }
+            .filter(VRBrowserURL.isAllowed)
             .suffix(4))
         message = app == .netflix
             ? "Filmes protegidos podem não tocar aqui. Use Safari se necessário."
@@ -118,10 +131,18 @@ final class VRWebSession: ObservableObject {
         }
     }
 
+    private func persistTabs() {
+        saveActiveTab()
+        if let data = try? JSONEncoder().encode(VRBrowserSnapshot(tabs: tabs, active: activeTabID)) {
+            defaults.set(data, forKey: tabsKey)
+        }
+    }
+
     func selectTab(_ id: UUID) {
         guard tabs.contains(where: { $0.id == id }) else { return }
         saveActiveTab()
         guard let tab = tabs.first(where: { $0.id == id }) else { return }
+        suspendMedia()
         primary?.stopLoading()
         secondary?.stopLoading()
         primary = nil
@@ -131,6 +152,7 @@ final class VRWebSession: ObservableObject {
         address = tab.url.absoluteString
         canGoBack = false; canGoForward = false; loading = false
         message = nil
+        persistTabs()
     }
 
     func nextTab() {
@@ -141,8 +163,17 @@ final class VRWebSession: ObservableObject {
     func closeActiveTab() {
         guard tabs.count > 1 else { goHome(); return }
         let old = activeTabID
+        lastClosedURL = requestedURL
         if let next = tabs.first(where: { $0.id != old }) { selectTab(next.id) }
         tabs.removeAll { $0.id == old }
+        persistTabs()
+    }
+
+    func reopenClosedTab() {
+        guard let url = lastClosedURL, tabs.count < 8 else { return }
+        saveActiveTab()
+        let tab = VRBrowserTab(url: url)
+        tabs.append(tab); selectTab(tab.id); lastClosedURL = nil
     }
 
     func clearHistory() {
@@ -168,12 +199,14 @@ final class VRWebSession: ObservableObject {
         }
         message = nil
         requestedURL = url
+        persistTabs()
     }
 
     func goHome() {
         requestedURL = app.startURL
         address = requestedURL.absoluteString
         message = nil
+        persistTabs()
     }
 
     func back() {
@@ -197,7 +230,7 @@ final class VRWebSession: ObservableObject {
         canGoBack = webView.canGoBack
         canGoForward = webView.canGoForward
         loading = webView.isLoading
-        if let url = webView.url, url.scheme == "https" {
+        if let url = webView.url, VRBrowserURL.isAllowed(url) {
             address = url.absoluteString
             if requestedURL != url { requestedURL = url }
             if let index = tabs.firstIndex(where: { $0.id == activeTabID }) { tabs[index].url = url }
@@ -206,6 +239,7 @@ final class VRWebSession: ObservableObject {
             recent.insert(url, at: 0)
             history = Array(recent.prefix(50))
             defaults.set(history.map(\.absoluteString), forKey: "vros.web.history.v1")
+            persistTabs()
         }
     }
 
@@ -226,7 +260,7 @@ final class VRWebSession: ObservableObject {
 
     func toggleFavorite() {
         let url = primary?.url ?? requestedURL
-        guard url.scheme == "https" else { return }
+        guard VRBrowserURL.isAllowed(url) else { return }
         if favorites.contains(url) {
             favorites.removeAll { $0 == url }
             message = "Favorito removido."
@@ -245,9 +279,11 @@ final class VRWebSession: ObservableObject {
         address = url.absoluteString
         message = nil
         requestedURL = url
+        persistTabs()
     }
 
     func setPageZoom(_ zoom: CGFloat) {
+        guard zoom.isFinite else { return }
         pageZoom = max(0.75, min(2.50, zoom))
         primary?.pageZoom = pageZoom
         secondary?.pageZoom = pageZoom
@@ -408,7 +444,20 @@ private struct VRWebSurface: UIViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
-            if !rightEye { session.loading = true }
+            if !rightEye && webView === session.primary { session.loading = true }
+        }
+
+        func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
+                     decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+            if navigationAction.targetFrame?.isMainFrame != false,
+               let url = navigationAction.request.url, !VRBrowserURL.isAllowed(url),
+               url.absoluteString != "about:blank" {
+                if !rightEye && webView === session.primary {
+                    session.message = "Este endereço não pode abrir aqui. Use uma página HTTPS."
+                    session.loading = false
+                }
+                decisionHandler(.cancel)
+            } else { decisionHandler(.allow) }
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -422,7 +471,7 @@ private struct VRWebSurface: UIViewRepresentable {
 
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!,
                      withError error: Error) {
-            guard !rightEye else { return }
+            guard !rightEye, webView === session.primary else { return }
             if (error as NSError).code == NSURLErrorCancelled { return }
             session.loading = false
             session.message = "Site indisponível: " + error.localizedDescription
@@ -430,14 +479,15 @@ private struct VRWebSurface: UIViewRepresentable {
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!,
                      withError error: Error) {
-            guard !rightEye else { return }
+            guard !rightEye, webView === session.primary else { return }
             if (error as NSError).code == NSURLErrorCancelled { return }
             session.loading = false
             session.message = error.localizedDescription
         }
 
         func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-            if rightEye { webView.reload(); return }
+            if rightEye { if webView === session.secondary { webView.reload() }; return }
+            guard webView === session.primary else { return }
             session.loading = false
             session.message = "O processo web foi encerrado. Use Recarregar ou Safari."
         }
@@ -448,7 +498,7 @@ private struct VRWebSurface: UIViewRepresentable {
                      for navigationAction: WKNavigationAction,
                      windowFeatures: WKWindowFeatures) -> WKWebView? {
             if navigationAction.targetFrame == nil,
-               let url = navigationAction.request.url, url.scheme == "https" {
+               let url = navigationAction.request.url, VRBrowserURL.isAllowed(url) {
                 webView.load(URLRequest(url: url))
             }
             return nil
