@@ -2181,6 +2181,7 @@ struct VRHomeView: View {
     }
 
     private func performWorkspace(_ command: VRWorkspaceCommand) {
+        defer { if workspaceOpen { changeWorkspacePage(0) } }
         switch command {
         case .settings: workspaceOpen = false; openSettings()
         case .camera: toggleUltraWide()
@@ -2273,6 +2274,8 @@ struct VRHomeView: View {
             let text = diagnosticReport()
             if let index = panels.firstIndex(where: { $0.templateID == "local.diagnostics" }) {
                 panels[index].text = text
+                noteSessions[panels[index].id]?.text = text
+                noteSessions[panels[index].id]?.scroll(to: 0)
                 if workspace.state(panels[index].id).minimized { workspace.minimize(panels[index].id) }
             } else {
                 let panel = VRPanel(title: "Diagnóstico VR-OS", icon: "waveform.path.ecg", text: text,

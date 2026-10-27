@@ -1,6 +1,7 @@
 import XCTest
 import SwiftUI
 import PDFKit
+import WebKit
 
 final class ProductivityTests: XCTestCase {
     private func temporaryFolder() throws -> URL {
@@ -165,6 +166,8 @@ final class ProductivityTests: XCTestCase {
         store.setZoom(.nan); XCTAssertEqual(store.zoom, 4)
         store.moveImage(by: CGSize(width: 9999, height: -9999), viewport: CGSize(width: 100, height: 80))
         XCTAssertEqual(store.pan, CGSize(width: 150, height: -120))
+        store.setZoom(1.5)
+        XCTAssertEqual(store.pan, CGSize(width: 25, height: -20))
         for _ in 0..<5 { store.rotateImage() }
         XCTAssertEqual(store.quarterTurns, 1)
         await store.browsePhoto(1)
@@ -209,6 +212,12 @@ final class ProductivityTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let browser = VRWebSession(app: .browser, defaults: defaults)
+        let primary = WKWebView()
+        browser.primary = primary
+        browser.selectTab(browser.activeTabID)
+        XCTAssertTrue(browser.primary === primary)
+        browser.nextTab() // A single tab must not detach its mounted WebView.
+        XCTAssertTrue(browser.primary === primary)
         browser.address = "https://example.com/a"; browser.navigate()
         browser.newTab()
         browser.address = "https://example.com/b"; browser.navigate()

@@ -105,8 +105,8 @@ final class VRWebSession: ObservableObject {
                 requestedURL = selected.url; address = selected.url.absoluteString
             }
         }
-        history = (defaults.stringArray(forKey: "vros.web.history.v1") ?? []).compactMap(URL.init(string:))
-            .filter(VRBrowserURL.isAllowed)
+        history = Array((defaults.stringArray(forKey: "vros.web.history.v1") ?? []).compactMap(URL.init(string:))
+            .filter(VRBrowserURL.isAllowed).prefix(50))
         favorites = Array((defaults.stringArray(forKey: favoritesKey) ?? [])
             .compactMap(URL.init(string:))
             .filter(VRBrowserURL.isAllowed)
@@ -139,7 +139,7 @@ final class VRWebSession: ObservableObject {
     }
 
     func selectTab(_ id: UUID) {
-        guard tabs.contains(where: { $0.id == id }) else { return }
+        guard id != activeTabID, tabs.contains(where: { $0.id == id }) else { return }
         saveActiveTab()
         guard let tab = tabs.first(where: { $0.id == id }) else { return }
         suspendMedia()
@@ -235,6 +235,7 @@ final class VRWebSession: ObservableObject {
             if requestedURL != url { requestedURL = url }
             if let index = tabs.firstIndex(where: { $0.id == activeTabID }) { tabs[index].url = url }
             var recent = (defaults.stringArray(forKey: "vros.web.history.v1") ?? []).compactMap(URL.init(string:))
+                .filter(VRBrowserURL.isAllowed)
             recent.removeAll { $0 == url }
             recent.insert(url, at: 0)
             history = Array(recent.prefix(50))
@@ -405,6 +406,7 @@ private struct VRWebSurface: UIViewRepresentable {
                 view.scrollView.observe(\.contentOffset, options: [.new]) {
                     [weak session] scroll, _ in
                     DispatchQueue.main.async {
+                        guard session?.primary?.scrollView === scroll else { return }
                         session?.mirrorScroll(from: scroll.contentOffset)
                     }
                 }

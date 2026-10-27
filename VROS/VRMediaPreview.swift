@@ -64,7 +64,8 @@ struct VRMediaPreview: View {
                     if store.loadingPreview { ProgressView() }
                     else if let image = store.image {
                         Image(uiImage: image).resizable().scaledToFit()
-                            .frame(width: content.width, height: content.height)
+                            .frame(width: store.quarterTurns % 2 == 0 ? content.width : content.height,
+                                   height: store.quarterTurns % 2 == 0 ? content.height : content.width)
                             .rotationEffect(.degrees(Double(store.quarterTurns * 90)))
                             .scaleEffect(store.zoom).offset(store.pan)
                     } else {

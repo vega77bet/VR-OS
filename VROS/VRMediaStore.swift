@@ -270,12 +270,16 @@ final class VRMediaStore: ObservableObject {
 
     func setZoom(_ value: CGFloat) {
         guard value.isFinite else { return }
-        zoom = max(1, min(4, value))
+        let next = max(1, min(4, value))
+        let ratio = zoom > 1 ? (next - 1) / (zoom - 1) : 0
+        pan = CGSize(width: pan.width * ratio, height: pan.height * ratio)
+        zoom = next
         if zoom == 1 { pan = .zero }
     }
 
     func moveImage(by delta: CGSize, viewport: CGSize) {
-        guard delta.width.isFinite, delta.height.isFinite, zoom > 1 else { return }
+        guard delta.width.isFinite, delta.height.isFinite,
+              viewport.width.isFinite, viewport.height.isFinite, zoom > 1 else { return }
         let x = max(0, viewport.width * (zoom - 1) / 2)
         let y = max(0, viewport.height * (zoom - 1) / 2)
         pan = CGSize(width: max(-x, min(x, pan.width + delta.width)),
