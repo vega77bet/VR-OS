@@ -279,6 +279,9 @@ struct VRHomeView: View {
             runtime.setCameraPreviewEnabled(
                 theme == .graphite && !settingsOpen)
         }
+        .onChange(of: focusedWebPanelID) { id in
+            workspace.synchronizeFocus(id)
+        }
         .onChange(of: settings.revision) { _ in
             applySettingsChanges()
         }
@@ -701,6 +704,20 @@ struct VRHomeView: View {
                 .scaleEffect(settings.cursorSize)
                 .position(cursor)
                 .allowsHitTesting(false)
+            }
+
+            if let focusedID = focusedWebPanelID {
+                Button {
+                    if workspace.focused == focusedID { workspace.focus(focusedID) }
+                    focusedWebPanelID = nil
+                } label: {
+                    Label("Restaurar", systemImage: "arrow.down.right.and.arrow.up.left")
+                        .font(.system(size: 10, weight: .bold))
+                        .padding(7).background(.black.opacity(0.85), in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .position(x: w - 52, y: 18)
+                .zIndex(40)
             }
 
             if workspaceOpen {
@@ -1416,6 +1433,12 @@ struct VRHomeView: View {
     }
 
     private func beganPinch(_ pointer: CGPoint, hand: TrackedHand, size: CGSize) {
+        if let id = focusedWebPanelID, pointer.y < 38,
+           pointer.x > size.width - 106 {
+            if workspace.focused == id { workspace.focus(id) }
+            focusedWebPanelID = nil
+            return
+        }
         if lensMenuOpen {
             // Vision pinch never triggers SwiftUI Button.touchUpInside, so
             // menu hit positions must match VRLensMenuGeometry exactly.

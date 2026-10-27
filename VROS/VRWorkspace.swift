@@ -40,6 +40,10 @@ final class VRWorkspace: ObservableObject {
         windows.removeValue(forKey: id)
         if focused == id { focused = nil }
     }
+
+    func synchronizeFocus(_ id: UUID?) {
+        if focused != id { focused = id }
+    }
 }
 
 enum VRWorkspaceCommand {
