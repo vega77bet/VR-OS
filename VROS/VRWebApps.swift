@@ -150,6 +150,12 @@ final class VRWebSession: ObservableObject {
         defaults.removeObject(forKey: "vros.web.history.v1")
     }
 
+    func suspendMedia() {
+        let script = "document.querySelectorAll('video,audio').forEach(el => el.pause())"
+        primary?.evaluateJavaScript(script, completionHandler: nil)
+        secondary?.evaluateJavaScript(script, completionHandler: nil)
+    }
+
     func clearFavorites() {
         favorites.removeAll()
         defaults.removeObject(forKey: favoritesKey)

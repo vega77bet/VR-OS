@@ -171,7 +171,8 @@ final class CinemaModel: ObservableObject {
 
         let preferences = UserDefaults.standard
         if preferences.object(forKey: "vros.cinema.volume.v1") != nil {
-            movieVolume = min(1, max(0, preferences.float(forKey: "vros.cinema.volume.v1")))
+            let savedVolume = preferences.float(forKey: "vros.cinema.volume.v1")
+            if savedVolume.isFinite { movieVolume = min(1, max(0, savedVolume)) }
         }
         movieMuted = preferences.bool(forKey: "vros.cinema.muted.v1")
         let brightness = preferences.double(forKey: "vros.cinema.brightness.v1")
@@ -514,8 +515,8 @@ final class CinemaModel: ObservableObject {
         movie.volume = movieVolume
         movie.isMuted = movieMuted
         let savedEntry = library.entries.first { $0.filename == dest.lastPathComponent }
-        convergence = CGFloat(savedEntry?.convergence ?? 0)
-        if let seconds = savedEntry?.seconds, seconds.isFinite, seconds > 0 {
+        convergence = max(-0.02, min(0.02, CGFloat(savedEntry?.convergence ?? 0)))
+        if let seconds = savedEntry?.seconds, seconds.isFinite, seconds > 0, seconds <= 86400 {
             movie.seek(to: CMTime(seconds: seconds, preferredTimescale: 600))
         }
         periodicObserver = movie.addPeriodicTimeObserver(forInterval: CMTime(seconds: 5, preferredTimescale: 1), queue: .main) { [weak self] _ in

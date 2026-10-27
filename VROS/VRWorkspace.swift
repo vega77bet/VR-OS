@@ -56,6 +56,7 @@ enum VRWorkspaceCommand {
     case cinemaTool(String)
     case newTab(UUID), nextTab(UUID), closeTab(UUID), history(UUID, String)
     case clearHistory(UUID)
+    case externalWeb(UUID)
     case minimize(UUID), focus(UUID), smaller(UUID), larger(UUID), close(UUID)
 }
 

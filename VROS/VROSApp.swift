@@ -341,6 +341,7 @@ struct VRHomeView: View {
         }
         .onChange(of: scenePhase) { phase in
             if phase == .background {
+                for browser in webSessions.values { browser.suspendMedia() }
                 wasBackgrounded = true
                 if cinemaOpen { cinema.exit() }
                 if ultraWideMode { ultraWide.stop() }
@@ -2069,7 +2070,10 @@ struct VRHomeView: View {
                     VRWorkspaceItem(id: "\(panel.id).tab.close", title: "Fechar aba", detail: panel.title,
                         symbol: "xmark.square", command: .closeTab(panel.id)),
                     VRWorkspaceItem(id: "\(panel.id).history.clear", title: "Limpar histórico",
-                        detail: "Apagar URLs salvas", symbol: "clock.arrow.circlepath", command: .clearHistory(panel.id))
+                        detail: "Apagar URLs salvas", symbol: "clock.arrow.circlepath", command: .clearHistory(panel.id)),
+                    VRWorkspaceItem(id: "\(panel.id).safari", title: "Abrir no Safari",
+                        detail: "Alternativa para streaming protegido", symbol: "safari",
+                        command: .externalWeb(panel.id))
                 ]
                 for (index, url) in browser.history.prefix(6).enumerated() {
                     items.append(VRWorkspaceItem(id: "\(panel.id).history.\(index)",
@@ -2153,6 +2157,7 @@ struct VRHomeView: View {
             catch { media.message = error.localizedDescription }
         case .movie, .favoriteMovie, .deleteMovie, .cinemaTool: break
         case let .newTab(id): webSessions[id]?.newTab(); webRevision += 1
+        case let .externalWeb(id): webSessions[id]?.openInSafari()
         case let .nextTab(id): webSessions[id]?.nextTab(); webRevision += 1
         case let .closeTab(id): webSessions[id]?.closeActiveTab(); webRevision += 1
         case .clearHistory:
@@ -2228,6 +2233,7 @@ struct VRHomeView: View {
                 dockExpanded = false
                 return
             }
+            for browser in webSessions.values { browser.suspendMedia() }
             drag = nil
             webPinchGesture = nil
             appsOpen = false
