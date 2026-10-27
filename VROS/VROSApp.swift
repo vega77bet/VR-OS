@@ -177,6 +177,9 @@ struct VRHomeView: View {
     @State private var appsOpen = false
     @State private var appsPage = 0
     @State private var dockExpanded = true
+    @StateObject private var workspace = VRWorkspace()
+    @State private var workspaceOpen = false
+    @State private var workspacePage = 0
     @State private var webSessions: [UUID: VRWebSession] = [:]
     @State private var noteSessions: [UUID: VRNoteSession] = [:]
     @State private var notePinchGesture: NotePinchGesture?
@@ -600,7 +603,8 @@ struct VRHomeView: View {
             }
 
             ForEach(panels) { panel in
-                if focusedWebPanelID == nil || focusedWebPanelID == panel.id,
+                if !workspace.state(panel.id).minimized,
+                   (focusedWebPanelID == nil || focusedWebPanelID == panel.id),
                    let center = displayedPanelCenter(panel, size: size, right: right) {
                     let dimensions = displayedPanelSize(panel, size: size)
                     panelView(panel, size: size, right: right)
@@ -697,6 +701,13 @@ struct VRHomeView: View {
                 .scaleEffect(settings.cursorSize)
                 .position(cursor)
                 .allowsHitTesting(false)
+            }
+
+            if workspaceOpen {
+                VRWorkspaceView(items: workspaceItems, page: workspacePage, viewport: size,
+                    onSelect: performWorkspace, onPage: changeWorkspacePage,
+                    onClose: { workspaceOpen = false })
+                    .zIndex(45)
             }
 
             if settingsOpen {
@@ -810,7 +821,7 @@ struct VRHomeView: View {
                     dockButton("plus.rectangle.on.rectangle", "Janela", slot: 0, size: size)
                     dockButton("square.grid.2x2.fill", "Apps", slot: 1, size: size)
                     dockButton("film.stack.fill", "Cinema", slot: 2, size: size)
-                    dockButton("arrow.down.circle", "Atual.", slot: 3, size: size)
+                    dockButton("slider.horizontal.3", "Central", slot: 3, size: size)
                     dockButton("paintpalette.fill", "Temas", slot: 4, size: size)
                     dockButton("scope", "Centro", slot: 5, size: size)
                     dockButton("camera.aperture", ultraWideMode ? "ARKit" : "0,5x",
@@ -843,7 +854,8 @@ struct VRHomeView: View {
             activateDock(slot)
         } label: {
             VStack(spacing: 3) {
-                Image(systemName: symbol).font(.system(size: 17))
+                VRChromeIcon(symbol: symbol, accent: selectedTheme.accent)
+                    .frame(width: 26, height: 26)
                 Text(label).font(.system(size: 9, weight: .medium))
                     .lineLimit(1).minimumScaleFactor(0.7)
             }
@@ -990,7 +1002,7 @@ struct VRHomeView: View {
         VRGestureGeometry.visiblePanelSize(
             original: CGSize(width: panelWidth(panel, size: size),
                              height: panelHeight(panel, size: size)),
-            scale: windowScale(panel),
+            scale: windowScale(panel) * workspace.state(panel.id).scale,
             viewport: size,
             isWeb: panel.kind == .web,
             isFocused: focusedWebPanelID == panel.id
@@ -1267,6 +1279,25 @@ struct VRHomeView: View {
             processSettingsGesture(hand, size: size)
             return
         }
+        if workspaceOpen {
+            if hand.visible && hand.pinching && !lastPinch {
+                let point = interactionPoint(hand.point, size: size)
+                let box = VRWorkspaceGeometry.bounds(size)
+                if point.y < box.minY + 36 {
+                    if point.x > box.maxX - 45 { workspaceOpen = false }
+                } else if point.y > box.maxY - 28 {
+                    if point.x < box.midX - box.width / 6 { changeWorkspacePage(-1) }
+                    if point.x > box.midX + box.width / 6 { changeWorkspacePage(1) }
+                } else if let slot = VRWorkspaceGeometry.item(at: point, in: size) {
+                    let index = workspacePage * 6 + slot
+                    if workspaceItems.indices.contains(index) {
+                        performWorkspace(workspaceItems[index].command)
+                    }
+                }
+            }
+            lastPinch = hand.visible && hand.pinching
+            return
+        }
         // Cinema owns pinch gestures while open. Never activate the OS dock
         // behind the movie when changing stereo playback settings.
         guard !cinemaOpen else { return }
@@ -1489,7 +1520,7 @@ struct VRHomeView: View {
 
         // Only the white line is a 3D movement handle. Its hit area is
         // larger than its visible thickness for comfortable hand gestures.
-        for panel in panels.reversed() {
+        for panel in panels.reversed() where !workspace.state(panel.id).minimized {
             if ultraWideMode {
                 guard let center = displayedPanelCenter(
                     panel, size: size, right: false) else { continue }
@@ -1542,7 +1573,7 @@ struct VRHomeView: View {
             )
             return
         }
-        for panel in panels.reversed() {
+        for panel in panels.reversed() where !workspace.state(panel.id).minimized {
             guard let center = displayedPanelCenter(panel, size: size, right: false)
             else { continue }
             let dimensions = displayedPanelSize(panel, size: size)
@@ -1693,6 +1724,7 @@ struct VRHomeView: View {
     }
 
     private func close(_ id: UUID) {
+        workspace.remove(id)
         panels.removeAll { $0.id == id }
         webSessions.removeValue(forKey: id)
         noteSessions.removeValue(forKey: id)
@@ -1891,6 +1923,58 @@ struct VRHomeView: View {
             .stroke(Color.white.opacity(0.21), lineWidth: 1))
     }
 
+
+    private var workspaceItems: [VRWorkspaceItem] {
+        var items = [
+            VRWorkspaceItem(id: "settings", title: "Ajustes", detail: "Preferências", symbol: "gearshape.fill", command: .settings),
+            VRWorkspaceItem(id: "camera", title: "Câmera", detail: ultraWideMode ? "0,5x ativo" : "ARKit ativo", symbol: "camera.aperture", command: .camera),
+            VRWorkspaceItem(id: "center", title: "Centralizar", detail: "Trazer janelas", symbol: "scope", command: .center),
+            VRWorkspaceItem(id: "themes", title: "Ambiente", detail: selectedTheme.title, symbol: "sparkles", command: .theme),
+            VRWorkspaceItem(id: "hud", title: "Barra de status", detail: settings.showHUD ? "Visível" : "Oculta", symbol: "rectangle.topthird.inset.filled", command: .hud),
+            VRWorkspaceItem(id: "updates", title: "Atualizações", detail: "Buscar conteúdo", symbol: "arrow.down.circle.fill", command: .updates)
+        ]
+        for panel in panels {
+            let state = workspace.state(panel.id)
+            items += [
+                VRWorkspaceItem(id: "\(panel.id).min", title: panel.title, detail: state.minimized ? "Restaurar janela" : "Minimizar janela", symbol: "minus.rectangle", command: .minimize(panel.id)),
+                VRWorkspaceItem(id: "\(panel.id).focus", title: "Maximizar", detail: panel.title, symbol: "arrow.up.left.and.arrow.down.right", command: .focus(panel.id)),
+                VRWorkspaceItem(id: "\(panel.id).small", title: "Diminuir", detail: "\(Int(state.scale * 100))%", symbol: "minus.magnifyingglass", command: .smaller(panel.id)),
+                VRWorkspaceItem(id: "\(panel.id).large", title: "Aumentar", detail: "\(Int(state.scale * 100))%", symbol: "plus.magnifyingglass", command: .larger(panel.id)),
+                VRWorkspaceItem(id: "\(panel.id).close", title: "Fechar", detail: panel.title, symbol: "xmark.rectangle", command: .close(panel.id))
+            ]
+        }
+        return items
+    }
+
+    private func changeWorkspacePage(_ delta: Int) {
+        let maximum = max(0, (workspaceItems.count - 1) / 6)
+        workspacePage = max(0, min(maximum, workspacePage + delta))
+    }
+
+    private func performWorkspace(_ command: VRWorkspaceCommand) {
+        switch command {
+        case .settings: workspaceOpen = false; openSettings()
+        case .camera: toggleUltraWide()
+        case .center: centreAllWindows()
+        case .theme: workspaceOpen = false; themeMenuOpen = true
+        case .hud: settings.showHUD.toggle()
+        case .updates:
+            workspaceOpen = false
+            openUpdatesWindow()
+            Task { await updates.check() }
+        case let .minimize(id):
+            workspace.minimize(id)
+            if workspace.state(id).minimized && focusedWebPanelID == id { focusedWebPanelID = nil }
+        case let .focus(id):
+            workspace.focus(id)
+            focusedWebPanelID = workspace.focused
+            workspaceOpen = false
+        case let .smaller(id): workspace.resize(id, by: -0.1)
+        case let .larger(id): workspace.resize(id, by: 0.1)
+        case let .close(id): close(id); changeWorkspacePage(0)
+        }
+    }
+
     private func exitCinema() {
         cinema.exit()
         cinemaOpen = false
@@ -1943,8 +2027,10 @@ struct VRHomeView: View {
             cinema.enter(camera: runtime.camera)
             cinemaOpen = true
         case 3:
-            openUpdatesWindow()
-            Task { await updates.check() }
+            workspacePage = 0
+            workspaceOpen.toggle()
+            appsOpen = false
+            themeMenuOpen = false
         case 4:
             themeMenuOpen.toggle()
             if themeMenuOpen { appsOpen = false; lensMenuOpen = false }
