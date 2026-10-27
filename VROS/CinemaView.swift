@@ -412,6 +412,13 @@ final class CinemaModel: ObservableObject {
     }
 
     func resetPlacement() {
+        setMovieVolume(1)
+        setRoomBrightness(1)
+        movieMuted = false
+        player?.isMuted = false
+        UserDefaults.standard.set(false, forKey: "vros.cinema.muted.v1")
+        roomAmbience = false
+        roomAudio.stop()
         convergence = 0
         updateStereoMaterials()
         _ = selectSeat(30)
@@ -874,7 +881,8 @@ final class CinemaModel: ObservableObject {
 
 
     private func savePlaybackProgress() {
-        guard let url = currentLibraryURL, let player = player else { return }
+        guard let url = currentLibraryURL, let player = player,
+              player.currentItem?.status == .readyToPlay else { return }
         let seconds = player.currentTime().seconds
         guard seconds.isFinite else { return }
         let duration = player.currentItem?.duration.seconds ?? .nan

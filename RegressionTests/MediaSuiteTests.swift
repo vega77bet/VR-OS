@@ -3,6 +3,34 @@ import UIKit
 import SceneKit
 
 final class MediaSuiteTests: XCTestCase {
+    @MainActor
+    func testPDFPagesShareOnePreviewState() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let source = folder.appendingPathComponent("paginas.pdf")
+        let renderer = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 200, height: 300))
+        let data = renderer.pdfData { context in
+            context.beginPage()
+            ("Página 1" as NSString).draw(at: CGPoint(x: 10, y: 10), withAttributes: nil)
+            context.beginPage()
+            ("Página 2" as NSString).draw(at: CGPoint(x: 10, y: 10), withAttributes: nil)
+        }
+        try data.write(to: source)
+        let store = VRMediaStore(folder: folder.appendingPathComponent("owned"))
+        await store.importFile(source)
+        await store.open(try XCTUnwrap(store.entries.first))
+        XCTAssertEqual(store.pageCount, 2)
+        XCTAssertNotNil(store.image)
+        store.changePage(100)
+        XCTAssertEqual(store.pdfPage, 1)
+        store.changePage(-100)
+        XCTAssertEqual(store.pdfPage, 0)
+        store.closePreview()
+        XCTAssertNil(store.pdf)
+        XCTAssertNil(store.image)
+    }
+
     func testCinemaToolbarHitTargets() {
         for size in [CGSize(width: 243, height: 236), CGSize(width: 304, height: 342)] {
             for slot in 0..<5 {
