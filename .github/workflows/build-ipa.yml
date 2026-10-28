@@ -34,7 +34,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: V46-regression-results
+          name: V47-regression-results
           path: TestResults.xcresult
           if-no-files-found: ignore
       - name: Export preview screenshots
@@ -42,18 +42,18 @@ jobs:
       - name: Upload preview screenshots
         uses: actions/upload-artifact@v4
         with:
-          name: V46-preview-screenshots
+          name: V47-preview-screenshots
           path: PreviewAttachments
           if-no-files-found: error
       - name: Package unsigned IPA
         run: |
           mkdir -p Payload
           cp -R build/Build/Products/Release-iphoneos/VROS.app Payload/
-          zip -qry VR-OS-V46-Frontend-unsigned.ipa Payload
+          zip -qry VR-OS-V47-Frontend-unsigned.ipa Payload
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: VR-OS-V46-Frontend-unsigned-IPA
-          path: VR-OS-V46-Frontend-unsigned.ipa
+          name: VR-OS-V47-Frontend-unsigned-IPA
+          path: VR-OS-V47-Frontend-unsigned.ipa
           retention-days: 14
 
