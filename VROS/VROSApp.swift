@@ -259,9 +259,6 @@ struct VRHomeView: View {
             .onReceive(dwell.$normalizedPoint) { _ in
                 processDwell(size: eyeSize)
             }
-            .onReceive(dwell.$progress) { _ in
-                processDwell(size: eyeSize)
-            }
             .onReceive(dwell.$pulse) { _ in
                 processDwell(size: eyeSize)
             }
