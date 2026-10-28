@@ -11,7 +11,7 @@ enum VRCinemaGeometry {
                              to target: SIMD3<Float> = screenCentre) -> simd_quatf {
         let vector = target - eye
         guard simd_length_squared(vector) > 0.00001 else {
-            return simd_quatf()
+            return VRRotation.identity
         }
         return simd_normalize(simd_quatf(
             from: cameraForward,

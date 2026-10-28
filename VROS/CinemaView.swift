@@ -118,7 +118,7 @@ final class CinemaModel: ObservableObject {
     @Published var invertTracking = false
     private var screenPitchOffset: Float = 0
     private var screenYawOffset: Float = 0
-     private var screenAimOrientation = simd_quatf()
+     private var screenAimOrientation = VRRotation.identity
     private var lastMotionTimestamp: TimeInterval = 0
     private var roomLights: [SCNLight] = []
     private var ambientLight: SCNLight?
@@ -315,7 +315,7 @@ final class CinemaModel: ObservableObject {
             if self.motionReference == nil {
                 self.motionReference = current
                 self.headTrackingStatus = "Cabeça: sensores ativos"
-                self.applyHeadOrientation(simd_quatf())
+                self.applyHeadOrientation(VRRotation.identity)
             }
             guard let baseline = self.motionReference else { return }
 
@@ -351,7 +351,7 @@ final class CinemaModel: ObservableObject {
         } else if let pose = lastARPose {
             initialOrientation = simd_quatf(pose.transform)
         }
-        applyHeadOrientation(simd_quatf())
+        applyHeadOrientation(VRRotation.identity)
         revealControls()
     }
 
@@ -387,7 +387,7 @@ final class CinemaModel: ObservableObject {
                              screenPitchOffset * 180 / .pi
         screenYawDegrees = VRCinemaGeometry.yawDegrees(from: eye) +
                            screenYawOffset * 180 / .pi
-        applyHeadOrientation(simd_quatf())
+        applyHeadOrientation(VRRotation.identity)
     }
 
     private func applyHeadOrientation(_ delta: simd_quatf) {

@@ -16,7 +16,7 @@ final class VRUltraWideCamera: NSObject, ObservableObject,
     @Published private(set) var status = "Preparando câmera traseira…"
     @Published private(set) var active = false
     @Published private(set) var hand = TrackedHand()
-    @Published private(set) var motionDelta = simd_quatf()
+    @Published private(set) var motionDelta = VRRotation.identity
     @Published private(set) var motionAvailable = false
 
     private let capture = AVCaptureSession()
@@ -150,7 +150,7 @@ final class VRUltraWideCamera: NSObject, ObservableObject,
     func stop(completion: (() -> Void)? = nil) {
         motion.stopDeviceMotionUpdates()
         reference = nil
-        motionDelta = simd_quatf()
+        motionDelta = VRRotation.identity
         motionAvailable = false
         active = false
         hand = TrackedHand()
@@ -177,7 +177,7 @@ final class VRUltraWideCamera: NSObject, ObservableObject,
             return
         }
         reference = nil
-        motionDelta = simd_quatf()
+        motionDelta = VRRotation.identity
         motion.deviceMotionUpdateInterval = 1.0 / 30.0
         let frames = CMMotionManager.availableAttitudeReferenceFrames()
         let frame: CMAttitudeReferenceFrame = frames.contains(.xArbitraryZVertical)
@@ -220,7 +220,7 @@ final class VRUltraWideCamera: NSObject, ObservableObject,
         reference = simd_normalize(simd_quatf(
             ix: Float(q.x), iy: Float(q.y),
             iz: Float(q.z), r: Float(q.w)))
-        motionDelta = simd_quatf()
+        motionDelta = VRRotation.identity
     }
 
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,

@@ -30,6 +30,7 @@ jobs:
         run: |
           xcodebuild -project VROS.xcodeproj -scheme VROS -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
       - name: Test Settings session, persistence and UIKit controls
+        id: regression
         run: |
           DEVICE_ID=$(xcrun simctl list devices available -j | ruby -rjson -e 'd=JSON.parse(STDIN.read)["devices"].values.flatten.find { |v| v["name"].start_with?("iPhone") }; abort "No iPhone simulator" unless d; puts d["udid"]')
           echo "VROS_SIMULATOR_ID=$DEVICE_ID" >> "$GITHUB_ENV"
@@ -42,8 +43,11 @@ jobs:
           path: TestResults.xcresult
           if-no-files-found: ignore
       - name: Export preview screenshots
+        id: previews
+        if: ${{ always() && (steps.regression.outcome == 'success' || steps.regression.outcome == 'failure') }}
         run: python3 Tools/export-xcresult-previews.py TestResults.xcresult PreviewAttachments
       - name: Upload preview screenshots
+        if: ${{ always() && steps.previews.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
           name: V48-preview-screenshots

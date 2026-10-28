@@ -16,7 +16,7 @@ final class VRDwellController: ObservableObject {
     @Published private(set) var active = false
     @Published private(set) var motionAvailable = false
     @Published private(set) var pulse = 0
-    @Published private(set) var headRotation = simd_quatf()
+    @Published private(set) var headRotation = VRRotation.identity
 
     private let motion = CMMotionManager()
     private let callbackQueue = OperationQueue.main
@@ -68,7 +68,7 @@ final class VRDwellController: ObservableObject {
         referenceYaw = nil
         referencePitch = nil
         referenceRotation = nil
-        headRotation = simd_quatf()
+        headRotation = VRRotation.identity
         resetTarget()
     }
 
@@ -98,7 +98,7 @@ final class VRDwellController: ObservableObject {
             referencePitch = nil
             referenceRotation = nil
         }
-        headRotation = simd_quatf()
+        headRotation = VRRotation.identity
         normalizedPoint = CGPoint(x: 0.5, y: 0.5)
         resetTarget()
     }

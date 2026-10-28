@@ -118,6 +118,9 @@ final class HomeShellTests: XCTestCase {
         let neutral = VRHeadPointerGeometry.normalizedPoint(rotation: simd_quatf())
         XCTAssertEqual(neutral.x, 0.5, accuracy: 0.001)
         XCTAssertEqual(neutral.y, 0.5, accuracy: 0.001)
+        let identity = VRHeadPointerGeometry.normalizedPoint(rotation: VRRotation.identity)
+        XCTAssertEqual(identity.x, 0.5, accuracy: 0.001)
+        XCTAssertEqual(identity.y, 0.5, accuracy: 0.001)
         let left = simd_quatf(angle: .pi / 6, axis: SIMD3<Float>(0, 1, 0))
         XCTAssertLessThan(VRHeadPointerGeometry.normalizedPoint(rotation: left).x, 0.5)
         let world = try XCTUnwrap(VRUltraWideWindowProjection.project(SIMD3<Float>(0, 0, -1),
@@ -149,7 +152,7 @@ final class HomeShellTests: XCTestCase {
     func testMotionOnlySkyRendersStarsWithoutACamera() async throws {
         let size = CGSize(width: 640, height: 420)
         let image = try await screenshot(SpaceSkyView(camera: nil, size: size,
-            headRotation: simd_quatf()), size: size, name: "VR-OS-V48-Cosmos-sem-camera")
+            headRotation: VRRotation.identity), size: size, name: "VR-OS-V48-Cosmos-sem-camera")
         let cgImage = try XCTUnwrap(image.cgImage)
         XCTAssertEqual(cgImage.bitsPerPixel, 32)
         let data = try XCTUnwrap(cgImage.dataProvider?.data) as Data
