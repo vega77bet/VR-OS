@@ -52,6 +52,8 @@ Após essa correção, o build revelou outro erro anterior: o catálogo não tin
 
 O host de testes e o bundle de testes também herdam número de versão válido, evitando a falha de instalação por ausência de CFBundleVersion encontrada na primeira execução do simulador.
 
+O workflow usa macOS 15 com Xcode 16.4 explícito, evitando depender do pool macOS 14 em retirada. A branch V48 recebe uma execução por atualização do PR, evitando jobs duplicados de push e pull_request.
+
 O workflow testa antes de empacotar a IPA, exporta prévias criadas por UIKit no simulador e não depende do subcomando `xcresulttool export attachments` de outra versão do Xcode. A configuração compila em Release com `CODE_SIGNING_ALLOWED=NO`; isso não é uma assinatura de distribuição.
 
 ## Verificação e limites
