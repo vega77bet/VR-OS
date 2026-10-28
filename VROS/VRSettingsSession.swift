@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 struct VRSettingsCommand: Identifiable {
-    enum Kind { case recenterWindows, clearFavorites, restoreAll }
+    enum Kind { case recenterWindows, recenterDwell, clearFavorites, restoreAll }
     let id = UUID()
     let kind: Kind
 }
@@ -383,6 +383,9 @@ final class VRSettingsSession: ObservableObject {
         case "visor.reset":
             lens.choose(.reference)
             notice = "Visor restaurado"
+        case "hands.recenter":
+            command = VRSettingsCommand(kind: .recenterDwell)
+            notice = "Alvo recentralizado"
         case "web.clear", "general.reset":
             guard pendingConfirmation == id else {
                 pendingConfirmation = id
