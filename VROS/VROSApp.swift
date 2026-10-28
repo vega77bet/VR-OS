@@ -509,6 +509,8 @@ struct VRHomeView: View {
             switch request.kind {
             case .recenterWindows:
                 centreAllWindows()
+            case .recenterDwell:
+                dwell.recenter()
             case .clearFavorites:
                 UserDefaults.standard.removeObject(
                     forKey: "vros.web.favorites.v1")
