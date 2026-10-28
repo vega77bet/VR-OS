@@ -150,12 +150,16 @@ enum VRSettingsCatalog {
             return [
                 group("VISIBILIDADE", [
                     toggle("hands.skeleton", "Mostrar esqueleto", "Desenhar articulações detectadas"),
-                    toggle("hands.cursor", "Mostrar cursor", "Indicador da mão dentro do visor"),
+                    toggle("hands.cursor", "Mostrar cursor da mão", "Indicador da mão quando a câmera está disponível"),
                     step("hands.cursorSize", "Tamanho do cursor", "Círculo usado para apontar")
                 ]),
+                group("CONTROLE POR ALVO", [
+                    toggle("hands.dwell", "Alvo por permanência", "Clique deixando o alvo parado sobre um botão"),
+                    slide("hands.dwellDelay", "Tempo para clicar", "Tempo que o alvo precisa permanecer parado")
+                ]),
                 group("RECONHECIMENTO", [
-                    slide("hands.sensitivity", "Sensibilidade da pinça", "Ajusta o limiar Vision nos dois modos"),
-                    info("hands.info", "Rastreamento", "Precisa de luz e da lente traseira descoberta")
+                    slide("hands.sensitivity", "Sensibilidade da pinça", "Ajusta o limiar Vision quando a câmera está disponível"),
+                    info("hands.info", "Entrada alternativa", "O alvo funciona sem câmera; a pinça exige luz e câmera traseira")
                 ])
             ]
         case .windows:
