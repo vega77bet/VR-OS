@@ -18,7 +18,7 @@ O material de referência foi lido no código: árvore recursiva, `Theme.kt`, `H
 | Janelas espaciais | Preservadas e ampliadas | `VRWindowChrome.swift`, `VRWorkspace.swift`, `VROSApp.swift`; minimizar/restaurar, foco, escala e reposicionamento pelo olhar. |
 | Seleção por olhar | Implementada com Core Motion | `VRDwellController.swift`; quaternion relativo em eixos de paisagem, anel de progresso, um disparo por alvo; padrão 1 s. Não é eye-tracking. |
 | Uso sem câmera | Padrão desta versão | `vros.camera.enabled.v48` começa falso. Inicialização do Home evita `runtime.start()` e `ultraWide.start()` enquanto a câmera está desligada. |
-| Orientação 3DoF | Implementada | Core Motion + `VRUltraWideWindowProjection`; âncoras direcionais, sem posição métrica real. |
+| Orientação 3DoF | Implementada | Core Motion + `VRUltraWideWindowProjection`; âncoras direcionais e ambientes com orientação sem câmera, sem posição métrica real. |
 | ARKit 6DoF | Caminho existente, opcional | `VRRuntime.swift`; exige câmera autorizada/funcional e suporte do aparelho. Sem validação física nesta reconstrução. |
 | Mãos | Vision existente, uma mão | `VRRuntime.swift`, `VRUltraWideCamera.swift`; sem MediaPipe/YOLO, sem garantia de funcionar com câmera danificada. |
 | Cinema e mídia estéreo | Recursos existentes mantidos | `CinemaView.swift`, `CinemaLibrary.swift`, `VRMediaStore.swift`; AVPlayer local, SBS/OU; a mira acessa os controles, a biblioteca e a saída. Não equivale a testes de todos os formatos/DRMs. |
@@ -49,6 +49,8 @@ O material de referência foi lido no código: árvore recursiva, `Theme.kt`, `H
 O log da V47 mostrou que `xcodeVersion: 15.0` sozinho não muda o formato do projeto gerado. O Xcode recebeu `objectVersion = 77` e recusou abrir o projeto. A V48 define explicitamente `projectFormat: xcode15_0`, conforme a especificação do XcodeGen.
 
 Após essa correção, o build revelou outro erro anterior: o catálogo não tinha `AppIcon`, embora o target exigisse esse conjunto. A V48 fornece o conjunto e os PNGs correspondentes.
+
+O host de testes e o bundle de testes também herdam número de versão válido, evitando a falha de instalação por ausência de CFBundleVersion encontrada na primeira execução do simulador.
 
 O workflow testa antes de empacotar a IPA, exporta prévias criadas por UIKit no simulador e não depende do subcomando `xcresulttool export attachments` de outra versão do Xcode. A configuração compila em Release com `CODE_SIGNING_ALLOWED=NO`; isso não é uma assinatura de distribuição.
 

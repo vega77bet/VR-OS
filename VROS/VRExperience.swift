@@ -1,5 +1,6 @@
 import SwiftUI
 import ARKit
+import simd
 
 enum VRScenery: Int, CaseIterable {
     case original, ocean, forest, nebula, cyberpunk
@@ -9,10 +10,14 @@ enum VRScenery: Int, CaseIterable {
 struct VRSceneryView: View {
     let scenery: VRScenery
     let camera: ARCamera?
+    var headRotation: simd_quatf? = nil
     var body: some View {
         Canvas { context, size in
-            let yaw = Double(camera?.eulerAngles.y ?? 0)
-            let pitch = Double(camera?.eulerAngles.x ?? 0)
+            let forward = headRotation?.act(SIMD3<Float>(0, 0, 1))
+            let yaw = forward.map { atan2(Double($0.x), Double($0.z)) }
+                ?? Double(camera?.eulerAngles.y ?? 0)
+            let pitch = forward.map { asin(Double(max(-1, min(1, $0.y)))) }
+                ?? Double(camera?.eulerAngles.x ?? 0)
             let colors: [Color] = scenery == .forest ? [.black, .green.opacity(0.4)] :
                 scenery == .ocean ? [.blue.opacity(0.25), .cyan.opacity(0.6)] :
                 scenery == .nebula ? [.black, .purple.opacity(0.6)] : [.black, .pink.opacity(0.4)]

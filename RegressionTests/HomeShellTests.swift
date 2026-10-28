@@ -1,6 +1,7 @@
 import XCTest
 import SwiftUI
 import UIKit
+import simd
 
 final class HomeShellTests: XCTestCase {
     private func defaults() throws -> UserDefaults {
@@ -131,6 +132,20 @@ final class HomeShellTests: XCTestCase {
     }
 
     @MainActor
+    func testMotionOnlySkyRendersStarsWithoutACamera() async throws {
+        let size = CGSize(width: 640, height: 420)
+        let image = try await screenshot(SpaceSkyView(camera: nil, size: size,
+            headRotation: simd_quatf()), size: size, name: "VR-OS-V48-Cosmos-sem-camera")
+        let cgImage = try XCTUnwrap(image.cgImage)
+        XCTAssertEqual(cgImage.bitsPerPixel, 32)
+        let data = try XCTUnwrap(cgImage.dataProvider?.data) as Data
+        let brightPixels = stride(from: 0, to: data.count - 3, by: 4).filter {
+            data[$0] > 180 && data[$0 + 1] > 180 && data[$0 + 2] > 180
+        }.count
+        XCTAssertGreaterThan(brightPixels, 25, "Camera-free Cosmos must contain visible stars")
+    }
+
+    @MainActor
     func testNativeLibraryAndKeyboardPreviews() async throws {
         let model = VRHomeLibrary(defaults: try defaults())
         let size = CGSize(width: 960, height: 630)
@@ -165,7 +180,8 @@ final class HomeShellTests: XCTestCase {
     }
 
     @MainActor
-    private func screenshot<Content: View>(_ content: Content, size: CGSize, name: String) async throws {
+    @discardableResult
+    private func screenshot<Content: View>(_ content: Content, size: CGSize, name: String) async throws -> UIImage {
         let host = UIHostingController(rootView: content)
         let window = UIWindow(frame: CGRect(origin: .zero, size: size))
         window.rootViewController = host; window.makeKeyAndVisible()
@@ -181,5 +197,6 @@ final class HomeShellTests: XCTestCase {
             .appendingPathComponent("VR-OS-Previews", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         try XCTUnwrap(image.pngData()).write(to: folder.appendingPathComponent(name + ".png"), options: .atomic)
+        return image
     }
 }

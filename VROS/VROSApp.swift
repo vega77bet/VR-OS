@@ -413,6 +413,7 @@ struct VRHomeView: View {
             homeLibrary.visible = false; homeLibrary.quickSettings = false
         case let .section(section): homeLibrary.section = section
         case .search:
+            if homeLibrary.section == .windows { homeLibrary.section = .all }
             keyboard.open(.library, title: "Pesquisar na Biblioteca", text: homeLibrary.query)
         case .sort: homeLibrary.alphabetical.toggle(); homeLibrary.page = 0
         case let .pin(id): homeLibrary.togglePin(id)
@@ -833,12 +834,14 @@ struct VRHomeView: View {
                 }
             } else if sceneryIndex != 0 {
                 VRSceneryView(scenery: VRScenery(rawValue: sceneryIndex) ?? .original,
-                              camera: runtime.camera)
+                              camera: runtime.camera, headRotation: cameraEnabled ? nil : dwell.headRotation)
             } else if selectedTheme == .cosmos {
-                SpaceSkyView(camera: runtime.camera, size: size)
+                SpaceSkyView(camera: runtime.camera, size: size,
+                             headRotation: cameraEnabled ? nil : dwell.headRotation)
             } else if selectedTheme == .aurora || selectedTheme == .synthwave {
                 ThemeAtmosphereView(isAurora: selectedTheme == .aurora,
-                                    camera: runtime.camera, size: size)
+                                    camera: runtime.camera, size: size,
+                                    headRotation: cameraEnabled ? nil : dwell.headRotation)
             } else if let frame = runtime.cameraImage {
                 Image(decorative: frame, scale: 1, orientation: .up)
                     .resizable()
@@ -2874,6 +2877,7 @@ struct VRHomeView: View {
             lensMenuOpen = false
             runtime.setCinemaMode(true)
             cinema.enter(camera: runtime.camera)
+            if cinema.controlsVisible { cinema.toggleMenu() }
             cinemaOpen = true
         case 3:
             mediaMode = nil

@@ -22,7 +22,7 @@ Sistema VR experimental para **iPhone e VR Box**, com dois visores calibráveis,
 7. Use Biblioteca → Janelas para restaurar uma janela minimizada. O botão de expandir alterna o modo foco.
 8. O ícone de câmera liga/desliga a captura opcional. O modo 0,5x continua nos Ajustes e depende de uma lente ultrawide funcional.
 
-A mira acompanha o movimento do iPhone/cabeça; não é um sensor que detecta a direção dos olhos. A tela continua aceitando toque físico.
+A mira acompanha o movimento do iPhone/cabeça; não é um sensor que detecta a direção dos olhos. A tela continua aceitando toque físico. Os seletores de importação e as autorizações do próprio iOS podem exigir toque; importe os arquivos antes de colocar o headset.
 
 ## Recursos preservados
 

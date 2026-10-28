@@ -8,6 +8,7 @@ import simd
 struct SpaceSkyView: View {
     let camera: ARCamera?
     let size: CGSize
+    var headRotation: simd_quatf? = nil
 
     private struct Star {
         let direction: SIMD3<Float>
@@ -47,12 +48,18 @@ struct SpaceSkyView: View {
                             endPoint: CGPoint(x: canvasSize.width, y: canvasSize.height)
                          ))
 
-            guard let camera = camera else { return }
-            let rotation = simd_float3x3(
+            let rotation: simd_float3x3
+            if let headRotation = headRotation {
+                rotation = simd_float3x3(headRotation)
+            } else if let camera = camera {
+                rotation = simd_float3x3(
                 SIMD3<Float>(camera.transform.columns.0.x, camera.transform.columns.0.y, camera.transform.columns.0.z),
                 SIMD3<Float>(camera.transform.columns.1.x, camera.transform.columns.1.y, camera.transform.columns.1.z),
                 SIMD3<Float>(camera.transform.columns.2.x, camera.transform.columns.2.y, camera.transform.columns.2.z)
-            )
+                )
+            } else {
+                rotation = matrix_identity_float3x3
+            }
             let inverseRotation = rotation.transpose
             let focal = Float(min(canvasSize.width * 1.15, canvasSize.height * 1.25))
             let centerX = Float(canvasSize.width * 0.5)

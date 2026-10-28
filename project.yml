@@ -1,4 +1,8 @@
 name: VROS
+settings:
+  base:
+    MARKETING_VERSION: "7.0.0"
+    CURRENT_PROJECT_VERSION: "48"
 schemes:
   VROSRegression:
     build:
@@ -51,6 +55,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.vega77bet.vros2
+        INFOPLIST_KEY_CFBundleDisplayName: "VR-OS"
         SWIFT_VERSION: "5.0"
         MARKETING_VERSION: "7.0.0"
         CURRENT_PROJECT_VERSION: "48"

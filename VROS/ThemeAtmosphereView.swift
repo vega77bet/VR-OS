@@ -8,13 +8,18 @@ struct ThemeAtmosphereView: View {
     let isAurora: Bool
     let camera: ARCamera?
     let size: CGSize
+    var headRotation: simd_quatf? = nil
 
     var body: some View {
         Canvas(opaque: true, rendersAsynchronously: true) { context, canvas in
             let bounds = CGRect(origin: .zero, size: canvas)
             let yaw: Double
             let pitch: Double
-            if let pose = camera {
+            if let headRotation = headRotation {
+                let forward = headRotation.act(SIMD3<Float>(0, 0, 1))
+                yaw = atan2(Double(forward.x), Double(forward.z))
+                pitch = asin(Double(max(-1, min(1, forward.y))))
+            } else if let pose = camera {
                 let forward = pose.transform.columns.2
                 yaw = atan2(Double(forward.x), Double(forward.z))
                 pitch = asin(Double(max(-1, min(1, forward.y))))

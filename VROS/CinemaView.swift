@@ -1368,6 +1368,7 @@ struct CinemaEyeView: View {
                     VRCinemaToolbar(viewport: geometry.size, action: headerAction)
                     Spacer()
                 }
+                .zIndex(20)
                 if cinema.seatSelectionMode {
                     ZStack {
                         Circle()
@@ -1553,7 +1554,8 @@ struct CinemaEyeView: View {
                 // Only left eye runs the gaze timer; the model publishes
                 // progress so both headset eyes display one synchronized ring.
                 guard !rightEye else { return }
-                guard cinema.seatSelectionMode else {
+                guard cinema.seatSelectionMode, !cinema.libraryVisible,
+                      !cinema.showPicker, !pickingPhotoMovie else {
                     gazeSeatID = nil
                     if cinema.gazeProgress != 0 { cinema.gazeProgress = 0 }
                     return
