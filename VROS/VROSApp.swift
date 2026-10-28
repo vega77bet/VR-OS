@@ -296,7 +296,7 @@ struct VRHomeView: View {
             } else {
                 runtime.start()
             }
-            Task { await updates.check() }
+            Task { await updates.checkIfStale() }
         }
         .fileImporter(isPresented: $importingMedia,
             allowedContentTypes: productivity.importingBackup ? [.json] : [.image, .pdf, .plainText, .movie],
@@ -909,8 +909,12 @@ struct VRHomeView: View {
 
     private func dock(size: CGSize) -> some View {
         VRTaskbar(viewport: size,
+                  items: updates.frontend.enabledTaskbar,
                   active: activeTaskbarAction(),
                   reduceMotion: settings.reduceMotion,
+                  accent: updates.frontend.accentColor,
+                  surface: updates.frontend.surfaceColor,
+                  surfaceOpacity: updates.frontend.taskbarOpacity,
                   onAction: activateTaskbar)
     }
 
@@ -1583,7 +1587,8 @@ struct VRHomeView: View {
             return
         }
         // The taskbar uses the same rectangles for drawing and Vision.
-        if let action = VRTaskbarGeometry.action(at: pointer, viewport: size) {
+        if let action = VRTaskbarGeometry.action(at: pointer, viewport: size,
+                                     items: updates.frontend.enabledTaskbar) {
             activateTaskbar(action)
             return
         }

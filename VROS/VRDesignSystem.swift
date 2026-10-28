@@ -1,5 +1,20 @@
 import SwiftUI
 
+extension SwiftUI.Color {
+    init(vrHex: String) {
+        let raw = vrHex.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "#", with: "")
+        let value = UInt64(raw, radix: 16) ?? 0x1B2029
+        self.init(
+            red: Double((value >> 16) & 0xFF) / 255,
+            green: Double((value >> 8) & 0xFF) / 255,
+            blue: Double(value & 0xFF) / 255,
+            opacity: 1
+        )
+    }
+}
+
+
 // MARK: - VR-OS Design System V44
 
 enum VRDS {

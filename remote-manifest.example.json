@@ -1,0 +1,38 @@
+{
+  "schema": 1,
+  "version": "v46-interface-1",
+  "headline": "Interface atualizada",
+  "message": "A barra de tarefas recebeu uma organização nova.",
+  "theme": {
+    "surfaceGray": 0.19,
+    "surfaceOpacity": 0.97,
+    "dockGray": 0.19
+  },
+  "templates": [
+    {
+      "id": "inicio",
+      "title": "Início",
+      "symbol": "square.grid.2x2",
+      "text": "Conteúdo remoto somente em texto.",
+      "depth": 1.5
+    }
+  ],
+  "latestNativeVersion": "6.2.0",
+  "nativeReleaseURL": "https://github.com/vega77bet/VR-OS/actions",
+  "frontend": {
+    "schema": 1,
+    "accentHex": "#50DEFF",
+    "surfaceHex": "#1B2029",
+    "taskbarOpacity": 0.96,
+    "taskbar": [
+      { "id": "home", "action": "home", "title": "Central", "icon": "home", "enabled": true },
+      { "id": "apps", "action": "apps", "title": "Apps", "icon": "more", "enabled": true },
+      { "id": "cinema", "action": "cinema", "title": "Cinema", "icon": "cinema", "enabled": true },
+      { "id": "files", "action": "files", "title": "Arquivos", "icon": "files", "enabled": true },
+      { "id": "photos", "action": "photos", "title": "Fotos", "icon": "photos", "enabled": true },
+      { "id": "browser", "action": "browser", "title": "Navegador", "icon": "browser", "enabled": true },
+      { "id": "settings", "action": "settings", "title": "Ajustes", "icon": "settings", "enabled": true },
+      { "id": "new-window", "action": "newWindow", "title": "Janela", "icon": "library", "enabled": true }
+    ]
+  }
+}
