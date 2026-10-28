@@ -93,7 +93,7 @@ struct VRHomeShell: View {
     }
 
     private func targetButton(_ target: VRHomeTarget) -> some View {
-        let hovered = library.hovered == target.id
+        let hovered = library.hovered == target.action.key
         return Button { onAction(target.action) } label: {
             targetLabel(target)
                 .frame(width: target.rect.width, height: target.rect.height)

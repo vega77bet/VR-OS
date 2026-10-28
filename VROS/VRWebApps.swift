@@ -434,6 +434,7 @@ private struct VRWebSurface: UIViewRepresentable {
         view.loadHTMLString("", baseURL: nil)
     }
 
+    @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         let session: VRWebSession
         let rightEye: Bool

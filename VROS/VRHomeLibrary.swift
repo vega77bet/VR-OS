@@ -196,7 +196,7 @@ struct VRHomeTarget: Identifiable {
     var color = "B6BCC6"
     var selected = false
     var style: Style = .control
-    var id: String { action.key }
+    var id: String { action.key + ".\(Int(rect.minX)).\(Int(rect.minY))" }
 }
 
 @MainActor

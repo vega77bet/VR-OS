@@ -42,9 +42,10 @@ struct VRSpatialKey: Identifiable {
 
 enum VRKeyboardGeometry {
     static func keys(symbols: Bool, uppercase: Bool) -> [VRSpatialKey] {
-        let rows: [[String]] = symbols
-            ? [Array("1234567890").map(String.init), Array("@#€%&*()-+").map(String.init), [".", ",", ":", ";", "?", "!", "=", "_", "/"]]
-            : [Array("qwertyuiop").map(String.init), Array("asdfghjklç").map(String.init), Array("zxcvbnm").map(String.init) + [".", "/"]]
+        let characters: [String] = symbols
+            ? ["1234567890", "@#€%&*()-+", ".,:;?!=_/"]
+            : ["qwertyuiop", "asdfghjklç", "zxcvbnm./"]
+        let rows: [[String]] = characters.map { row in row.map { String($0) } }
         var result: [VRSpatialKey] = []
         for (row, keys) in rows.enumerated() {
             let width: CGFloat = 52

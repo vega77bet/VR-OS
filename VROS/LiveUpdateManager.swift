@@ -191,8 +191,8 @@ final class LiveUpdateManager: ObservableObject {
     @Published private(set) var lastChecked: Date?
 
     init() {
-        if let timestamp = UserDefaults.standard.double(forKey: Self.lastCheckedKey),
-           timestamp > 0 {
+        let timestamp = UserDefaults.standard.double(forKey: Self.lastCheckedKey)
+        if timestamp.isFinite && timestamp > 0 {
             lastChecked = Date(timeIntervalSince1970: timestamp)
         }
         if let cache = UserDefaults.standard.data(forKey: Self.cacheKey),

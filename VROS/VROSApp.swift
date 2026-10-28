@@ -454,6 +454,7 @@ struct VRHomeView: View {
                 let panel = VRPanel(title: "VR-OS · Plataforma iPhone", icon: "info.circle",
                     text: "RECURSOS NATIVOS\nBiblioteca, dock, teclado espacial, olhar de 1 segundo, janelas, ambientes, navegador HTTPS, fotos, arquivos e Cinema 2D/SBS/OU.\n\nRASTREAMENTO\nSem câmera: orientação Core Motion (3DoF). Câmera opcional: ARKit e mão Vision; 0,5x depende de lente disponível.\n\nCOMPATIBILIDADE\nAPKs Android, Monado, VrApi e jogos Quest não executam nesta versão iOS. WebXR imersivo não foi integrado.\n\nSERVIÇOS\nConta, amigos, chamadas e assistente não estão conectados. Nenhum backend ou chave de outro aplicativo é utilizado.")
                 panels.append(panel)
+                registerUltraWindow(panel)
             default: break
             }
         }
@@ -711,9 +712,9 @@ struct VRHomeView: View {
                 ultraNotice = nil
                 runtime.setCameraPreviewEnabled(
                     selectedTheme == .graphite && !settingsOpen)
-                if scenePhase == .active { runtime.resume() }
+                if scenePhase == .active && cameraEnabled { runtime.resume() }
                 cameraTransitioning = false
-                if settings.cameraUltra { toggleUltraWide() }
+                if settings.cameraUltra && cameraEnabled { toggleUltraWide() }
             }
         } else {
             // Snapshot the ARKit window screen positions before suspending it.
@@ -734,6 +735,12 @@ struct VRHomeView: View {
             ultraNotice = nil
             dockExpanded = false
             ultraWide.start { started in
+                guard cameraEnabled else {
+                    ultraWide.stop()
+                    ultraWideMode = false
+                    cameraTransitioning = false
+                    return
+                }
                 guard scenePhase == .active else {
                     ultraWide.stop()
                     cameraTransitioning = false
