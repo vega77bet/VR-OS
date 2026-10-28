@@ -6,14 +6,14 @@ import UIKit
 import Vision
 import simd
 
-/// True rear 0.5x ultrawide camera, PLUS independent Vision hand/pinch and
+/// Rear camera capture, PLUS independent Vision hand/pinch and
 /// CoreMotion 3DoF orientation tracking. ARKit/6DoF remains paused while
 /// AVCapture owns the physical lens; no world tracking is claimed here.
 final class VRUltraWideCamera: NSObject, ObservableObject,
                                AVCaptureVideoDataOutputSampleBufferDelegate {
     @Published private(set) var image: CGImage?
     @Published private(set) var imageResolution = CGSize.zero
-    @Published private(set) var status = "Preparando câmera 0,5x…"
+    @Published private(set) var status = "Preparando câmera traseira…"
     @Published private(set) var active = false
     @Published private(set) var hand = TrackedHand()
     @Published private(set) var motionDelta = simd_quatf()
@@ -72,7 +72,7 @@ final class VRUltraWideCamera: NSObject, ObservableObject,
             completion?(false)
             return
         }
-        status = "Ligando lente 0,5x e sensores…"
+        status = "Ligando câmera traseira e sensores…"
         queue.async { [weak self] in
             guard let self = self else {
                 DispatchQueue.main.async { completion?(false) }
@@ -87,7 +87,7 @@ final class VRUltraWideCamera: NSObject, ObservableObject,
             DispatchQueue.main.async {
                 self.active = running
                 self.status = running
-                    ? "0,5x real · mãos (Vision) + cabeça (3DoF)"
+                    ? "Câmera traseira · mãos (Vision) + cabeça (3DoF)"
                     : "Não foi possível iniciar a câmera ultrawide"
                 if running { self.startHeadMotion() }
                 completion?(running)
@@ -97,13 +97,16 @@ final class VRUltraWideCamera: NSObject, ObservableObject,
 
     private func configure() -> Bool {
         let discovery = AVCaptureDevice.DiscoverySession(
-            deviceTypes: [.builtInUltraWideCamera],
+            deviceTypes: [.builtInWideAngleCamera, .builtInUltraWideCamera],
             mediaType: .video,
             position: .back
         )
-        guard let device = discovery.devices.first else {
+        // The normal rear wide camera is the default for the rebuilt UI.
+        // Ultra-wide remains only as a hardware fallback; no 0.5x control is exposed.
+        guard let device = discovery.devices.first(where: { $0.deviceType == .builtInWideAngleCamera })
+                ?? discovery.devices.first else {
             DispatchQueue.main.async {
-                self.status = "Este iPhone não possui lente ultrawide traseira"
+                self.status = "Nenhuma câmera traseira disponível neste iPhone"
             }
             return false
         }
@@ -113,7 +116,7 @@ final class VRUltraWideCamera: NSObject, ObservableObject,
             capture.sessionPreset = .high
             guard capture.canAddInput(input) else {
                 capture.commitConfiguration()
-                DispatchQueue.main.async { self.status = "Falha ao acessar lente 0,5x" }
+                DispatchQueue.main.async { self.status = "Falha ao acessar a câmera traseira" }
                 return false
             }
             capture.addInput(input)
@@ -123,7 +126,7 @@ final class VRUltraWideCamera: NSObject, ObservableObject,
             guard capture.canAddOutput(output) else {
                 capture.removeInput(input)
                 capture.commitConfiguration()
-                DispatchQueue.main.async { self.status = "Falha ao receber vídeo 0,5x" }
+                DispatchQueue.main.async { self.status = "Falha ao receber vídeo da câmera traseira" }
                 return false
             }
             capture.addOutput(output)
@@ -159,7 +162,7 @@ final class VRUltraWideCamera: NSObject, ObservableObject,
             if self.capture.isRunning { self.capture.stopRunning() }
             DispatchQueue.main.async {
                 self.image = nil
-                self.status = "Câmera 0,5x desligada"
+                self.status = "Câmera traseira desligada"
                 completion?()
             }
         }
@@ -170,7 +173,7 @@ final class VRUltraWideCamera: NSObject, ObservableObject,
     private func startHeadMotion() {
         guard motion.isDeviceMotionAvailable else {
             motionAvailable = false
-            status = "0,5x real · mão ativa · sensor de cabeça indisponível"
+            status = "Câmera traseira · mão ativa · sensor de cabeça indisponível"
             return
         }
         reference = nil

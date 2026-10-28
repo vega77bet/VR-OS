@@ -180,6 +180,7 @@ struct VRHomeView: View {
     @State private var ultraDrag: UltraWideDrag?
     @State private var eyeViewport = CGSize(width: 200, height: 390)
     @StateObject private var settings = VRSettingsSession()
+    @StateObject private var dwell = VRDwellController()
     @State private var settingsOpen = false
     @State private var settingsGesture: VRSettingsPinch?
     @State private var lensMenuOpen = false
@@ -255,6 +256,12 @@ struct VRHomeView: View {
             .onReceive(ultraWide.$hand) { hand in
                 if ultraWideMode { processGesture(hand, size: eyeSize) }
             }
+            .onReceive(dwell.$normalizedPoint) { _ in
+                processDwell(size: eyeSize)
+            }
+            .onReceive(dwell.$pulse) { _ in
+                processDwell(size: eyeSize)
+            }
             .onAppear { eyeViewport = eyeSize }
             .onChange(of: geometry.size) { nextSize in
                 eyeViewport = settings.lens.placement(in: nextSize).aperture
@@ -282,6 +289,8 @@ struct VRHomeView: View {
             }
             runtime.setPinchSensitivity(settings.pinchSensitivity)
             ultraWide.setPinchSensitivity(settings.pinchSensitivity)
+            dwell.setDelay(settings.dwellDelay)
+            dwell.setEnabled(settings.dwellEnabled)
             UIDevice.current.isBatteryMonitoringEnabled = true
             runtime.setCameraPreviewEnabled(selectedTheme == .graphite)
             runtime.setCinemaMode(cinemaOpen)
@@ -296,7 +305,7 @@ struct VRHomeView: View {
             } else {
                 runtime.start()
             }
-            Task { await updates.check() }
+            Task { await updates.checkIfStale() }
         }
         .fileImporter(isPresented: $importingMedia,
             allowedContentTypes: productivity.importingBackup ? [.json] : [.image, .pdf, .plainText, .movie],
@@ -327,6 +336,12 @@ struct VRHomeView: View {
         .onChange(of: settings.revision) { _ in
             applySettingsChanges()
         }
+        .onChange(of: settings.dwellEnabled) { enabled in
+            dwell.setEnabled(enabled)
+        }
+        .onChange(of: settings.dwellDelay) { seconds in
+            dwell.setDelay(seconds)
+        }
         .onChange(of: ultraFullFrame) { enabled in
             UserDefaults.standard.set(enabled,
                                       forKey: "vros.ultra.fullFrame.v1")
@@ -345,9 +360,11 @@ struct VRHomeView: View {
                 wasBackgrounded = true
                 if cinemaOpen { cinema.exit() }
                 if ultraWideMode { ultraWide.stop() }
+                dwell.stop()
                 runtime.stop()
             } else if phase == .active && wasBackgrounded {
                 wasBackgrounded = false
+                dwell.setEnabled(settings.dwellEnabled)
                 if ultraWideMode {
                     recenterUltraWide()
                     ultraWide.start()
@@ -361,6 +378,7 @@ struct VRHomeView: View {
         .onDisappear {
             if cinemaOpen { cinema.exit() }
             ultraWide.stop()
+            dwell.stop()
             runtime.setCinemaMode(false)
             runtime.stop()
         }
@@ -483,12 +501,16 @@ struct VRHomeView: View {
         }
         runtime.setPinchSensitivity(settings.pinchSensitivity)
         ultraWide.setPinchSensitivity(settings.pinchSensitivity)
+        dwell.setDelay(settings.dwellDelay)
+        dwell.setEnabled(settings.dwellEnabled)
 
         if let request = settings.command {
             settings.command = nil
             switch request.kind {
             case .recenterWindows:
                 centreAllWindows()
+            case .recenterDwell:
+                dwell.recenter()
             case .clearFavorites:
                 UserDefaults.standard.removeObject(
                     forKey: "vros.web.favorites.v1")
@@ -707,8 +729,7 @@ struct VRHomeView: View {
                 }
 
                 dock(size: size)
-                    .position(x: dockExpanded ? w / 2 : max(32, w * 0.16),
-                              y: dockCenterY(size))
+                    .position(x: w / 2, y: dockCenterY(size))
             }
 
             if ultraWideMode {
@@ -765,6 +786,13 @@ struct VRHomeView: View {
                                   reduceMotion: settings.reduceMotion)
                 .position(cursor)
                 .allowsHitTesting(false)
+            }
+
+            if dwell.active {
+                VRDwellCursor(progress: dwell.progress,
+                              reduceMotion: settings.reduceMotion)
+                    .position(dwell.point(in: size))
+                    .zIndex(52)
             }
 
             if let focusedID = focusedWebPanelID {
@@ -878,8 +906,8 @@ struct VRHomeView: View {
 
     // The menu lives above the edge of the camera view so hands can reach it.
     private func dockCenterY(_ size: CGSize) -> CGFloat {
-        // Lens-shaped clipping would otherwise cut off the dock's last row.
-        min(size.height - 33, size.height * 0.82)
+        // Rendering, Vision hit-testing and placement share one rectangle.
+        VRTaskbarGeometry.barRect(viewport: size).midY
     }
 
     /// Adjust the OPTICAL viewport, not the physical 0.5x camera.
@@ -909,56 +937,24 @@ struct VRHomeView: View {
     }
 
     private func dock(size: CGSize) -> some View {
-        Group {
-            if dockExpanded {
-                HStack(spacing: 2) {
-                    dockButton("plus.rectangle.on.rectangle", "Janela", slot: 0, size: size)
-                    dockButton("square.grid.2x2.fill", "Apps", slot: 1, size: size)
-                    dockButton("film.stack.fill", "Cinema", slot: 2, size: size)
-                    dockButton("slider.horizontal.3", "Central", slot: 3, size: size)
-                    dockButton("paintpalette.fill", "Temas", slot: 4, size: size)
-                    dockButton("scope", "Centro", slot: 5, size: size)
-                    dockButton("camera.aperture", ultraWideMode ? "ARKit" : "0,5x",
-                               slot: 6, size: size)
-                    dockButton("viewfinder", "Visor", slot: 7, size: size)
-                }
-                .padding(5)
-                .background(selectedTheme.surface.opacity(0.95),
-                            in: RoundedRectangle(cornerRadius: 17))
-                .overlay(RoundedRectangle(cornerRadius: 17)
-                    .stroke(Color.white.opacity(0.15), lineWidth: 1))
-            } else {
-                Button { dockExpanded = true } label: {
-                    Image(systemName: "square.grid.2x2.fill")
-                        .font(.system(size: 15))
-                        .foregroundStyle(.white)
-                        .frame(width: 34, height: 34)
-                        .background(selectedTheme.surface.opacity(0.93),
-                                    in: RoundedRectangle(cornerRadius: 11))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Abrir menu do VR-OS")
-            }
-        }
+        VRTaskbar(viewport: size,
+                  items: updates.frontend.enabledTaskbar,
+                  active: activeTaskbarAction(),
+                  reduceMotion: settings.reduceMotion,
+                  accent: updates.frontend.accentColor,
+                  surface: updates.frontend.surfaceColor,
+                  surfaceOpacity: updates.frontend.taskbarOpacity,
+                  onAction: activateTaskbar)
     }
 
-    private func dockButton(_ symbol: String, _ label: String, slot: Int,
-                            size: CGSize) -> some View {
-        Button {
-            activateDock(slot)
-        } label: {
-            VStack(spacing: 3) {
-                VRChromeIcon(symbol: symbol, accent: selectedTheme.accent)
-                    .frame(width: 26, height: 26)
-                Text(label).font(.system(size: 9, weight: .medium))
-                    .lineLimit(1).minimumScaleFactor(0.7)
-            }
-            .foregroundStyle(.white)
-            .frame(width: max(20, (size.width - 34) / 8), height: 42)
-            .background(selectedTheme.accent.opacity(0.15),
-                        in: RoundedRectangle(cornerRadius: 11))
-        }
-        .buttonStyle(.plain)
+    private func activeTaskbarAction() -> VRTaskbarAction? {
+        if settingsOpen { return .settings }
+        if cinemaOpen { return .cinema }
+        if appsOpen { return .apps }
+        if mediaMode == false && workspaceOpen { return .files }
+        if mediaMode == true && workspaceOpen { return .photos }
+        if workspaceOpen { return .home }
+        return nil
     }
 
     private func panelView(_ panel: VRPanel, size: CGSize,
@@ -1281,6 +1277,248 @@ struct VRHomeView: View {
             return CGPoint(x: raw.x * size.width, y: raw.y * size.height)
         }
         return mappedPoint(raw, size: size)
+    }
+
+    /// The dwell pointer uses the same geometry as the existing pinch
+    /// input. This keeps both eyes synchronized and avoids camera dependency.
+    private func processDwell(size: CGSize) {
+        guard dwell.active else { return }
+        let point = dwell.point(in: size)
+        let key = dwellTargetKey(at: point, size: size)
+        if dwell.updateTarget(key) {
+            triggerDwell(at: point, size: size)
+        }
+    }
+
+    private func dwellTargetKey(at point: CGPoint, size: CGSize) -> String? {
+        guard point.x.isFinite, point.y.isFinite else { return nil }
+        guard !productivity.exporting, !importingMedia, !pickingImage,
+              productivity.dialog == nil else { return nil }
+
+        if settingsOpen {
+            let zone = VRSettingsInputGeometry.classify(
+                point, viewport: size, page: settings.page)
+            switch zone {
+            case .close:
+                return "settings.close"
+            case .back:
+                return "settings.back"
+            case .search, .none:
+                return nil
+            case .table:
+                let top = VRSettingsInputGeometry.tableTop(page: settings.page)
+                guard let row = settings.row(at: point, topInset: top) else {
+                    return nil
+                }
+                if row.kind == .information { return nil }
+                if row.kind == .slider {
+                    guard settings.isSliderHit(at: point, topInset: top) else {
+                        return nil
+                    }
+                    return "settings.slider." + row.id + "." +
+                        String(Int(point.x / 12))
+                }
+                return "settings.row." + row.id + "." +
+                    String(Int(point.x / 18))
+            }
+        }
+
+        if media.preview != nil || media.loadingPreview {
+            guard let action = VRMediaPreviewGeometry.action(at: point, in: size)
+            else { return nil }
+            return "media." + String(action.rawValue)
+        }
+
+        if workspaceOpen {
+            let box = VRWorkspaceGeometry.bounds(size)
+            if point.y < box.minY + 36 && point.x > box.maxX - 45 {
+                return "workspace.close"
+            }
+            if point.y > box.maxY - 28 {
+                if point.x < box.midX - box.width / 6 && workspacePage > 0 {
+                    return "workspace.previous"
+                }
+                let pageCount = max(1, (workspaceItems.count + 5) / 6)
+                if point.x > box.midX + box.width / 6 &&
+                    workspacePage + 1 < pageCount {
+                    return "workspace.next"
+                }
+                return nil
+            }
+            if let slot = VRWorkspaceGeometry.item(at: point, in: size) {
+                let index = workspacePage * VRWorkspaceGeometry.pageSize + slot
+                guard workspaceItems.indices.contains(index) else { return nil }
+                return "workspace.item." + workspaceItems[index].id
+            }
+            return nil
+        }
+
+        if lensMenuOpen {
+            guard let action = VRLensMenuGeometry.action(at: point, viewport: size)
+            else { return nil }
+            switch action {
+            case .close: return "lens.close"
+            case let .profile(index): return "lens.profile." + String(index)
+            case let .adjust(row, direction):
+                return "lens.adjust." + String(row) + "." + String(direction)
+            }
+        }
+
+        if ultraWideMode && point.y <= 44 {
+            return "ultrawide.top." + String(Int(point.x / max(1, size.width / 4)))
+        }
+
+        if let focusedID = focusedWebPanelID {
+            if point.y < 38 && point.x > size.width - 106 {
+                return "web.restore"
+            }
+            guard let panel = panels.first(where: { $0.id == focusedID }),
+                  let center = displayedPanelCenter(panel, size: size, right: false)
+            else { return nil }
+            let dimensions = displayedPanelSize(panel, size: size)
+            guard CGRect(x: center.x - dimensions.width / 2,
+                         y: center.y - dimensions.height / 2,
+                         width: dimensions.width, height: dimensions.height)
+                .contains(point) else { return nil }
+            return "web.focused." + String(Int(point.x / 12)) + "." +
+                String(Int(point.y / 12))
+        }
+
+        if appsOpen {
+            let count = VRLauncherApp.all.count
+            let warning = appsWarning != nil
+            if let direction = VRGestureGeometry.compactAppPageDelta(
+                at: point, viewport: size, count: count, warning: warning) {
+                return "apps.page." + String(direction)
+            }
+            if let index = VRGestureGeometry.compactAppRow(
+                at: point, viewport: size, count: count, warning: warning,
+                page: appsPage) {
+                return "apps.row." + String(index)
+            }
+            if let fraction = VRGestureGeometry.compactAppZoomFraction(
+                at: point, viewport: size, count: count, warning: warning) {
+                return "apps.zoom." + String(Int(fraction * 20))
+            }
+            return nil
+        }
+
+        if themeMenuOpen {
+            let width = min(size.width * 0.86, 330)
+            let x = point.x - (size.width - width) / 2
+            let y = point.y - (size.height - 250) / 2
+            guard x >= 0, x <= width, y >= 32, y <= 225 else {
+                return nil
+            }
+            let column = x < width / 2 ? 0 : 1
+            let row = y < 128 ? 0 : 1
+            return "theme." + String(row * 2 + column)
+        }
+
+        if let action = VRTaskbarGeometry.action(
+            at: point, viewport: size, items: updates.frontend.enabledTaskbar) {
+            return "taskbar." + action.rawValue
+        }
+
+        for panel in panels.reversed() where !workspace.state(panel.id).minimized {
+            guard let center = displayedPanelCenter(panel, size: size, right: false)
+            else { continue }
+            let dimensions = displayedPanelSize(panel, size: size)
+            let rect = CGRect(x: center.x - dimensions.width / 2,
+                              y: center.y - dimensions.height / 2,
+                              width: dimensions.width, height: dimensions.height)
+            guard rect.contains(point) else { continue }
+            let dx = point.x - center.x
+            let dy = point.y - center.y
+            if panel.kind == .web {
+                let handle = grabHandleCenter(center, panel: panel, size: size)
+                if abs(point.x - handle.x) <=
+                    grabHandleWidth(panel, size: size) / 2 + 12 &&
+                    abs(point.y - handle.y) <= 21 {
+                    return nil
+                }
+                return "web.panel." + panel.id.uuidString + "." +
+                    String(Int(point.x / 12)) + "." + String(Int(point.y / 12))
+            }
+            if dx > dimensions.width / 2 - 40 &&
+                dy < -dimensions.height / 2 + 40 {
+                return "panel.close." + panel.id.uuidString
+            }
+            if panel.kind == .updates &&
+                dy > -dimensions.height / 2 + 40 &&
+                dy < dimensions.height / 2 - 35 {
+                return "panel.update." + panel.id.uuidString
+            }
+            if panel.kind == .content, noteSessions[panel.id] != nil,
+               dy > dimensions.height / 2 - 63 &&
+               dy < dimensions.height / 2 - 24 {
+                return "note.toolbar." + panel.id.uuidString + "." +
+                    String(Int((dx + dimensions.width / 2 - 12) / 40))
+            }
+            return nil
+        }
+        return nil
+    }
+
+    private func triggerDwell(at point: CGPoint, size: CGSize) {
+        if settingsOpen {
+            let zone = VRSettingsInputGeometry.classify(
+                point, viewport: size, page: settings.page)
+            switch zone {
+            case .close:
+                closeSettings()
+            case .back:
+                settings.back()
+            case .table:
+                let top = VRSettingsInputGeometry.tableTop(page: settings.page)
+                _ = settings.handlePinchTap(
+                    at: point, viewport: size, topInset: top)
+            case .search, .none:
+                break
+            }
+            return
+        }
+
+        if media.preview != nil || media.loadingPreview,
+           let action = VRMediaPreviewGeometry.action(at: point, in: size) {
+            media.performPreview(action)
+            return
+        }
+
+        if workspaceOpen {
+            let box = VRWorkspaceGeometry.bounds(size)
+            if point.y < box.minY + 36 && point.x > box.maxX - 45 {
+                workspaceOpen = false
+            } else if point.y > box.maxY - 28 {
+                if point.x < box.midX - box.width / 6 {
+                    changeWorkspacePage(-1)
+                } else if point.x > box.midX + box.width / 6 {
+                    changeWorkspacePage(1)
+                }
+            } else if let slot = VRWorkspaceGeometry.item(at: point, in: size) {
+                let index = workspacePage * VRWorkspaceGeometry.pageSize + slot
+                if workspaceItems.indices.contains(index) {
+                    performWorkspace(workspaceItems[index].command)
+                }
+            }
+            return
+        }
+
+        let syntheticHand = TrackedHand(
+            point: point,
+            visible: true,
+            pinching: true,
+            joints: Array(repeating: nil, count: 21),
+            estimatedDepth: nil,
+            worldPoint: nil)
+        beganPinch(point, hand: syntheticHand, size: size)
+
+        // Web content uses a press/release pair in the existing input path.
+        // Complete that pair immediately for a dwell click.
+        if let gesture = webPinchGesture {
+            webSessions[gesture.panelID]?.tapFromPinch(x: gesture.x, y: gesture.y)
+            webPinchGesture = nil
+        }
     }
 
     /// A held pinch scrolls the PRIMARY UITableView, while the other eye
@@ -1619,28 +1857,11 @@ struct VRHomeView: View {
             } else { themeMenuOpen = false }
             return
         }
-        // When hidden, the dock shrinks to a small bottom-left launcher.
-        // Otherwise its large touch area blocked the website grab handle.
-        if !dockExpanded {
-            let collapsedX = max(32, size.width * 0.16)
-            if abs(pointer.x - collapsedX) < 28 &&
-               abs(pointer.y - dockCenterY(size)) < 28 {
-                dockExpanded = true
-                return
-            }
-        } else {
-            let cellWidth = max(20, (size.width - 34) / 8)
-            let dockWidth = cellWidth * 8 + 2 * 7 + 10
-            let dockLeft = (size.width - dockWidth) / 2
-            if abs(pointer.y - dockCenterY(size)) <= 29 &&
-               pointer.x >= dockLeft &&
-               pointer.x <= dockLeft + dockWidth {
-                let cell = cellWidth + 2
-                let slot = min(7, max(0, Int((pointer.x - dockLeft - 5) / cell)))
-                activateDock(slot)
-                dockExpanded = false
-                return
-            }
+        // The taskbar uses the same rectangles for drawing and Vision.
+        if let action = VRTaskbarGeometry.action(at: pointer, viewport: size,
+                                     items: updates.frontend.enabledTaskbar) {
+            activateTaskbar(action)
+            return
         }
 
         // Only the white line is a 3D movement handle. Its hit area is
@@ -2344,6 +2565,32 @@ struct VRHomeView: View {
         runtime.setCinemaMode(false)
         dockExpanded = false
         lastPinch = false
+    }
+
+    private func activateTaskbar(_ action: VRTaskbarAction) {
+        switch action {
+        case .home:
+            mediaMode = nil
+            workspacePage = 0
+            workspaceOpen.toggle()
+            appsOpen = false
+            themeMenuOpen = false
+            lensMenuOpen = false
+        case .apps:
+            activateDock(1)
+        case .cinema:
+            activateDock(2)
+        case .files:
+            performWorkspace(.files)
+        case .photos:
+            performWorkspace(.photos)
+        case .browser:
+            openLauncherApp(.web(.browser))
+        case .settings:
+            openSettings()
+        case .newWindow:
+            activateDock(0)
+        }
     }
 
     private func activateDock(_ slot: Int) {
