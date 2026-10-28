@@ -34,7 +34,7 @@ Cinema com reprodução local via AVPlayer, modos 2D/SBS/H-SBS/OU, seleção de 
 - Não há integração WebXR imersiva, backend de contas/amigos/chamadas, assistente remota, streaming de desktop ou protocolo PhoneXR PH5/PH6 nesta versão.
 - Vision continua detectando uma mão. A fusão MediaPipe/YOLO do Android não foi portada.
 - A câmera é monocular, copiada para os dois olhos; não há passthrough estéreo real. A orientação sem câmera é 3DoF. Posição 6DoF depende do caminho ARKit e de câmera funcional.
-- O navegador mantém duas WKWebViews; conteúdo dinâmico pode diferir entre os olhos. Vídeo com DRM ou interação que exige evento nativo pode precisar do Safari/toque físico.
+- O navegador permite até três janelas web simultâneas e mantém duas WKWebViews por sessão; conteúdo dinâmico pode diferir entre os olhos. Vídeo com DRM ou interação que exige evento nativo pode precisar do Safari/toque físico.
 - Janelas não sobrevivem ao encerramento do app. Pins, recentes e preferências sobrevivem.
 - Uma falha física na câmera não é corrigida por software. O modo padrão evita depender dela.
 

@@ -154,11 +154,22 @@ final class HomeShellTests: XCTestCase {
         let image = try await screenshot(SpaceSkyView(camera: nil, size: size,
             headRotation: VRRotation.identity), size: size, name: "VR-OS-V48-Cosmos-sem-camera")
         let cgImage = try XCTUnwrap(image.cgImage)
-        XCTAssertEqual(cgImage.bitsPerPixel, 32)
-        let data = try XCTUnwrap(cgImage.dataProvider?.data) as Data
-        let brightPixels = stride(from: 0, to: data.count - 3, by: 4).filter {
-            data[$0] > 180 && data[$0 + 1] > 180 && data[$0 + 2] > 180
-        }.count
+        let width = cgImage.width, height = cgImage.height
+        let context = try XCTUnwrap(CGContext(data: nil, width: width, height: height,
+            bitsPerComponent: 8, bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
+        let pixels = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
+        var brightPixels = 0
+        // Exclude the hosting window's safe-area margins. Only actual stars
+        // inside the central sky may satisfy this assertion.
+        for y in height / 8 ..< height * 7 / 8 {
+            for x in width / 8 ..< width * 7 / 8 {
+                let offset = y * context.bytesPerRow + x * 4
+                if pixels[offset] > 180 && pixels[offset + 1] > 180 &&
+                    pixels[offset + 2] > 180 && pixels[offset + 3] > 180 { brightPixels += 1 }
+            }
+        }
         XCTAssertGreaterThan(brightPixels, 25, "Camera-free Cosmos must contain visible stars")
     }
 

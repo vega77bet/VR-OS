@@ -977,7 +977,8 @@ struct VRHomeView: View {
             if !settingsOpen && !workspaceOpen && !themeMenuOpen && !lensMenuOpen && media.preview == nil && !media.loadingPreview {
                 VRHomeShell(library: homeLibrary, viewport: size, windows: homeWindows,
                     cameraEnabled: cameraEnabled, motionAvailable: dwell.motionAvailable,
-                    dwellDelay: settings.dwellDelay, showHUD: settings.showHUD, onAction: performHomeAction)
+                    dwellDelay: settings.dwellDelay, showHUD: settings.showHUD,
+                    notice: appsWarning, onAction: performHomeAction)
                     .zIndex(42)
                 if movingWindowID != nil {
                     Button { movingWindowID = nil; moveStartedAt = nil } label: {
@@ -2405,7 +2406,7 @@ struct VRHomeView: View {
         // streaming apps cannot exhaust an iPhone's memory in the headset.
         guard webSessions.count < 3 else {
             homeLibrary.show(.windows)
-            appsWarning = "Limite de 3 apps abertos. Feche uma janela para continuar."
+            appsWarning = "Limite de 3 sites. Feche uma janela web para abrir outro."
             return
         }
         appsWarning = nil

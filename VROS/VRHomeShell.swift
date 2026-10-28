@@ -11,6 +11,7 @@ struct VRHomeShell: View {
     let motionAvailable: Bool
     let dwellDelay: CGFloat
     var showHUD = true
+    var notice: String? = nil
     let onAction: (VRHomeAction) -> Void
 
     var body: some View {
@@ -84,7 +85,12 @@ struct VRHomeShell: View {
                 .position(x: rect.midX, y: rect.midY)
             Rectangle().fill(VRDS.Color.border).frame(width: 1, height: 32).position(x: 277, y: 372)
             Rectangle().fill(VRDS.Color.border).frame(width: 1, height: 32).position(x: 532, y: 372)
-            if showHUD { HStack(spacing: 5) {
+            if let notice = notice {
+                Text(notice).font(.system(size: 13, weight: .medium))
+                    .lineLimit(1).minimumScaleFactor(0.75)
+                    .foregroundStyle(VRDS.Color.primary)
+                    .frame(width: 600).position(x: 320, y: 328).allowsHitTesting(false)
+            } else if showHUD { HStack(spacing: 5) {
                 Circle().fill(motionAvailable ? VRDS.Color.success : VRDS.Color.secondary).frame(width: 4, height: 4)
                 Text("VR-OS").font(.system(size: 11, weight: .semibold)).tracking(1)
                 Text("·  Mira \(String(format: "%.1f", Double(dwellDelay))) s")
