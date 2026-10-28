@@ -8,6 +8,7 @@ schemes:
       targets:
         - VROSRegressionTests
 options:
+  xcodeVersion: "15.0"
   bundleIdPrefix: com.vega77bet
   deploymentTarget:
     iOS: "16.0"
@@ -61,4 +62,3 @@ targets:
         INFOPLIST_KEY_UIRequiresFullScreen: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         CODE_SIGNING_ALLOWED: NO
-
