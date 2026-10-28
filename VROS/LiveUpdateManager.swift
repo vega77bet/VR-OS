@@ -157,7 +157,7 @@ struct RemoteManifest: Codable {
               url.scheme == "https",
               url.host == "github.com",
               url.path.hasPrefix("/vega77bet/VR-OS/"),
-              frontend.map(\.validated) ?? true
+              frontend.map { $0.validated } ?? true
         else { return false }
 
         var ids = Set<String>()
