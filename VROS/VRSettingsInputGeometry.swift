@@ -45,3 +45,12 @@ enum VRSettingsInputGeometry {
             scrollDeadZone
     }
 }
+
+enum VRSettingsScrollGeometry {
+    static func rect(_ direction: Int, viewport: CGSize) -> CGRect {
+        CGRect(x: viewport.width - 31, y: viewport.height - (direction < 0 ? 70 : 35), width: 27, height: 29)
+    }
+    static func direction(at point: CGPoint, viewport: CGSize) -> Int? {
+        [-1, 1].first { rect($0, viewport: viewport).contains(point) }
+    }
+}

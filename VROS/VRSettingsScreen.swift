@@ -8,6 +8,7 @@ struct VRSettingsScreen: View {
     @ObservedObject var session: VRSettingsSession
     let rightEye: Bool
     let onClose: () -> Void
+    var onSearch: (() -> Void)? = nil
 
     @FocusState private var searchFocused: Bool
     static let toolbarHeight = VRSettingsInputGeometry.toolbarHeight
@@ -38,8 +39,25 @@ struct VRSettingsScreen: View {
         .background(Color(white: 0.105))
         .foregroundStyle(.white)
         .clipShape(RoundedRectangle(cornerRadius: 9))
+        .overlay {
+            GeometryReader { proxy in
+                ForEach([-1, 1], id: \.self) { direction in
+                    let rect = VRSettingsScrollGeometry.rect(direction, viewport: proxy.size)
+                    Button { session.scrollBy(CGFloat(direction) * proxy.size.height * 0.6) } label: {
+                        Image(systemName: direction < 0 ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 12, weight: .bold))
+                            .frame(width: rect.width, height: rect.height)
+                            .background(Color(white: 0.25), in: RoundedRectangle(cornerRadius: 8))
+                    }.buttonStyle(.plain).accessibilityLabel(direction < 0 ? "Rolar ajustes para cima" : "Rolar ajustes para baixo")
+                        .position(x: rect.midX, y: rect.midY)
+                }
+            }
+        }
         .onChange(of: session.focusSearchRequest) { _ in
-            if !rightEye && session.page == .home { searchFocused = true }
+            if !rightEye && session.page == .home {
+                if let onSearch = onSearch { onSearch() }
+                else { searchFocused = true }
+            }
         }
         .onChange(of: session.page) { _ in searchFocused = false }
     }
@@ -90,7 +108,14 @@ struct VRSettingsScreen: View {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 12))
                 .foregroundStyle(Color(white: 0.61))
-            TextField("Buscar nos ajustes", text: $session.searchText)
+            if let onSearch = onSearch {
+                Button(action: onSearch) {
+                    Text(session.searchText.isEmpty ? "Buscar nos ajustes" : session.searchText)
+                        .font(.system(size: 12)).foregroundStyle(.white)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }.buttonStyle(.plain)
+            } else {
+                TextField("Buscar nos ajustes", text: $session.searchText)
                 .font(.system(size: 12))
                 .foregroundStyle(.white)
                 .autocorrectionDisabled()
@@ -98,6 +123,7 @@ struct VRSettingsScreen: View {
                 .focused($searchFocused)
                 .submitLabel(.search)
                 .lineLimit(1)
+            }
             if !session.searchText.isEmpty {
                 Button {
                     session.searchText = ""

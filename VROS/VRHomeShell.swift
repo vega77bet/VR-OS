@@ -10,6 +10,7 @@ struct VRHomeShell: View {
     let cameraEnabled: Bool
     let motionAvailable: Bool
     let dwellDelay: CGFloat
+    var showHUD = true
     let onAction: (VRHomeAction) -> Void
 
     var body: some View {
@@ -83,12 +84,12 @@ struct VRHomeShell: View {
                 .position(x: rect.midX, y: rect.midY)
             Rectangle().fill(VRDS.Color.border).frame(width: 1, height: 32).position(x: 277, y: 372)
             Rectangle().fill(VRDS.Color.border).frame(width: 1, height: 32).position(x: 532, y: 372)
-            HStack(spacing: 5) {
+            if showHUD { HStack(spacing: 5) {
                 Circle().fill(motionAvailable ? VRDS.Color.success : VRDS.Color.secondary).frame(width: 4, height: 4)
                 Text("VR-OS").font(.system(size: 11, weight: .semibold)).tracking(1)
                 Text("·  Mira \(String(format: "%.1f", Double(dwellDelay))) s")
                     .font(.system(size: 11)).foregroundStyle(VRDS.Color.secondary)
-            }.position(x: 320, y: 328).allowsHitTesting(false)
+            }.position(x: 320, y: 328).allowsHitTesting(false) }
         }
     }
 
@@ -147,6 +148,7 @@ struct VRHomeShell: View {
             } else {
                 VStack(spacing: 3) {
                     Image(systemName: target.symbol).font(.system(size: 21, weight: .medium))
+                        .foregroundStyle(target.action == .camera && cameraEnabled ? VRDS.Color.success : VRDS.Color.primary)
                     Text(target.title).font(.system(size: 8, weight: .medium)).lineLimit(1)
                 }
             }
@@ -165,7 +167,7 @@ struct VRHomeShell: View {
 
     private func background(for target: VRHomeTarget, hovered: Bool) -> Color {
         if hovered { return VRDS.Color.surfacePressed }
-        if target.selected { return VRDS.Color.surfacePressed.opacity(0.85) }
+        if target.selected || (target.action == .camera && cameraEnabled) { return VRDS.Color.surfacePressed.opacity(0.85) }
         if target.style == .tile || target.style == .control { return VRDS.Color.surfaceElevated }
         return .clear
     }

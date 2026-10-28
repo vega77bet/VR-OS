@@ -13,7 +13,7 @@ O material de referência foi lido no código: árvore recursiva, `Theme.kt`, `H
 | Home com biblioteca lateral e dock | Implementação nativa nova | `VRHomeLibrary.swift`, `VRHomeShell.swift`; desenho e hit-testing compartilham `VRHomeLayout`. |
 | Paleta Horizon escura | Cores principais reproduzidas | `VRDesignSystem.swift`; cinzas `14171C`, `20242B`, `252A31`, `3A3F48`, texto `F2F2F2`, verde `7BD88F`, erro `FF6B6B`, laranja `FF9544`. |
 | Biblioteca, recentes e pins | Implementados localmente | `VRHomeLibrary.entries`, `opened`, `togglePin`; IDs conhecidos, sem duplicados; persistência UserDefaults; quatro pins. |
-| Busca e teclado espacial | Implementados | `VRSpatialKeyboard.swift`, `performKeyboardKey` em `VROSApp.swift`; busca de biblioteca, busca dos Ajustes e navegação web. |
+| Busca e teclado espacial | Implementados | `VRSpatialKeyboard.swift`, `performKeyboardKey` em `VROSApp.swift`; busca de biblioteca, busca dos Ajustes e navegação web. Ajustes também tem setas de rolagem com hit-testing dedicado. |
 | Quick settings | Implementados para funções do app | Brilho real via UIScreen; câmera, centralizar, mira, visor, ambientes e Ajustes. Não simula controles de Wi-Fi/Bluetooth do iOS. |
 | Janelas espaciais | Preservadas e ampliadas | `VRWindowChrome.swift`, `VRWorkspace.swift`, `VROSApp.swift`; minimizar/restaurar, foco, escala e reposicionamento pelo olhar. |
 | Seleção por olhar | Implementada com Core Motion | `VRDwellController.swift`; quaternion relativo em eixos de paisagem, anel de progresso, um disparo por alvo; padrão 1 s. Não é eye-tracking. |
@@ -21,7 +21,7 @@ O material de referência foi lido no código: árvore recursiva, `Theme.kt`, `H
 | Orientação 3DoF | Implementada | Core Motion + `VRUltraWideWindowProjection`; âncoras direcionais, sem posição métrica real. |
 | ARKit 6DoF | Caminho existente, opcional | `VRRuntime.swift`; exige câmera autorizada/funcional e suporte do aparelho. Sem validação física nesta reconstrução. |
 | Mãos | Vision existente, uma mão | `VRRuntime.swift`, `VRUltraWideCamera.swift`; sem MediaPipe/YOLO, sem garantia de funcionar com câmera danificada. |
-| Cinema e mídia estéreo | Recursos existentes mantidos | `CinemaView.swift`, `CinemaLibrary.swift`, `VRMediaStore.swift`; AVPlayer local, SBS/OU. Não equivale a testes de todos os formatos/DRMs. |
+| Cinema e mídia estéreo | Recursos existentes mantidos | `CinemaView.swift`, `CinemaLibrary.swift`, `VRMediaStore.swift`; AVPlayer local, SBS/OU; a mira acessa os controles, a biblioteca e a saída. Não equivale a testes de todos os formatos/DRMs. |
 | Navegador | WKWebView existente + teclado espacial | `VRWebApps.swift`, `VRBrowserState.swift`; ambas as superfícies pertencem a uma sessão, mas páginas dinâmicas podem divergir. |
 | Abas e histórico | Existentes na Central VR | `VRWebSession`, comandos em `VRWorkspaceCommand`; não se promete equivalência completa da UI de abas do Android. |
 | WebXR imersivo | Não integrado | Não há bridge JS/OpenXR nova nesta versão. |

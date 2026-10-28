@@ -112,6 +112,24 @@ final class HomeShellTests: XCTestCase {
         }
     }
 
+    func testCameraFreeSettingsAndCinemaNavigationTargets() {
+        let viewport = CGSize(width: 243, height: 236)
+        for direction in [-1, 1] {
+            let rect = VRSettingsScrollGeometry.rect(direction, viewport: viewport)
+            XCTAssertEqual(VRSettingsScrollGeometry.direction(at: CGPoint(x: rect.midX, y: rect.midY), viewport: viewport), direction)
+        }
+        for slot in 0..<5 {
+            let rect = VRCinemaToolbarGeometry.rect(slot, viewport: viewport)
+            XCTAssertEqual(VRCinemaDwellGeometry.target(at: CGPoint(x: rect.midX, y: rect.midY), viewport: viewport,
+                libraryVisible: false, page: 0, itemCount: 0), .header(slot))
+        }
+        let item = VRWorkspaceGeometry.cell(2, in: viewport)
+        XCTAssertEqual(VRCinemaDwellGeometry.target(at: CGPoint(x: item.midX, y: item.midY), viewport: viewport,
+            libraryVisible: true, page: 1, itemCount: 9), .item(8))
+        XCTAssertNil(VRCinemaDwellGeometry.target(at: CGPoint(x: viewport.width / 2, y: viewport.height / 2), viewport: viewport,
+            libraryVisible: false, page: 0, itemCount: 0))
+    }
+
     @MainActor
     func testNativeLibraryAndKeyboardPreviews() async throws {
         let model = VRHomeLibrary(defaults: try defaults())

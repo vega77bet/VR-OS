@@ -14,7 +14,7 @@ Sistema VR experimental para **iPhone e VR Box**, com dois visores calibráveis,
 ## Usar
 
 1. Abra o VR-OS com o iPhone na horizontal. A Biblioteca aparece nos dois visores.
-2. Mova a cabeça para posicionar a mira e mantenha o alvo sobre um botão por **1 segundo**. O anel mostra o progresso; o botão dispara uma vez até o alvo mudar. O tempo é configurável nos Ajustes.
+2. Mova a cabeça para posicionar a mira e mantenha o alvo sobre um botão por **1 segundo**. O anel mostra o progresso; o botão dispara uma vez até o alvo mudar. O tempo é configurável nos Ajustes. As setas na lateral inferior dos Ajustes permitem rolar sem tocar no iPhone.
 3. Abra Cinema, Navegador, Arquivos, Fotos ou Ajustes. São recursos reais do próprio aplicativo. YouTube, Netflix, Twitch e Wikipedia abrem seus sites.
 4. Use o pequeno pin em cada cartão para fixar/desafixar um aplicativo no dock. Há quatro lugares; fixar um quinto substitui o último.
 5. Abra o relógio para os ajustes rápidos: brilho do iPhone, câmera, centralização, mira, visor e ambientes.
@@ -26,7 +26,7 @@ A mira acompanha o movimento do iPhone/cabeça; não é um sensor que detecta a 
 
 ## Recursos preservados
 
-Cinema com reprodução local via AVPlayer, modos 2D/SBS/H-SBS/OU, seleção de assentos, ajustes de FOV e áudio; importação e organização de documentos/imagens/vídeos; navegador WKWebView com favoritos, histórico e abas gerenciadas pela Central VR; Ajustes nativos com persistência; perfis dos dois visores; ambientes procedurais; ARKit/Vision e câmera 0,5x opcionais; atualizações de conteúdo HTTPS.
+Cinema com reprodução local via AVPlayer, modos 2D/SBS/H-SBS/OU, seleção de assentos, controles por mira, ajustes de FOV e áudio; importação e organização de documentos/imagens/vídeos; navegador WKWebView com favoritos, histórico e abas gerenciadas pela Central VR; Ajustes nativos com persistência; perfis dos dois visores; ambientes procedurais; ARKit/Vision e câmera 0,5x opcionais; atualizações de conteúdo HTTPS.
 
 ## Limites da versão iPhone
 

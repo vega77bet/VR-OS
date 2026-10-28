@@ -558,6 +558,7 @@ struct VRHomeView: View {
         if cinemaOpen {
             CinemaEyeView(rightEye: right, runtime: runtime,
                           cinema: cinema, updates: updates,
+                          dwell: dwell, dwellDelay: settings.dwellDelay,
                           onExit: { exitCinema() })
         } else {
             eyeView(right: right, size: size)
@@ -973,7 +974,7 @@ struct VRHomeView: View {
             if !settingsOpen && !workspaceOpen && !themeMenuOpen && !lensMenuOpen && media.preview == nil && !media.loadingPreview {
                 VRHomeShell(library: homeLibrary, viewport: size, windows: homeWindows,
                     cameraEnabled: cameraEnabled, motionAvailable: dwell.motionAvailable,
-                    dwellDelay: settings.dwellDelay, onAction: performHomeAction)
+                    dwellDelay: settings.dwellDelay, showHUD: settings.showHUD, onAction: performHomeAction)
                     .zIndex(42)
                 if movingWindowID != nil {
                     Button { movingWindowID = nil; moveStartedAt = nil } label: {
@@ -1012,7 +1013,8 @@ struct VRHomeView: View {
             }
             if settingsOpen {
                 VRSettingsScreen(session: settings, rightEye: right,
-                                 onClose: { closeSettings() })
+                                 onClose: { closeSettings() },
+                                 onSearch: { keyboard.open(.settings, title: "Buscar nos Ajustes", text: settings.searchText) })
                     .frame(width: w, height: h)
                     .zIndex(50)
                 // Accessibility: disabling the Home cursor must NEVER
@@ -1488,6 +1490,9 @@ struct VRHomeView: View {
             return key.map { "keyboard." + $0 }
         }
         if settingsOpen {
+            if let direction = VRSettingsScrollGeometry.direction(at: point, viewport: size) {
+                return "settings.scroll.\(direction)"
+            }
             let zone = VRSettingsInputGeometry.classify(
                 point, viewport: size, page: settings.page)
             switch zone {
@@ -1670,6 +1675,10 @@ struct VRHomeView: View {
             return
         }
         if settingsOpen {
+            if let direction = VRSettingsScrollGeometry.direction(at: point, viewport: size) {
+                settings.scrollBy(CGFloat(direction) * size.height * 0.6)
+                return
+            }
             let zone = VRSettingsInputGeometry.classify(
                 point, viewport: size, page: settings.page)
             switch zone {
@@ -2833,18 +2842,14 @@ struct VRHomeView: View {
             let count = panels.count + 1
             panels.append(VRPanel(
                 title: "Janela \(count)", icon: "macwindow",
-                text: "GUIA RÁPIDO DO VR-OS V21\n\n"
-                    + "1. Pinça na linha branca: arraste a janela pelo ambiente.\n\n"
-                    + "2. Segure a pinça sobre este texto e mova a mão para ROLAR a janela.\n\n"
-                    + "3. Use as setas ↑/↓ para subir e descer. A−/A+ deixam o texto menor ou maior.\n\n"
-                    + "4. Apps: Ajustes, YouTube, Netflix, Navegador, Twitch e Wikipedia. "
-                    + "A estrela salva favoritos, a lupa ajusta zoom e o ícone de expandir abre o Modo Foco.\n\n"
-                    + "5. Cinema: poltronas selecionadas por olhar por 1,5 s. "
-                    + "Use Centralizar e Mirar tela antes de testar os movimentos.\n\n"
-                    + "6. A dock vira um botão no canto para liberar a visão. "
-                    + "Toque nesse botão para reabrir as ferramentas.\n\n"
-                    + "7. O campo óptico depende das lentes do headset; "
-                    + "se sentir desconforto, pare e ajuste o encaixe.",
+                text: "GUIA DO VR-OS V48\n\n"
+                    + "1. A mira acompanha sua cabeça. Pare sobre um botão por 1 segundo para selecionar.\n\n"
+                    + "2. Biblioteca: abra apps, pesquise, fixe atalhos e recupere janelas minimizadas.\n\n"
+                    + "3. A barra abaixo da janela permite mover, redimensionar, expandir, minimizar e fechar. Para mover, selecione as setas, olhe para o novo local e aguarde.\n\n"
+                    + "4. O relógio abre ajustes rápidos. Centralizar traz as janelas para a frente e recalibra a mira.\n\n"
+                    + "5. O teclado espacial pesquisa apps e permite digitar endereços no Navegador.\n\n"
+                    + "6. Cinema: Controles abre reprodução e ajustes, Filmes abre a biblioteca local e Sair volta ao Home.\n\n"
+                    + "7. A câmera é opcional. Ligue pelo dock quando quiser testar ARKit e rastreamento de mão. Visor ajusta os dois olhos para seu VR Box.",
                 x: CGFloat((count % 3) - 1) * 0.15,
                 y: CGFloat(count % 2 == 0 ? -0.38 : -0.28),
                 depth: Double(settings.defaultDepth)))
