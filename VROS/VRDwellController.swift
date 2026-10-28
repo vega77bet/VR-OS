@@ -35,7 +35,7 @@ final class VRDwellController: ObservableObject {
         heartbeat?.invalidate()
         heartbeat = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0,
                                          repeats: true) { [weak self] _ in
-            self?.pulse &+= 1
+            self?.pulse += 1
         }
         if motion.isDeviceMotionAvailable {
             motionAvailable = true
