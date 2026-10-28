@@ -13,6 +13,7 @@ final class VRDwellController: ObservableObject {
     @Published private(set) var progress: CGFloat = 0
     @Published private(set) var active = false
     @Published private(set) var motionAvailable = false
+    @Published private(set) var pulse = 0
 
     private let motion = CMMotionManager()
     private let callbackQueue = OperationQueue.main
@@ -22,6 +23,7 @@ final class VRDwellController: ObservableObject {
     private var targetStarted: Date?
     private var targetFired = false
     private var delay: TimeInterval = 1.0
+    private var heartbeat: Timer?
 
     /// Lower values make the target move more slowly with head rotation.
     private let sensitivity = 0.42
@@ -30,6 +32,11 @@ final class VRDwellController: ObservableObject {
         guard !active else { return }
         active = true
         resetTarget()
+        heartbeat?.invalidate()
+        heartbeat = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0,
+                                         repeats: true) { [weak self] _ in
+            self?.pulse &+= 1
+        }
         if motion.isDeviceMotionAvailable {
             motionAvailable = true
             motion.deviceMotionUpdateInterval = 1.0 / 30.0
@@ -49,6 +56,8 @@ final class VRDwellController: ObservableObject {
 
     func stop() {
         motion.stopDeviceMotionUpdates()
+        heartbeat?.invalidate()
+        heartbeat = nil
         active = false
         motionAvailable = false
         referenceYaw = nil
