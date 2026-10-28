@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     paths-ignore: ['**/*.md']
-    branches: [main, vr-os-2-handtracking, vr-os-3-full-hand, vr-os-3-spatial-depth, vr-os-3-online-updates, vr-os-3-space-360, vr-os-3-depth-fix, vr-os-4-four-themes, vr-os-4-pinch-stability, vr-os-4-pinch-lock, vr-os-4-dock-depth-fix, vr-os-4-external-z-reachable-dock, vr-os-5-spatial-grab-handle, vr-os-6-imax-cinema, vr-os-7-imax-ultra-v2, vr-os-8-stereo-3d-cinema, vr-os-9-photos-internet-updates, vr-os-10-cinema-head-controls-fix, vr-os-11-cinema-seat-selection, vr-os-12-floating-web-apps, vr-os-13-web-fov-fix, vr-os-14-cinema-camera-fix, vr-os-15-cinema-tracking-calibration, vr-os-16-stability-immersive-fixes, vr-os-17-window-scroll-audit, vr-os-18-real-ultrawide-camera, vr-os-19-ultrawide-hand-head-tracking, vr-os-20-lens-viewports-reference, vr-os-21-native-settings-app, vr-os-22-29-evolution, vr-os-30-36-media-suite, vr-os-37-43-productivity, vr-os-frontend-rebuild]
+    branches: [main, vr-os-2-handtracking, vr-os-3-full-hand, vr-os-3-spatial-depth, vr-os-3-online-updates, vr-os-3-space-360, vr-os-3-depth-fix, vr-os-4-four-themes, vr-os-4-pinch-stability, vr-os-4-pinch-lock, vr-os-4-dock-depth-fix, vr-os-4-external-z-reachable-dock, vr-os-5-spatial-grab-handle, vr-os-6-imax-cinema, vr-os-7-imax-ultra-v2, vr-os-8-stereo-3d-cinema, vr-os-9-photos-internet-updates, vr-os-10-cinema-head-controls-fix, vr-os-11-cinema-seat-selection, vr-os-12-floating-web-apps, vr-os-13-web-fov-fix, vr-os-14-cinema-camera-fix, vr-os-15-cinema-tracking-calibration, vr-os-16-stability-immersive-fixes, vr-os-17-window-scroll-audit, vr-os-18-real-ultrawide-camera, vr-os-19-ultrawide-hand-head-tracking, vr-os-20-lens-viewports-reference, vr-os-21-native-settings-app, vr-os-22-29-evolution, vr-os-30-36-media-suite, vr-os-37-43-productivity, vr-os-frontend-rebuild, vr-os-48-phonexr-rebuild]
   pull_request:
     branches: ['**']
 
@@ -30,31 +30,34 @@ jobs:
       - name: Test Settings session, persistence and UIKit controls
         run: |
           DEVICE_ID=$(xcrun simctl list devices available -j | ruby -rjson -e 'd=JSON.parse(STDIN.read)["devices"].values.flatten.find { |v| v["name"].start_with?("iPhone") }; abort "No iPhone simulator" unless d; puts d["udid"]')
+          echo "VROS_SIMULATOR_ID=$DEVICE_ID" >> "$GITHUB_ENV"
           xcodebuild -project VROS.xcodeproj -scheme VROSRegression -destination "platform=iOS Simulator,id=$DEVICE_ID" -derivedDataPath test-build -resultBundlePath TestResults.xcresult CODE_SIGNING_ALLOWED=NO test
       - name: Upload regression results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: V47-regression-results
+          name: V48-regression-results
           path: TestResults.xcresult
           if-no-files-found: ignore
       - name: Export preview screenshots
-        run: xcrun xcresulttool export attachments --path TestResults.xcresult --output-path PreviewAttachments
+        run: |
+          CONTAINER=$(xcrun simctl get_app_container "$VROS_SIMULATOR_ID" com.vega77bet.VROSRegressionHost data)
+          cp -R "$CONTAINER/Documents/VR-OS-Previews" PreviewAttachments
       - name: Upload preview screenshots
         uses: actions/upload-artifact@v4
         with:
-          name: V47-preview-screenshots
+          name: V48-preview-screenshots
           path: PreviewAttachments
           if-no-files-found: error
       - name: Package unsigned IPA
         run: |
           mkdir -p Payload
           cp -R build/Build/Products/Release-iphoneos/VROS.app Payload/
-          zip -qry VR-OS-V47-Frontend-unsigned.ipa Payload
+          zip -qry VR-OS-V48-Spatial-unsigned.ipa Payload
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: VR-OS-V47-Frontend-unsigned-IPA
-          path: VR-OS-V47-Frontend-unsigned.ipa
+          name: VR-OS-V48-Spatial-unsigned-IPA
+          path: VR-OS-V48-Spatial-unsigned.ipa
           retention-days: 14
 

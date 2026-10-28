@@ -181,6 +181,12 @@ struct VRHomeView: View {
     @State private var eyeViewport = CGSize(width: 200, height: 390)
     @StateObject private var settings = VRSettingsSession()
     @StateObject private var dwell = VRDwellController()
+    @StateObject private var homeLibrary = VRHomeLibrary()
+    @StateObject private var keyboard = VRSpatialKeyboardSession()
+    @AppStorage("vros.camera.enabled.v48") private var cameraEnabled = false
+    @State private var movingWindowID: UUID?
+    @State private var moveStartedAt: CGPoint?
+    @State private var angularDirections: [UUID: SIMD3<Float>] = [:]
     @State private var settingsOpen = false
     @State private var settingsGesture: VRSettingsPinch?
     @State private var lensMenuOpen = false
@@ -213,12 +219,7 @@ struct VRHomeView: View {
     @State private var webPinchGesture: WebPinchGesture?
     @State private var cinemaOpen = false
     @StateObject private var cinema = CinemaModel()
-    @State private var panels = [
-        VRPanel(title: "Bem-vindo ao VR OS", icon: "square.stack.3d.up",
-                text: "Janelas fixas no ambiente com ARKit.\n"
-                    + "Segure a linha branca sob a janela com a pinça.\n"
-                    + "Mova a mão para posicionar a janela no espaço.", y: -0.34, depth: 1.5)
-    ]
+    @State private var panels: [VRPanel] = []
     @State private var lastPinch = false
     @State private var drag: WindowDrag?
 
@@ -247,7 +248,7 @@ struct VRHomeView: View {
             .frame(width: geometry.size.width, height: geometry.size.height)
             .background(.black)
             .onReceive(runtime.$camera) { pose in
-                guard let pose = pose else { return }
+                guard cameraEnabled, let pose = pose else { return }
                 anchorPendingPanels(pose: pose, size: eyeSize)
             }
             .onReceive(runtime.$hand) { hand in
@@ -292,9 +293,13 @@ struct VRHomeView: View {
             dwell.setDelay(settings.dwellDelay)
             dwell.setEnabled(settings.dwellEnabled)
             UIDevice.current.isBatteryMonitoringEnabled = true
+            UIApplication.shared.isIdleTimerDisabled = true
             runtime.setCameraPreviewEnabled(selectedTheme == .graphite)
             runtime.setCinemaMode(cinemaOpen)
-            if settings.cameraUltra && !ultraWideMode &&
+            if !cameraEnabled {
+                runtime.stop()
+                ultraWide.stop()
+            } else if settings.cameraUltra && !ultraWideMode &&
                AVCaptureDevice.authorizationStatus(for: .video) == .authorized {
                 toggleUltraWide()
             } else if ultraWideMode {
@@ -368,7 +373,7 @@ struct VRHomeView: View {
                 if ultraWideMode {
                     recenterUltraWide()
                     ultraWide.start()
-                } else {
+                } else if cameraEnabled {
                     runtime.setCinemaMode(cinemaOpen)
                     runtime.resume()
                     if cinemaOpen { cinema.enter(camera: runtime.camera) }
@@ -376,11 +381,157 @@ struct VRHomeView: View {
             }
         }
         .onDisappear {
+            UIApplication.shared.isIdleTimerDisabled = false
             if cinemaOpen { cinema.exit() }
             ultraWide.stop()
             dwell.stop()
             runtime.setCinemaMode(false)
             runtime.stop()
+        }
+    }
+
+    private var homeWindows: [VRHomeWindow] {
+        panels.map { VRHomeWindow(id: $0.id, title: $0.title, symbol: $0.icon,
+                                 minimized: workspace.state($0.id).minimized) }
+    }
+
+    private func shellAction(at point: CGPoint, size: CGSize) -> VRHomeAction? {
+        guard !settingsOpen, !workspaceOpen, !lensMenuOpen, !themeMenuOpen,
+              media.preview == nil, !media.loadingPreview else { return nil }
+        return VRHomeLayout.hit(point, viewport: size, model: homeLibrary, windows: homeWindows)
+    }
+
+    private func performHomeAction(_ action: VRHomeAction) {
+        switch action {
+        case .library:
+            homeLibrary.visible.toggle(); homeLibrary.quickSettings = false
+            homeLibrary.query = ""; homeLibrary.page = 0
+            focusedWebPanelID = nil; movingWindowID = nil
+        case .quick:
+            homeLibrary.quickSettings.toggle(); homeLibrary.visible = false
+        case .close:
+            homeLibrary.visible = false; homeLibrary.quickSettings = false
+        case let .section(section): homeLibrary.section = section
+        case .search:
+            keyboard.open(.library, title: "Pesquisar na Biblioteca", text: homeLibrary.query)
+        case .sort: homeLibrary.alphabetical.toggle(); homeLibrary.page = 0
+        case let .pin(id): homeLibrary.togglePin(id)
+        case let .page(delta): homeLibrary.turnPage(delta, windowCount: panels.count)
+        case let .window(id):
+            if workspace.state(id).minimized { workspace.minimize(id) }
+            homeLibrary.visible = false; homeLibrary.quickSettings = false
+            centreAllWindows()
+            focusedWebPanelID = id
+        case .camera: setCameraEnabled(!cameraEnabled)
+        case .recenter: centreAllWindows()
+        case .pointer: dwell.recenter()
+        case .settings: openSettings()
+        case .lens:
+            homeLibrary.visible = false; homeLibrary.quickSettings = false
+            focusedWebPanelID = nil; lensMenuOpen = true
+        case .worlds: homeLibrary.show(.worlds)
+        case let .brightness(delta):
+            UIScreen.main.brightness = max(0.05, min(1, UIScreen.main.brightness + CGFloat(delta) * 0.1))
+            // Observable update refreshes the percentage in both eyes.
+            homeLibrary.hovered = nil
+        case let .app(id):
+            homeLibrary.opened(id)
+            homeLibrary.visible = false; homeLibrary.quickSettings = false
+            if id.hasPrefix("world."), let index = Int(id.dropFirst(6)), let theme = VRTheme(rawValue: index) {
+                chooseTheme(theme); homeLibrary.show(.worlds); return
+            }
+            if let app = VRWebApp(rawValue: id) { openWebApp(app); return }
+            switch id {
+            case "cinema": activateDock(2)
+            case "settings": openSettings()
+            case "files": performWorkspace(.files)
+            case "photos": performWorkspace(.photos)
+            case "notes": activateDock(0)
+            case "lens": performHomeAction(.lens)
+            case "tools": mediaMode = nil; workspaceOpen = true; workspacePage = 0
+            case "updates": openUpdatesWindow()
+            case "compatibility":
+                let panel = VRPanel(title: "VR-OS · Plataforma iPhone", icon: "info.circle",
+                    text: "RECURSOS NATIVOS\nBiblioteca, dock, teclado espacial, olhar de 1 segundo, janelas, ambientes, navegador HTTPS, fotos, arquivos e Cinema 2D/SBS/OU.\n\nRASTREAMENTO\nSem câmera: orientação Core Motion (3DoF). Câmera opcional: ARKit e mão Vision; 0,5x depende de lente disponível.\n\nCOMPATIBILIDADE\nAPKs Android, Monado, VrApi e jogos Quest não executam nesta versão iOS. WebXR imersivo não foi integrado.\n\nSERVIÇOS\nConta, amigos, chamadas e assistente não estão conectados. Nenhum backend ou chave de outro aplicativo é utilizado.")
+                panels.append(panel)
+            default: break
+            }
+        }
+    }
+
+    private func setCameraEnabled(_ enabled: Bool) {
+        cameraEnabled = enabled
+        centreAllWindows()
+        if enabled {
+            if settings.cameraUltra { toggleUltraWide() }
+            else { runtime.start() }
+        } else {
+            runtime.stop()
+            if ultraWideMode {
+                ultraWide.stop { ultraWideMode = false; cameraTransitioning = false }
+            }
+            for index in panels.indices { panels[index].anchor = nil }
+        }
+    }
+
+    private func performKeyboardKey(_ key: String) {
+        if key == "close" { keyboard.destination = nil; return }
+        if key == "enter" {
+            switch keyboard.destination {
+            case .library:
+                homeLibrary.query = keyboard.text; homeLibrary.visible = true
+                homeLibrary.quickSettings = false
+            case .settings: settings.searchText = keyboard.text
+            case let .browser(id):
+                webSessions[id]?.address = keyboard.text
+                webSessions[id]?.navigate()
+            case nil: break
+            }
+            keyboard.destination = nil
+        } else { keyboard.type(key) }
+    }
+
+    private func chromeHit(at point: CGPoint, size: CGSize) -> (UUID, VRWindowAction)? {
+        for panel in panels.reversed() where !workspace.state(panel.id).minimized &&
+            (focusedWebPanelID == nil || focusedWebPanelID == panel.id) {
+            guard let center = displayedPanelCenter(panel, size: size, right: false) else { continue }
+            let frame = VRWindowChromeGeometry.frame(center: center,
+                dimensions: displayedPanelSize(panel, size: size), viewport: size)
+            if let action = VRWindowChromeGeometry.hit(point, frame: frame) { return (panel.id, action) }
+        }
+        return nil
+    }
+
+    private func performWindowAction(_ action: VRWindowAction, id: UUID, size: CGSize) {
+        switch action {
+        case .close: close(id)
+        case .minimize:
+            workspace.minimize(id)
+            if focusedWebPanelID == id { focusedWebPanelID = nil }
+        case .focus:
+            workspace.focus(id)
+            focusedWebPanelID = workspace.focused
+        case .smaller: workspace.resize(id, by: -0.1)
+        case .larger: workspace.resize(id, by: 0.1)
+        case .move:
+            focusedWebPanelID = nil
+            movingWindowID = movingWindowID == id ? nil : id
+            moveStartedAt = dwell.point(in: size)
+        }
+    }
+
+    private func placeMovingWindow(at point: CGPoint, size: CGSize) {
+        guard let id = movingWindowID else { return }
+        defer { movingWindowID = nil; moveStartedAt = nil }
+        guard point.y > 38, let index = panels.firstIndex(where: { $0.id == id }) else { return }
+        if cameraEnabled && !ultraWideMode {
+            panels[index].anchor = runtime.worldPoint(at: point, viewport: size, depth: Float(panels[index].depth))
+        } else if ultraWideMode {
+            ultraPanelDirections[id] = VRUltraWideWindowProjection.anchoredDirection(at: point, viewport: size, headRotation: effectiveUltraRotation)
+        } else {
+            angularDirections[id] = VRUltraWideWindowProjection.anchoredDirection(at: point, viewport: size, headRotation: dwell.headRotation)
+            panels[index].x = (point.x - size.width / 2) / max(1, size.width / 2)
+            panels[index].y = (point.y - size.height / 2) / max(1, size.height / 2)
         }
     }
 
@@ -417,6 +568,9 @@ struct VRHomeView: View {
     private func openSettings() {
         guard !cinemaOpen else { return }
         synchronizeRuntimePreferences()
+        homeLibrary.visible = false
+        homeLibrary.quickSettings = false
+        keyboard.destination = nil
         appsOpen = false
         lensMenuOpen = false
         themeMenuOpen = false
@@ -457,6 +611,8 @@ struct VRHomeView: View {
     }
 
     private func centreAllWindows() {
+        dwell.recenter()
+        angularDirections.removeAll()
         if ultraWideMode {
             recenterUltraWide()
         } else {
@@ -527,13 +683,14 @@ struct VRHomeView: View {
                                           forKey: "vros.ultra.invertMotion.v1")
             }
         }
-        if settings.cameraUltra != ultraWideMode && !cameraTransitioning {
+        if cameraEnabled && settings.cameraUltra != ultraWideMode && !cameraTransitioning {
             toggleUltraWide()
         }
     }
 
     private func toggleUltraWide() {
         guard !cameraTransitioning, !cinemaOpen else { return }
+        cameraEnabled = true
         // Dock requests also update the shared desired mode. Keep that intent
         // even if Settings closes before the capture transition completes.
         if !settingsOpen { settings.cameraUltra = !ultraWideMode }
@@ -637,7 +794,9 @@ struct VRHomeView: View {
         let h = size.height
         let shownHand = ultraWideMode ? ultraWide.hand : runtime.hand
         return ZStack {
-            if ultraWideMode {
+            if !cameraEnabled && sceneryIndex == 0 && selectedTheme == .graphite {
+                VRHomeBackdrop()
+            } else if ultraWideMode {
                 if let frame = ultraWide.image {
                     if ultraFullFrame {
                         Image(decorative: frame, scale: 1, orientation: .up)
@@ -681,14 +840,11 @@ struct VRHomeView: View {
                     .clipped()
                     .allowsHitTesting(false)
             } else {
-                Color.black.overlay {
-                    VStack(spacing: 8) {
-                        ProgressView().tint(.white)
-                        Text("Iniciando câmera")
-                            .font(.system(size: 12))
+                VRHomeBackdrop()
+                    .overlay(alignment: .top) {
+                        Text(runtime.cameraStatus).font(.system(size: 9))
+                            .foregroundStyle(VRDS.Color.secondary).padding(6)
                     }
-                    .foregroundStyle(.white.opacity(0.75))
-                }
             }
 
             if selectedTheme == .graphite && !ultraWideMode {
@@ -703,7 +859,14 @@ struct VRHomeView: View {
                     panelView(panel, size: size, right: right)
                         .frame(width: dimensions.width, height: dimensions.height)
                         .position(center)
-                    if focusedWebPanelID != panel.id {
+                    VRWindowChrome(
+                        frame: VRWindowChromeGeometry.frame(center: center, dimensions: dimensions, viewport: size),
+                        moving: movingWindowID == panel.id,
+                        onAction: { performWindowAction($0, id: panel.id, size: size) })
+                        .position(x: center.x, y: VRWindowChromeGeometry.frame(
+                            center: center, dimensions: dimensions, viewport: size).midY)
+                        .allowsHitTesting(!homeLibrary.visible && !homeLibrary.quickSettings)
+                    if cameraEnabled && focusedWebPanelID != panel.id {
                         grabHandle(panel, size: size)
                             .position(grabHandleCenter(center, panel: panel, size: size))
                     }
@@ -711,16 +874,9 @@ struct VRHomeView: View {
             }
 
             if focusedWebPanelID == nil {
-                if settings.showHUD {
-                    statusBar(size: size)
-                        .position(x: w / 2, y: ultraWideMode ? 76 : 28)
-                }
 
                 if themeMenuOpen {
                     themePicker(size: size).position(x: w / 2, y: h / 2)
-                }
-                if appsOpen {
-                    appsLauncher(size: size).position(x: w / 2, y: h / 2)
                 }
                 if lensMenuOpen {
                     lensCalibrationPanel(size: size)
@@ -728,8 +884,6 @@ struct VRHomeView: View {
                         .zIndex(10)
                 }
 
-                dock(size: size)
-                    .position(x: w / 2, y: dockCenterY(size))
             }
 
             if ultraWideMode {
@@ -792,7 +946,7 @@ struct VRHomeView: View {
                 VRDwellCursor(progress: dwell.progress,
                               reduceMotion: settings.reduceMotion)
                     .position(dwell.point(in: size))
-                    .zIndex(52)
+                    .zIndex(90)
             }
 
             if let focusedID = focusedWebPanelID {
@@ -809,6 +963,23 @@ struct VRHomeView: View {
                 .zIndex(40)
             }
 
+            if !settingsOpen && !workspaceOpen && !themeMenuOpen && !lensMenuOpen && media.preview == nil && !media.loadingPreview {
+                VRHomeShell(library: homeLibrary, viewport: size, windows: homeWindows,
+                    cameraEnabled: cameraEnabled, motionAvailable: dwell.motionAvailable,
+                    dwellDelay: settings.dwellDelay, onAction: performHomeAction)
+                    .zIndex(42)
+                if movingWindowID != nil {
+                    Button { movingWindowID = nil; moveStartedAt = nil } label: {
+                        Text("Olhe para o novo local · cancelar")
+                            .font(.system(size: 10, weight: .medium)).padding(8)
+                            .background(VRDS.Color.surface, in: Capsule())
+                    }.buttonStyle(.plain).position(x: w / 2, y: 20).zIndex(43)
+                }
+            }
+            if keyboard.destination != nil {
+                VRSpatialKeyboard(session: keyboard, viewport: size, onKey: performKeyboardKey)
+                    .zIndex(65)
+            }
             if workspaceOpen {
                 VRWorkspaceView(items: workspaceItems, page: workspacePage, viewport: size,
                     title: mediaMode == nil ? "CENTRAL VR" : (mediaMode == true ? "FOTOS" : "ARQUIVOS"),
@@ -998,7 +1169,8 @@ struct VRHomeView: View {
             Rectangle().fill(Color.white.opacity(0.14)).frame(height: 1)
 
             if panel.kind == .web, let browser = webSessions[panel.id] {
-                VRWebWindow(session: browser, rightEye: right)
+                VRWebWindow(session: browser, rightEye: right,
+                    onAddress: { keyboard.open(.browser(panel.id), title: "Endereço ou pesquisa", text: browser.address) })
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if panel.kind == .updates {
                 VStack(alignment: .leading, spacing: 3) {
@@ -1074,12 +1246,10 @@ struct VRHomeView: View {
         .padding(12)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
-            (selectedTheme == .graphite ? Color(white: updates.manifest.theme.surfaceGray) : selectedTheme.surface)
-                .opacity(updates.manifest.theme.surfaceOpacity *
-                         settings.windowOpacity),
-            in: RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16)
-            .stroke(selectedTheme.accent.opacity(0.45), lineWidth: 1))
+            VRDS.Color.surface.opacity(settings.windowOpacity),
+            in: RoundedRectangle(cornerRadius: 22))
+        .overlay(RoundedRectangle(cornerRadius: 22)
+            .stroke(VRDS.Color.borderStrong, lineWidth: 0.7))
         .shadow(color: .black.opacity(0.50), radius: 11, y: 5)
         .onAppear {
             if panel.kind == .content && noteSessions[panel.id] == nil {
@@ -1106,6 +1276,15 @@ struct VRHomeView: View {
         }
         if ultraWideMode {
             return ultraWindowCenter(panel, size: size, right: right)
+        }
+        if !cameraEnabled {
+            let position = CGPoint(x: size.width / 2 + panel.x * size.width / 2,
+                                   y: size.height / 2 + panel.y * size.height / 2)
+            let direction = angularDirections[panel.id] ?? VRUltraWideWindowProjection.screenRay(at: position, viewport: size)
+            guard let point = VRUltraWideWindowProjection.project(direction,
+                headRotation: dwell.headRotation, viewport: size) else { return nil }
+            let offset = min(CGFloat(10), CGFloat(7 / max(panel.depth, 0.65)))
+            return CGPoint(x: point.x + (right ? -offset : offset), y: point.y)
         }
         return windowCenter(panel, size: size, right: right)
     }
@@ -1282,7 +1461,7 @@ struct VRHomeView: View {
     /// The dwell pointer uses the same geometry as the existing pinch
     /// input. This keeps both eyes synchronized and avoids camera dependency.
     private func processDwell(size: CGSize) {
-        guard dwell.active else { return }
+        guard dwell.active, !cinemaOpen else { return }
         let point = dwell.point(in: size)
         let key = dwellTargetKey(at: point, size: size)
         if dwell.updateTarget(key) {
@@ -1295,6 +1474,12 @@ struct VRHomeView: View {
         guard !productivity.exporting, !importingMedia, !pickingImage,
               productivity.dialog == nil else { return nil }
 
+        if keyboard.destination != nil {
+            let key = VRKeyboardGeometry.hit(point, viewport: size,
+                symbols: keyboard.symbols, uppercase: keyboard.uppercase)
+            if keyboard.hovered != key { keyboard.hovered = key }
+            return key.map { "keyboard." + $0 }
+        }
         if settingsOpen {
             let zone = VRSettingsInputGeometry.classify(
                 point, viewport: size, page: settings.page)
@@ -1303,7 +1488,9 @@ struct VRHomeView: View {
                 return "settings.close"
             case .back:
                 return "settings.back"
-            case .search, .none:
+            case .search:
+                return "settings.search"
+            case .none:
                 return nil
             case .table:
                 let top = VRSettingsInputGeometry.tableTop(page: settings.page)
@@ -1364,6 +1551,20 @@ struct VRHomeView: View {
             }
         }
 
+        if !themeMenuOpen && !lensMenuOpen, let action = shellAction(at: point, size: size) {
+            if homeLibrary.hovered != action.key { homeLibrary.hovered = action.key }
+            return "home." + action.key
+        }
+        if homeLibrary.hovered != nil { homeLibrary.hovered = nil }
+        if VRHomeLayout.blocks(point, viewport: size, model: homeLibrary) { return nil }
+        if let id = movingWindowID {
+            if point.y <= 38 { return "move.cancel" }
+            guard let start = moveStartedAt, hypot(point.x - start.x, point.y - start.y) > 24 else { return nil }
+            return "move.place." + id.uuidString + "." + String(Int(point.x / 18)) + "." + String(Int(point.y / 18))
+        }
+        if let (id, action) = chromeHit(at: point, size: size) {
+            return "chrome." + id.uuidString + "." + action.rawValue
+        }
         if ultraWideMode && point.y <= 44 {
             return "ultrawide.top." + String(Int(point.x / max(1, size.width / 4)))
         }
@@ -1415,10 +1616,6 @@ struct VRHomeView: View {
             return "theme." + String(row * 2 + column)
         }
 
-        if let action = VRTaskbarGeometry.action(
-            at: point, viewport: size, items: updates.frontend.enabledTaskbar) {
-            return "taskbar." + action.rawValue
-        }
 
         for panel in panels.reversed() where !workspace.state(panel.id).minimized {
             guard let center = displayedPanelCenter(panel, size: size, right: false)
@@ -1461,6 +1658,10 @@ struct VRHomeView: View {
     }
 
     private func triggerDwell(at point: CGPoint, size: CGSize) {
+        if keyboard.destination != nil {
+            if let key = VRKeyboardGeometry.hit(point, viewport: size, symbols: keyboard.symbols, uppercase: keyboard.uppercase) { performKeyboardKey(key) }
+            return
+        }
         if settingsOpen {
             let zone = VRSettingsInputGeometry.classify(
                 point, viewport: size, page: settings.page)
@@ -1473,7 +1674,9 @@ struct VRHomeView: View {
                 let top = VRSettingsInputGeometry.tableTop(page: settings.page)
                 _ = settings.handlePinchTap(
                     at: point, viewport: size, topInset: top)
-            case .search, .none:
+            case .search:
+                keyboard.open(.settings, title: "Buscar nos Ajustes", text: settings.searchText)
+            case .none:
                 break
             }
             return
@@ -1504,6 +1707,10 @@ struct VRHomeView: View {
             return
         }
 
+        if !themeMenuOpen && !lensMenuOpen, let action = shellAction(at: point, size: size) { performHomeAction(action); return }
+        if VRHomeLayout.blocks(point, viewport: size, model: homeLibrary) { return }
+        if movingWindowID != nil { placeMovingWindow(at: point, size: size); return }
+        if let (id, action) = chromeHit(at: point, size: size) { performWindowAction(action, id: id, size: size); return }
         let syntheticHand = TrackedHand(
             point: point,
             visible: true,
@@ -1611,6 +1818,13 @@ struct VRHomeView: View {
         guard productivity.dialog == nil, !productivity.exporting, !importingMedia, !pickingImage else {
             lastPinch = hand.visible && hand.pinching
             mediaDragPoint = nil
+            return
+        }
+        if keyboard.destination != nil {
+            if hand.visible && hand.pinching && !lastPinch,
+               let key = VRKeyboardGeometry.hit(interactionPoint(hand.point, size: size), viewport: size,
+                   symbols: keyboard.symbols, uppercase: keyboard.uppercase) { performKeyboardKey(key) }
+            lastPinch = hand.visible && hand.pinching
             return
         }
         if settingsOpen {
@@ -1773,6 +1987,13 @@ struct VRHomeView: View {
     }
 
     private func beganPinch(_ pointer: CGPoint, hand: TrackedHand, size: CGSize) {
+        if keyboard.destination != nil {
+            if let key = VRKeyboardGeometry.hit(pointer, viewport: size, symbols: keyboard.symbols, uppercase: keyboard.uppercase) { performKeyboardKey(key) }
+            return
+        }
+        if let action = shellAction(at: pointer, size: size) { performHomeAction(action); return }
+        if VRHomeLayout.blocks(pointer, viewport: size, model: homeLibrary) { return }
+        if let (id, action) = chromeHit(at: pointer, size: size) { performWindowAction(action, id: id, size: size); return }
         if let id = focusedWebPanelID, pointer.y < 38,
            pointer.x > size.width - 106 {
             if workspace.focused == id { workspace.focus(id) }
@@ -1857,13 +2078,6 @@ struct VRHomeView: View {
             } else { themeMenuOpen = false }
             return
         }
-        // The taskbar uses the same rectangles for drawing and Vision.
-        if let action = VRTaskbarGeometry.action(at: pointer, viewport: size,
-                                     items: updates.frontend.enabledTaskbar) {
-            activateTaskbar(action)
-            return
-        }
-
         // Only the white line is a 3D movement handle. Its hit area is
         // larger than its visible thickness for comfortable hand gestures.
         for panel in panels.reversed() where !workspace.state(panel.id).minimized {
@@ -2002,6 +2216,8 @@ struct VRHomeView: View {
                 browser.navigate()
             } else if x >= dims.width - 83 {
                 browser.toggleFavorite()
+            } else {
+                keyboard.open(.browser(panel.id), title: "Endereço ou pesquisa", text: browser.address)
             }
             return true
         }
@@ -2070,6 +2286,8 @@ struct VRHomeView: View {
     }
 
     private func close(_ id: UUID) {
+        angularDirections.removeValue(forKey: id)
+        if movingWindowID == id { movingWindowID = nil; moveStartedAt = nil }
         workspace.remove(id)
         panels.removeAll { $0.id == id }
         webSessions.removeValue(forKey: id)
@@ -2098,6 +2316,12 @@ struct VRHomeView: View {
     }
 
     private func registerUltraWindow(_ panel: VRPanel) {
+        if !cameraEnabled {
+            let point = CGPoint(x: eyeViewport.width / 2 + panel.x * eyeViewport.width / 2,
+                                y: eyeViewport.height / 2 + panel.y * eyeViewport.height / 2)
+            angularDirections[panel.id] = VRUltraWideWindowProjection.anchoredDirection(
+                at: point, viewport: eyeViewport, headRotation: dwell.headRotation)
+        }
         guard ultraWideMode else { return }
         let point = CGPoint(
             x: eyeViewport.width / 2 + panel.x * eyeViewport.width / 2,
@@ -2151,6 +2375,7 @@ struct VRHomeView: View {
     }
 
     private func openWebApp(_ app: VRWebApp) {
+        homeLibrary.opened(app.rawValue)
         if let existing = panels.first(where: { $0.webApp == app && webSessions[$0.id] != nil }) {
             if workspace.state(existing.id).minimized { workspace.minimize(existing.id) }
             focusedWebPanelID = existing.id
@@ -2160,8 +2385,8 @@ struct VRHomeView: View {
         // Each web app uses one WKWebView per eye. Keep a small cap so five
         // streaming apps cannot exhaust an iPhone's memory in the headset.
         guard webSessions.count < 3 else {
+            homeLibrary.show(.windows)
             appsWarning = "Limite de 3 apps abertos. Feche uma janela para continuar."
-            appsOpen = true
             return
         }
         appsWarning = nil
@@ -2402,6 +2627,8 @@ struct VRHomeView: View {
     }
 
     private func performWorkspace(_ command: VRWorkspaceCommand) {
+        homeLibrary.visible = false
+        homeLibrary.quickSettings = false
         defer { if workspaceOpen { changeWorkspacePage(0) } }
         switch command {
         case .settings: workspaceOpen = false; openSettings()
@@ -2616,13 +2843,12 @@ struct VRHomeView: View {
                 depth: Double(settings.defaultDepth)))
             if let newPanel = panels.last { registerUltraWindow(newPanel) }
         case 1:
-            appsOpen.toggle()
-            if appsOpen {
-                appsPage = 0
-                themeMenuOpen = false
-                lensMenuOpen = false
-            }
+            homeLibrary.show()
+            themeMenuOpen = false
+            lensMenuOpen = false
         case 2:
+            homeLibrary.visible = false
+            homeLibrary.quickSettings = false
             if ultraWideMode {
                 ultraNotice = "Cinema usa ARKit · volte ao modo normal"
                 dockExpanded = false

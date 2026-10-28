@@ -15,23 +15,23 @@ extension SwiftUI.Color {
 }
 
 
-// MARK: - VR-OS Design System V44
+// MARK: - VR-OS V48: palette verified in the PhoneXR audit
 
 enum VRDS {
     enum Color {
-        static let background = SwiftUI.Color(red: 0.055, green: 0.067, blue: 0.090)
-        static let surface = SwiftUI.Color(red: 0.105, green: 0.125, blue: 0.160)
-        static let surfaceElevated = SwiftUI.Color(red: 0.145, green: 0.165, blue: 0.205)
-        static let surfacePressed = SwiftUI.Color(red: 0.205, green: 0.230, blue: 0.275)
+        static let background = SwiftUI.Color(vrHex: "14171C")
+        static let surface = SwiftUI.Color(vrHex: "20242B")
+        static let surfaceElevated = SwiftUI.Color(vrHex: "252A31")
+        static let surfacePressed = SwiftUI.Color(vrHex: "3A3F48")
         static let border = SwiftUI.Color.white.opacity(0.12)
         static let borderStrong = SwiftUI.Color.white.opacity(0.22)
-        static let primary = SwiftUI.Color(red: 0.918, green: 0.941, blue: 0.969)
-        static let secondary = SwiftUI.Color(red: 0.620, green: 0.675, blue: 0.760)
+        static let primary = SwiftUI.Color(vrHex: "F2F2F2")
+        static let secondary = SwiftUI.Color(vrHex: "ADB3BE")
         static let muted = SwiftUI.Color(red: 0.390, green: 0.445, blue: 0.525)
-        static let accent = SwiftUI.Color(red: 0.314, green: 0.871, blue: 1.0)
-        static let selected = SwiftUI.Color(red: 0.682, green: 0.545, blue: 1.0)
-        static let destructive = SwiftUI.Color(red: 1.0, green: 0.365, blue: 0.420)
-        static let success = SwiftUI.Color(red: 0.300, green: 0.900, blue: 0.670)
+        static let accent = SwiftUI.Color(vrHex: "FF9544")
+        static let selected = SwiftUI.Color(vrHex: "F2F2F2")
+        static let destructive = SwiftUI.Color(vrHex: "FF6B6B")
+        static let success = SwiftUI.Color(vrHex: "7BD88F")
     }
 
     enum Font {
@@ -46,7 +46,7 @@ enum VRDS {
     enum Metrics {
         static let cornerSmall: CGFloat = 10
         static let cornerMedium: CGFloat = 16
-        static let cornerLarge: CGFloat = 24
+        static let cornerLarge: CGFloat = 28
         static let iconSmall: CGFloat = 18
         static let iconMedium: CGFloat = 24
         static let iconLarge: CGFloat = 32

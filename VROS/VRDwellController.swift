@@ -2,6 +2,8 @@ import CoreGraphics
 import CoreMotion
 import Combine
 import Foundation
+import UIKit
+import simd
 
 /// Camera-independent pointer for VR Box use.
 ///
@@ -14,6 +16,7 @@ final class VRDwellController: ObservableObject {
     @Published private(set) var active = false
     @Published private(set) var motionAvailable = false
     @Published private(set) var pulse = 0
+    @Published private(set) var headRotation = simd_quatf()
 
     private let motion = CMMotionManager()
     private let callbackQueue = OperationQueue.main
@@ -24,6 +27,8 @@ final class VRDwellController: ObservableObject {
     private var targetFired = false
     private var delay: TimeInterval = 1.0
     private var heartbeat: Timer?
+    private var referenceRotation: simd_quatf?
+    private var displayOrientation: UIInterfaceOrientation?
 
     /// Lower values make the target move more slowly with head rotation.
     private let sensitivity = 0.42
@@ -40,7 +45,7 @@ final class VRDwellController: ObservableObject {
         if motion.isDeviceMotionAvailable {
             motionAvailable = true
             motion.deviceMotionUpdateInterval = 1.0 / 30.0
-            motion.startDeviceMotionUpdates(to: callbackQueue) { [weak self] reading, error in
+            motion.startDeviceMotionUpdates(using: .xArbitraryZVertical, to: callbackQueue) { [weak self] reading, error in
                 guard let self = self, let reading = reading, error == nil else {
                     self?.motionAvailable = false
                     return
@@ -62,6 +67,8 @@ final class VRDwellController: ObservableObject {
         motionAvailable = false
         referenceYaw = nil
         referencePitch = nil
+        referenceRotation = nil
+        headRotation = simd_quatf()
         resetTarget()
     }
 
@@ -79,10 +86,14 @@ final class VRDwellController: ObservableObject {
         if let attitude = motion.deviceMotion?.attitude {
             referenceYaw = attitude.yaw
             referencePitch = attitude.pitch
+            let q = attitude.quaternion
+            referenceRotation = simd_normalize(simd_quatf(ix: Float(q.x), iy: Float(q.y), iz: Float(q.z), r: Float(q.w)))
         } else {
             referenceYaw = nil
             referencePitch = nil
+            referenceRotation = nil
         }
+        headRotation = simd_quatf()
         normalizedPoint = CGPoint(x: 0.5, y: 0.5)
         resetTarget()
     }
@@ -125,15 +136,21 @@ final class VRDwellController: ObservableObject {
 
     private func consume(_ attitude: CMAttitude) {
         guard active else { return }
-        if referenceYaw == nil || referencePitch == nil {
-            referenceYaw = attitude.yaw
-            referencePitch = attitude.pitch
-            return
+        let orientation = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .first(where: { $0.activationState == .foregroundActive })?.interfaceOrientation ?? .landscapeRight
+        let q = attitude.quaternion
+        let current = simd_normalize(simd_quatf(ix: Float(q.x), iy: Float(q.y), iz: Float(q.z), r: Float(q.w)))
+        if referenceRotation == nil || displayOrientation != orientation {
+            referenceRotation = current
+            displayOrientation = orientation
         }
-        guard let baseYaw = referenceYaw, let basePitch = referencePitch else { return }
-
-        let yaw = wrappedAngle(attitude.yaw - baseYaw)
-        let pitch = attitude.pitch - basePitch
+        guard let reference = referenceRotation else { return }
+        let basis = simd_quatf(angle: orientation == .landscapeLeft ? -.pi / 2 : .pi / 2,
+                              axis: SIMD3<Float>(0, 0, 1))
+        headRotation = simd_normalize(simd_inverse(basis) * simd_inverse(reference) * current * basis)
+        let forward = headRotation.act(SIMD3<Float>(0, 0, -1))
+        let yaw = Double(atan2(-forward.x, -forward.z))
+        let pitch = Double(asin(max(-1, min(1, forward.y))))
         let x = 0.5 + yaw * sensitivity
         let y = 0.5 - pitch * sensitivity
         normalizedPoint = CGPoint(
