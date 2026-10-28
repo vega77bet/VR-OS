@@ -1,8 +1,8 @@
 {
   "schema": 1,
-  "version": "v46-interface-1",
+  "version": "v47-dwell-1",
   "headline": "Interface atualizada",
-  "message": "A barra de tarefas recebeu uma organização nova.",
+  "message": "O controle por alvo permite navegar sem usar a câmera.",
   "theme": {
     "surfaceGray": 0.19,
     "surfaceOpacity": 0.97,
@@ -17,7 +17,7 @@
       "depth": 1.5
     }
   ],
-  "latestNativeVersion": "6.2.0",
+  "latestNativeVersion": "6.3.0",
   "nativeReleaseURL": "https://github.com/vega77bet/VR-OS/actions",
   "frontend": {
     "schema": 1,
