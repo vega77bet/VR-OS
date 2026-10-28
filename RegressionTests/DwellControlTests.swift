@@ -2,6 +2,20 @@ import XCTest
 import Foundation
 
 final class DwellControlTests: XCTestCase {
+    func testReapplyingUnchangedSettingsDoesNotClickTheSameTargetAgain() {
+        let controller = VRDwellController()
+        controller.start()
+        defer { controller.stop() }
+        let start = Date(timeIntervalSince1970: 4_000)
+        XCTAssertFalse(controller.updateTarget("settings.row.hands", now: start))
+        XCTAssertTrue(controller.updateTarget("settings.row.hands", now: start.addingTimeInterval(1)))
+        controller.setDelay(1)
+        controller.setEnabled(true)
+        XCTAssertFalse(controller.updateTarget("settings.row.hands", now: start.addingTimeInterval(2)))
+        controller.setEnabled(false)
+        XCTAssertFalse(controller.active)
+        XCTAssertFalse(controller.updateTarget("settings.row.hands", now: start.addingTimeInterval(3)))
+    }
     func testDwellFiresOnlyAfterHoldingTheSameTarget() {
         let controller = VRDwellController()
         controller.start()

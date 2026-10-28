@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+build/
+test-build/
+*.xcresult/
+VROS.xcodeproj/

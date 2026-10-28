@@ -1,6 +1,20 @@
 import CoreGraphics
 import simd
 
+/// Map the head's forward ray into a HUD pointer. The sign must agree with
+/// the world projection: turning toward a target moves the pointer toward it
+/// while an anchored window moves in the opposite direction on screen.
+enum VRHeadPointerGeometry {
+    static func normalizedPoint(rotation: simd_quatf, sensitivity: Double = 0.42) -> CGPoint {
+        let forward = rotation.act(SIMD3<Float>(0, 0, -1))
+        let yaw = Double(atan2(forward.x, -forward.z))
+        let pitch = Double(asin(max(-1, min(1, forward.y))))
+        guard yaw.isFinite, pitch.isFinite else { return CGPoint(x: 0.5, y: 0.5) }
+        return CGPoint(x: max(0.06, min(0.94, 0.5 + yaw * sensitivity)),
+                       y: max(0.06, min(0.94, 0.5 - pitch * sensitivity)))
+    }
+}
+
 /// Angular 3DoF panel projection for the 0.5x headset mode.
 /// Anchors represent DIRECTIONS, not real-world metres/6DoF positions.
 enum VRUltraWideWindowProjection {

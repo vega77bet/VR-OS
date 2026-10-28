@@ -34,7 +34,7 @@ final class VRDwellController: ObservableObject {
     private let sensitivity = 0.42
 
     func start() {
-        guard !active else { return }
+        guard heartbeat == nil else { return }
         active = true
         resetTarget()
         heartbeat?.invalidate()
@@ -73,12 +73,17 @@ final class VRDwellController: ObservableObject {
     }
 
     func setEnabled(_ enabled: Bool) {
-        if enabled { start() } else { stop() }
+        if heartbeat == nil { start() }
+        guard active != enabled else { return }
+        active = enabled
+        resetTarget()
     }
 
     func setDelay(_ seconds: CGFloat) {
         let value = seconds.isFinite ? seconds : 1.0
-        delay = TimeInterval(max(0.5, min(2.0, value)))
+        let next = TimeInterval(max(0.5, min(2.0, value)))
+        guard abs(next - delay) > 0.0001 else { return }
+        delay = next
         resetTarget()
     }
 
@@ -135,7 +140,7 @@ final class VRDwellController: ObservableObject {
     }
 
     private func consume(_ attitude: CMAttitude) {
-        guard active else { return }
+        guard heartbeat != nil else { return }
         let orientation = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
             .first(where: { $0.activationState == .foregroundActive })?.interfaceOrientation ?? .landscapeRight
         let q = attitude.quaternion
@@ -148,15 +153,8 @@ final class VRDwellController: ObservableObject {
         let basis = simd_quatf(angle: orientation == .landscapeLeft ? -.pi / 2 : .pi / 2,
                               axis: SIMD3<Float>(0, 0, 1))
         headRotation = simd_normalize(simd_inverse(basis) * simd_inverse(reference) * current * basis)
-        let forward = headRotation.act(SIMD3<Float>(0, 0, -1))
-        let yaw = Double(atan2(-forward.x, -forward.z))
-        let pitch = Double(asin(max(-1, min(1, forward.y))))
-        let x = 0.5 + yaw * sensitivity
-        let y = 0.5 - pitch * sensitivity
-        normalizedPoint = CGPoint(
-            x: max(0.06, min(0.94, x)),
-            y: max(0.06, min(0.94, y))
-        )
+        normalizedPoint = VRHeadPointerGeometry.normalizedPoint(
+            rotation: headRotation, sensitivity: sensitivity)
     }
 
     private func wrappedAngle(_ value: Double) -> Double {

@@ -113,6 +113,20 @@ final class HomeShellTests: XCTestCase {
         }
     }
 
+    func testHeadRayAndWorldWindowMoveInOppositeScreenDirections() throws {
+        let viewport = CGSize(width: 243, height: 236)
+        let neutral = VRHeadPointerGeometry.normalizedPoint(rotation: simd_quatf())
+        XCTAssertEqual(neutral.x, 0.5, accuracy: 0.001)
+        XCTAssertEqual(neutral.y, 0.5, accuracy: 0.001)
+        let left = simd_quatf(angle: .pi / 6, axis: SIMD3<Float>(0, 1, 0))
+        XCTAssertLessThan(VRHeadPointerGeometry.normalizedPoint(rotation: left).x, 0.5)
+        let world = try XCTUnwrap(VRUltraWideWindowProjection.project(SIMD3<Float>(0, 0, -1),
+            headRotation: left, viewport: viewport))
+        XCTAssertGreaterThan(world.x, viewport.width / 2)
+        let up = simd_quatf(angle: .pi / 6, axis: SIMD3<Float>(1, 0, 0))
+        XCTAssertLessThan(VRHeadPointerGeometry.normalizedPoint(rotation: up).y, 0.5)
+    }
+
     func testCameraFreeSettingsAndCinemaNavigationTargets() {
         let viewport = CGSize(width: 243, height: 236)
         for direction in [-1, 1] {
