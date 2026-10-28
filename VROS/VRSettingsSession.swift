@@ -72,6 +72,12 @@ final class VRSettingsSession: ObservableObject {
         didSet { defaults.set(Double(cursorSize),
                                            forKey: "vros.settings.cursorSize.v1") }
     }
+    @Published var dwellEnabled: Bool = true {
+        didSet { defaults.set(dwellEnabled, forKey: "vros.settings.dwell.enabled.v1") }
+    }
+    @Published var dwellDelay: CGFloat = 1.0 {
+        didSet { defaults.set(Double(dwellDelay), forKey: "vros.settings.dwell.delay.v1") }
+    }
     @Published var pinchSensitivity: CGFloat = 0.5 {
         didSet { defaults.set(Double(pinchSensitivity),
                                            forKey: "vros.settings.pinch.v1") }
@@ -125,6 +131,9 @@ final class VRSettingsSession: ObservableObject {
         showSkeleton = flag("vros.settings.skeleton.v1", otherwise: true)
         showCursor = flag("vros.settings.cursor.v1", otherwise: true)
         cursorSize = decimal("vros.settings.cursorSize.v1", otherwise: 1,
+        dwellEnabled = flag("vros.settings.dwell.enabled.v1", otherwise: true)
+        dwellDelay = decimal("vros.settings.dwell.delay.v1", otherwise: 1.0,
+                             min: 0.5, max: 2.0)
                              min: 0.7, max: 1.6)
         pinchSensitivity = decimal("vros.settings.pinch.v1", otherwise: 0.5,
                                    min: 0, max: 1)
@@ -210,7 +219,9 @@ final class VRSettingsSession: ObservableObject {
         case "visor.zoom": return "\(Int(lens.cameraZoom * 100))%"
         case "visor.curve": return "\(Int(lens.curvature * 100))%"
         case "hands.cursorSize": return "\(Int(cursorSize * 100))%"
+        case "hands.dwellDelay": return String(format: "%.1f s", Double(dwellDelay))
         case "hands.sensitivity": return "\(Int(pinchSensitivity * 100))%"
+            dwellDelay = 0.5 + t * 1.5
         case "windows.opacity": return "\(Int(windowOpacity * 100))%"
         case "windows.depth": return String(format: "%.1f m", Double(defaultDepth))
         case "cinema.fov": return "\(Int(cinemaFOV))°"
@@ -226,6 +237,7 @@ final class VRSettingsSession: ObservableObject {
         case "camera.invert": return invertUltraMotion
         case "hands.skeleton": return showSkeleton
         case "hands.cursor": return showCursor
+        case "hands.dwell": return dwellEnabled
         case "appearance.hud": return showHUD
         case "appearance.motion": return reduceMotion
         case "appearance.text": return largeText
@@ -253,6 +265,7 @@ final class VRSettingsSession: ObservableObject {
     func normalized(_ id: String) -> CGFloat {
         switch id {
         case "hands.sensitivity": return pinchSensitivity
+        case "hands.dwellDelay": return (dwellDelay - 0.5) / 1.5
         case "windows.opacity": return (windowOpacity - 0.42) / 0.58
         case "cinema.fov": return (cinemaFOV - 55) / 60
         case "web.zoom": return (webZoom - 0.65) / 0.90
@@ -336,6 +349,7 @@ final class VRSettingsSession: ObservableObject {
         case "camera.invert": invertUltraMotion.toggle()
         case "hands.skeleton": showSkeleton.toggle()
         case "hands.cursor": showCursor.toggle()
+        case "hands.dwell": dwellEnabled.toggle()
         case "appearance.hud": showHUD.toggle()
         case "appearance.motion": reduceMotion.toggle()
         case "appearance.text": largeText.toggle()
@@ -392,6 +406,8 @@ final class VRSettingsSession: ObservableObject {
         showSkeleton = true
         showCursor = true
         cursorSize = 1
+        dwellEnabled = true
+        dwellDelay = 1.0
         pinchSensitivity = 0.5
         windowOpacity = 1
         defaultDepth = 1.6
