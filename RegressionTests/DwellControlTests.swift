@@ -1,5 +1,4 @@
 import XCTest
-@testable import VROSRegressionTests
 
 final class DwellControlTests: XCTestCase {
     func testDwellFiresOnlyAfterHoldingTheSameTarget() {
