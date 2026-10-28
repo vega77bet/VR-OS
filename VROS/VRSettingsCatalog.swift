@@ -155,7 +155,8 @@ enum VRSettingsCatalog {
                 ]),
                 group("CONTROLE POR ALVO", [
                     toggle("hands.dwell", "Alvo por permanência", "Clique deixando o alvo parado sobre um botão"),
-                    slide("hands.dwellDelay", "Tempo para clicar", "Tempo que o alvo precisa permanecer parado")
+                    slide("hands.dwellDelay", "Tempo para clicar", "Tempo que o alvo precisa permanecer parado"),
+                    action("hands.recenter", "Recentralizar alvo", "Voltar o alvo para o centro do visor", "scope")
                 ]),
                 group("RECONHECIMENTO", [
                     slide("hands.sensitivity", "Sensibilidade da pinça", "Ajusta o limiar Vision quando a câmera está disponível"),
