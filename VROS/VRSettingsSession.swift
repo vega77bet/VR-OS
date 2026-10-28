@@ -131,10 +131,10 @@ final class VRSettingsSession: ObservableObject {
         showSkeleton = flag("vros.settings.skeleton.v1", otherwise: true)
         showCursor = flag("vros.settings.cursor.v1", otherwise: true)
         cursorSize = decimal("vros.settings.cursorSize.v1", otherwise: 1,
+                             min: 0.7, max: 1.6)
         dwellEnabled = flag("vros.settings.dwell.enabled.v1", otherwise: true)
         dwellDelay = decimal("vros.settings.dwell.delay.v1", otherwise: 1.0,
                              min: 0.5, max: 2.0)
-                             min: 0.7, max: 1.6)
         pinchSensitivity = decimal("vros.settings.pinch.v1", otherwise: 0.5,
                                    min: 0, max: 1)
         windowOpacity = decimal("vros.settings.opacity.v1", otherwise: 1,
@@ -221,7 +221,6 @@ final class VRSettingsSession: ObservableObject {
         case "hands.cursorSize": return "\(Int(cursorSize * 100))%"
         case "hands.dwellDelay": return String(format: "%.1f s", Double(dwellDelay))
         case "hands.sensitivity": return "\(Int(pinchSensitivity * 100))%"
-            dwellDelay = 0.5 + t * 1.5
         case "windows.opacity": return "\(Int(windowOpacity * 100))%"
         case "windows.depth": return String(format: "%.1f m", Double(defaultDepth))
         case "cinema.fov": return "\(Int(cinemaFOV))°"
@@ -279,6 +278,8 @@ final class VRSettingsSession: ObservableObject {
         switch id {
         case "hands.sensitivity":
             pinchSensitivity = t
+        case "hands.dwellDelay":
+            dwellDelay = 0.5 + t * 1.5
         case "windows.opacity":
             windowOpacity = 0.42 + t * 0.58
         case "cinema.fov":
