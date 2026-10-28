@@ -8,6 +8,7 @@ schemes:
       targets:
         - VROSRegressionTests
 options:
+  projectFormat: xcode15_0
   xcodeVersion: "15.0"
   bundleIdPrefix: com.vega77bet
   deploymentTarget:
