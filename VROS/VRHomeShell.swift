@@ -185,23 +185,78 @@ struct VRHomeBackdrop: View {
     var body: some View {
         GeometryReader { proxy in
             ZStack {
-                LinearGradient(colors: [Color(vrHex: "14171C"), Color(vrHex: "20242B"), Color(vrHex: "111318")],
-                    startPoint: .top, endPoint: .bottom)
-                Ellipse().fill(Color.white.opacity(0.035)).blur(radius: 28)
-                    .frame(width: proxy.size.width * 1.2, height: proxy.size.height * 0.25)
-                    .position(x: proxy.size.width / 2, y: proxy.size.height * 0.75)
+                LinearGradient(
+                    colors: [
+                        Color(vrHex: "050714"),
+                        Color(vrHex: "0C1230"),
+                        Color(vrHex: "070817")
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+
+                RadialGradient(
+                    colors: [
+                        Color(vrHex: "6E57FF").opacity(0.23),
+                        .clear
+                    ],
+                    center: .topTrailing,
+                    startRadius: 8,
+                    endRadius: proxy.size.width * 0.9
+                )
+
                 Canvas { context, size in
-                    let horizon = size.height * 0.76
-                    for index in 0..<8 {
-                        let t = CGFloat(index) / 7
-                        let y = horizon + t * t * (size.height - horizon)
-                        var line = Path()
-                        line.move(to: CGPoint(x: 0, y: y))
-                        line.addLine(to: CGPoint(x: size.width, y: y))
-                        context.stroke(line, with: .color(.white.opacity(0.035)), lineWidth: 0.5)
+                    for index in 0..<120 {
+                        let x = CGFloat((index * 47 + 13) % 100) / 100 * size.width
+                        let y = CGFloat((index * 73 + 19) % 76) / 100 * size.height
+                        let radius: CGFloat = index % 17 == 0 ? 1.5 : 0.65
+                        let star = CGRect(
+                            x: x - radius,
+                            y: y - radius,
+                            width: radius * 2,
+                            height: radius * 2
+                        )
+                        context.fill(
+                            Path(ellipseIn: star),
+                            with: .color(.white.opacity(index % 5 == 0 ? 0.78 : 0.34))
+                        )
                     }
+
+                    let horizon = size.height * 0.72
+                    let neon = Color(vrHex: "63E7FF")
+                    for index in 0..<9 {
+                        let t = CGFloat(index + 1) / 9
+                        let y = horizon + t * t * (size.height - horizon)
+                        var horizontal = Path()
+                        horizontal.move(to: CGPoint(x: 0, y: y))
+                        horizontal.addLine(to: CGPoint(x: size.width, y: y))
+                        context.stroke(horizontal, with: .color(neon.opacity(0.16)), lineWidth: 0.7)
+                    }
+                    for index in -9...9 {
+                        var vertical = Path()
+                        let x = size.width / 2 + CGFloat(index) * size.width / 13
+                        vertical.move(to: CGPoint(x: size.width / 2, y: horizon))
+                        vertical.addLine(to: CGPoint(x: x, y: size.height))
+                        context.stroke(vertical, with: .color(neon.opacity(0.13)), lineWidth: 0.7)
+                    }
+
+                    var horizonLine = Path()
+                    horizonLine.move(to: CGPoint(x: size.width * 0.08, y: horizon))
+                    horizonLine.addLine(to: CGPoint(x: size.width * 0.92, y: horizon))
+                    context.stroke(horizonLine, with: .color(neon.opacity(0.42)), lineWidth: 1)
                 }
+
+                LinearGradient(
+                    colors: [
+                        .black.opacity(0.25),
+                        .clear,
+                        .black.opacity(0.58)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
             }
-        }.allowsHitTesting(false)
+        }
+        .allowsHitTesting(false)
     }
 }
