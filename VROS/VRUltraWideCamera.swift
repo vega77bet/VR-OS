@@ -16,7 +16,7 @@ final class VRUltraWideCamera: NSObject, ObservableObject,
     @Published private(set) var status = "Preparando câmera traseira…"
     @Published private(set) var active = false
     @Published private(set) var hand = TrackedHand()
-    @Published private(set) var motionDelta = simd_quatf()
+    @Published private(set) var motionDelta = VRRotation.identity
     @Published private(set) var motionAvailable = false
 
     private let capture = AVCaptureSession()
@@ -30,9 +30,10 @@ final class VRUltraWideCamera: NSObject, ObservableObject,
     // frameIndex and visionBusy are owned exclusively by outputQueue.
     private var frameIndex = 0
     private var visionBusy = false
-    // outputQueue only: native Settings hides camera preview but keeps
-    // Vision gesture detection and 3DoF running at full responsiveness.
+    // outputQueue only: native Settings hides camera preview while the
+    // camera and 3DoF pose remain available.
     private var displayEnabled = true
+    private var handTrackingEnabled = false
     // Vision filter state is owned exclusively by visionQueue.
     private var filteredJoints: [CGPoint?] = Array(repeating: nil, count: 21)
     private var pinchDetector = VRPinchDetector()
@@ -66,6 +67,18 @@ final class VRUltraWideCamera: NSObject, ObservableObject,
         visionQueue.async { [weak self] in self?.pinchSensitivity = next }
     }
 
+    /// The 0.5x view is camera + head motion; Joy-Con is the input device.
+    func setHandTrackingEnabled(_ enabled: Bool) {
+        outputQueue.async { [weak self] in
+            self?.handTrackingEnabled = enabled
+        }
+        if !enabled {
+            DispatchQueue.main.async { [weak self] in
+                self?.hand = TrackedHand()
+            }
+        }
+    }
+
     func start(completion: ((Bool) -> Void)? = nil) {
         guard AVCaptureDevice.authorizationStatus(for: .video) == .authorized else {
             status = "Permita o acesso à câmera nos Ajustes"
@@ -87,7 +100,7 @@ final class VRUltraWideCamera: NSObject, ObservableObject,
             DispatchQueue.main.async {
                 self.active = running
                 self.status = running
-                    ? "Câmera traseira · mãos (Vision) + cabeça (3DoF)"
+                    ? "Câmera traseira · cabeça (3DoF)"
                     : "Não foi possível iniciar a câmera ultrawide"
                 if running { self.startHeadMotion() }
                 completion?(running)
@@ -150,7 +163,7 @@ final class VRUltraWideCamera: NSObject, ObservableObject,
     func stop(completion: (() -> Void)? = nil) {
         motion.stopDeviceMotionUpdates()
         reference = nil
-        motionDelta = simd_quatf()
+        motionDelta = VRRotation.identity
         motionAvailable = false
         active = false
         hand = TrackedHand()
@@ -177,7 +190,7 @@ final class VRUltraWideCamera: NSObject, ObservableObject,
             return
         }
         reference = nil
-        motionDelta = simd_quatf()
+        motionDelta = VRRotation.identity
         motion.deviceMotionUpdateInterval = 1.0 / 30.0
         let frames = CMMotionManager.availableAttitudeReferenceFrames()
         let frame: CMAttitudeReferenceFrame = frames.contains(.xArbitraryZVertical)
@@ -220,7 +233,7 @@ final class VRUltraWideCamera: NSObject, ObservableObject,
         reference = simd_normalize(simd_quatf(
             ix: Float(q.x), iy: Float(q.y),
             iz: Float(q.z), r: Float(q.w)))
-        motionDelta = simd_quatf()
+        motionDelta = VRRotation.identity
     }
 
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
@@ -243,8 +256,10 @@ final class VRUltraWideCamera: NSObject, ObservableObject,
                 }
             }
         }
-        // Vision at ~10fps on a separate queue, avoiding a backlog of
-        // hand requests and keeping the camera preview responsive.
+        guard handTrackingEnabled else { return }
+
+        // Optional Vision at ~10fps on a separate queue, avoiding a backlog
+        // of hand requests and keeping the camera preview responsive.
         if frameIndex % 3 == 0 && !visionBusy {
             visionBusy = true
             visionQueue.async { [weak self] in

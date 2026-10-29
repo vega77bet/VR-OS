@@ -4,7 +4,7 @@ struct VRDwellCursor: View {
     let progress: CGFloat
     let reduceMotion: Bool
 
-    private let diameter: CGFloat = 40
+    private let diameter: CGFloat = 22
 
     var body: some View {
         ZStack {
@@ -17,8 +17,8 @@ struct VRDwellCursor: View {
             Circle()
                 .trim(from: 0, to: max(0, min(1, progress)))
                 .stroke(
-                    progress >= 1 ? Color.green : Color.cyan,
-                    style: StrokeStyle(lineWidth: 3, lineCap: .round)
+                    progress >= 1 ? VRDS.Color.success : VRDS.Color.primary,
+                    style: StrokeStyle(lineWidth: 2, lineCap: .round)
                 )
                 .rotationEffect(.degrees(-90))
                 .frame(width: diameter - 4, height: diameter - 4)
@@ -28,8 +28,8 @@ struct VRDwellCursor: View {
                 .fill(Color.white)
                 .frame(width: 5, height: 5)
             Circle()
-                .stroke(Color.cyan.opacity(0.75), lineWidth: 1)
-                .frame(width: 12, height: 12)
+                .stroke(VRDS.Color.primary.opacity(0.75), lineWidth: 1)
+                .frame(width: 8, height: 8)
         }
         .shadow(color: .black.opacity(0.82), radius: 5)
         .accessibilityHidden(true)

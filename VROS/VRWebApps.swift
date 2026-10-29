@@ -434,6 +434,7 @@ private struct VRWebSurface: UIViewRepresentable {
         view.loadHTMLString("", baseURL: nil)
     }
 
+    @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         let session: VRWebSession
         let rightEye: Bool
@@ -511,22 +512,18 @@ private struct VRWebSurface: UIViewRepresentable {
 struct VRWebWindow: View {
     @ObservedObject var session: VRWebSession
     let rightEye: Bool
+    var onAddress: (() -> Void)? = nil
 
     var body: some View {
         VStack(spacing: 5) {
             HStack(spacing: 4) {
-                TextField("Endereço ou pesquisa", text: $session.address)
-                    .font(.system(size: 11))
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .keyboardType(.URL)
-                    .submitLabel(.go)
-                    .onSubmit { session.navigate() }
-                    .disabled(rightEye)
-                    .padding(.horizontal, 7)
-                    .frame(height: 30)
-                    .background(Color.white.opacity(0.11),
-                                in: RoundedRectangle(cornerRadius: 7))
+                Button { onAddress?() } label: {
+                    Text(session.address.isEmpty ? "Endereço ou pesquisa" : session.address)
+                        .font(.system(size: 11)).lineLimit(1).truncationMode(.head)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 7).frame(height: 30)
+                        .background(VRDS.Color.surfacePressed, in: Capsule())
+                }.buttonStyle(.plain).accessibilityLabel("Abrir teclado de endereço")
                 navButton(session.currentIsFavorite ? "star.fill" : "star",
                           disabled: false) { session.toggleFavorite() }
                     .frame(width: 29)

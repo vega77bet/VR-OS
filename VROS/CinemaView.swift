@@ -53,8 +53,10 @@ private struct CinemaSeat {
     let column: Int
     let position: SCNVector3
 
+    // The recliner cushion reaches roughly 2.3 virtual metres. Keep the
+    // viewer's eyes above the cushion and headrest for a clearer screen view.
     var cameraPosition: SCNVector3 {
-        SCNVector3(position.x, position.y + 1.70, position.z - 0.13)
+        SCNVector3(position.x, position.y + 2.55, position.z - 0.13)
     }
 
     var label: String { "F\(row + 1) · P\(column + 1)" }
@@ -118,7 +120,7 @@ final class CinemaModel: ObservableObject {
     @Published var invertTracking = false
     private var screenPitchOffset: Float = 0
     private var screenYawOffset: Float = 0
-     private var screenAimOrientation = simd_quatf()
+     private var screenAimOrientation = VRRotation.identity
     private var lastMotionTimestamp: TimeInterval = 0
     private var roomLights: [SCNLight] = []
     private var ambientLight: SCNLight?
@@ -315,7 +317,7 @@ final class CinemaModel: ObservableObject {
             if self.motionReference == nil {
                 self.motionReference = current
                 self.headTrackingStatus = "Cabeça: sensores ativos"
-                self.applyHeadOrientation(simd_quatf())
+                self.applyHeadOrientation(VRRotation.identity)
             }
             guard let baseline = self.motionReference else { return }
 
@@ -351,7 +353,7 @@ final class CinemaModel: ObservableObject {
         } else if let pose = lastARPose {
             initialOrientation = simd_quatf(pose.transform)
         }
-        applyHeadOrientation(simd_quatf())
+        applyHeadOrientation(VRRotation.identity)
         revealControls()
     }
 
@@ -387,7 +389,7 @@ final class CinemaModel: ObservableObject {
                              screenPitchOffset * 180 / .pi
         screenYawDegrees = VRCinemaGeometry.yawDegrees(from: eye) +
                            screenYawOffset * 180 / .pi
-        applyHeadOrientation(simd_quatf())
+        applyHeadOrientation(VRRotation.identity)
     }
 
     private func applyHeadOrientation(_ delta: simd_quatf) {
@@ -1337,6 +1339,8 @@ struct CinemaEyeView: View {
     @ObservedObject var runtime: VRRuntime
     @ObservedObject var cinema: CinemaModel
     @ObservedObject var updates: LiveUpdateManager
+    @ObservedObject var dwell: VRDwellController
+    let dwellDelay: CGFloat
     let onExit: () -> Void
     @State private var lastPinch = false
     @State private var gazeSeatID: Int?
@@ -1366,6 +1370,7 @@ struct CinemaEyeView: View {
                     VRCinemaToolbar(viewport: geometry.size, action: headerAction)
                     Spacer()
                 }
+                .zIndex(20)
                 if cinema.seatSelectionMode {
                     ZStack {
                         Circle()
@@ -1383,7 +1388,7 @@ struct CinemaEyeView: View {
                     .allowsHitTesting(false)
                     VStack {
                         Spacer()
-                        Text("Olhe 1,5 s para a bolinha, faça pinça ou toque")
+                        Text("Olhe \(String(format: "%.1f", Double(dwellDelay))) s para a bolinha, faça pinça ou toque")
                             .font(.system(size: 9, weight: .semibold))
                             .lineLimit(2)
                             .minimumScaleFactor(0.7)
@@ -1532,11 +1537,27 @@ struct CinemaEyeView: View {
                 }
             }
             .animation(.easeInOut(duration: 0.25), value: cinema.controlsVisible)
+            .onReceive(dwell.$pulse) { _ in
+                guard !rightEye, dwell.active, !cinema.showPicker, !pickingPhotoMovie else { return }
+                let point = dwell.point(in: geometry.size)
+                let target = VRCinemaDwellGeometry.target(at: point, viewport: geometry.size,
+                    libraryVisible: cinema.libraryVisible, page: cinema.libraryPage, itemCount: cinema.panelItems.count)
+                if dwell.updateTarget(target.map { "cinema." + $0.key }), let target = target {
+                    switch target {
+                    case let .header(slot): headerAction(slot)
+                    case .closeLibrary: cinema.libraryVisible = false
+                    case let .page(delta): cinema.changeLibraryPage(delta)
+                    case let .item(index):
+                        if cinema.panelItems.indices.contains(index) { cinema.selectLibrary(cinema.panelItems[index].command) }
+                    }
+                }
+            }
             .onReceive(gazeTimer) { _ in
                 // Only left eye runs the gaze timer; the model publishes
                 // progress so both headset eyes display one synchronized ring.
                 guard !rightEye else { return }
-                guard cinema.seatSelectionMode else {
+                guard cinema.seatSelectionMode, !cinema.libraryVisible,
+                      !cinema.showPicker, !pickingPhotoMovie else {
                     gazeSeatID = nil
                     if cinema.gazeProgress != 0 { cinema.gazeProgress = 0 }
                     return
@@ -1552,8 +1573,8 @@ struct CinemaEyeView: View {
                     cinema.gazeProgress = 0
                 }
                 let elapsed = Date().timeIntervalSince(gazeBeganAt)
-                cinema.gazeProgress = CGFloat(min(1, max(0, elapsed / 1.5)))
-                if elapsed >= 1.5 {
+                cinema.gazeProgress = CGFloat(min(1, max(0, elapsed / Double(dwellDelay))))
+                if elapsed >= Double(dwellDelay) {
                     _ = cinema.chooseSeatByGaze(target)
                     gazeSeatID = nil
                     cinema.gazeProgress = 0
@@ -1668,6 +1689,14 @@ struct CinemaEyeView: View {
                             .allowsHitTesting(false)
                     }
                 }
+            }
+        }
+        .overlay {
+            if dwell.active {
+                GeometryReader { geometry in
+                    VRDwellCursor(progress: dwell.progress, reduceMotion: false)
+                        .position(dwell.point(in: geometry.size))
+                }.allowsHitTesting(false)
             }
         }
         .photosPicker(isPresented: rightEye ? .constant(false) : $pickingPhotoMovie,

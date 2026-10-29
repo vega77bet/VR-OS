@@ -1,79 +1,64 @@
-# VR-OS 4.7 — Ajustes nativos em cinza + visor curvo, mãos e câmera 0,5x
+# VR-OS 7.0 · V48
 
-Aplicativo **experimental de realidade mista** para iPhone em modo paisagem, pensado para uso sentado com um headset simples tipo VR Box. **Não substitui o iOS** e não instala aplicativos iOS dentro das janelas.
+Sistema VR experimental para **iPhone e VR Box**, com dois visores calibráveis, biblioteca de aplicativos, janelas espaciais e seleção pela orientação da cabeça. A reconstrução V48 segue o Home e a paleta descritos na auditoria do PhoneXR, com implementação nativa em SwiftUI/UIKit.
 
-## Destaque V21 — aplicativo Ajustes nativo estilo iPhone
+## O que mudou
 
-- **Ajustes na Central de Apps:** sexto aplicativo, interface nativa em tons de cinza, organizada em **nove categorias** com grupos arredondados, setas de navegação, telas de detalhes e barra de busca.
-- **Rolagem de verdade:** listas grandes em **UITableView**, controle por toque nos dois olhos ou por pinça/arraste da mão, mantendo os dois olhos sincronizados.
-- **Controles funcionais:** UISwitch, UISlider, botões +/− para visor/IPD/altura, câmera 0,5x/ARKit, sensibilidade real da pinça, janelas, temas, Cinema, zoom da web, limpeza de favoritos e restauração.
-- **Tudo salvo:** preferências de visor, câmera, mão, HUD, janelas, Cinema e web persistem no iPhone. Limpar favoritos e restaurar ajustes exigem confirmação em dois passos.
-- **Limite:** é inspirado no design dos Ajustes da Apple, não um clone do aplicativo iOS e não consegue alterar Wi-Fi, Apple ID ou outras opções protegidas do sistema.
-- Detalhes técnicos, navegação e roteiro de testes em [V21_AJUSTES.md](V21_AJUSTES.md).
+- **Biblioteca espacial:** painel com categorias laterais, grade de seis itens por página, busca que ignora acentos, ordenação por nome ou uso recente e seção de janelas abertas/minimizadas.
+- **Dock flutuante:** relógio, bateria quando disponível, centralização, busca, câmera opcional, quatro aplicativos fixados e Biblioteca. Os pins e o histórico de abertura são salvos no aparelho.
+- **Janelas:** barra inferior com mover, diminuir, aumentar, expandir/restaurar, minimizar e fechar. Janelas minimizadas podem ser recuperadas na Biblioteca.
+- **Teclado espacial:** letras, números, símbolos, apagar, limpar e espaço. Usa toque, pinça ou a mira para pesquisar apps, buscar nos Ajustes e digitar endereços/pesquisas no navegador.
+- **Modo sem câmera por padrão:** Home, mira, navegador, mídia e Cinema podem ser usados sem iniciar ARKit nem solicitar permissão de câmera. Core Motion fornece orientação, nunca posição 6DoF nesse modo.
+- **Tema escuro:** fundo `#14171C`, superfícies `#20242B`/`#252A31`, controles `#3A3F48`, texto `#F2F2F2` e painéis arredondados. Ícone original do VR-OS incluído no catálogo.
 
-## Destaque V20 — dois visores curvos como na imagem de referência
+## Usar
 
-- **Novas aberturas ópticas:** em vez de duas metades retangulares ocupando toda a tela, dois blocos curvos sobre fundo preto, com centros mais próximos e tamanho/calibração independentes do tamanho da tela. O mesmo layout vale para Home ARKit, ultrawide 0,5x e Cinema.
-- **Perfil Referência (padrão):** cada olho usa 28,5% da largura e 60% da altura da tela; centros em 35% e 65% da largura, altura do centro em 62,5%, aproximadamente como na imagem enviada.
-- **Perfis VR Box + / Compacto:** alternativa com área maior ou visor menor, conforme o headset.
-- **Botão Visor no dock:** ajuste por toque ou pinça de tamanho, separação visual/IPD, altura, zoom digital e curvatura. Configuração persistente no iPhone. Não representa calibração óptica física.
-- **Central de Apps paginada:** todos os sete atalhos continuam acessíveis mesmo em visores compactos; menu Temas reduz o tamanho dos cartões.
-- **Limitações:** a máscara não aumenta FOV óptico nem altera a lente 0,5x, e o zoom digital acima de 100% **recorta** parte da câmera. A imagem de ambas as câmeras permanece monocular, copiada para os dois olhos. Consulte [V20_VISOR_LENTES.md](V20_VISOR_LENTES.md) para medidas e testes.
+1. Abra o VR-OS com o iPhone na horizontal. A Biblioteca aparece nos dois visores.
+2. Mova a cabeça para posicionar a mira e mantenha o alvo sobre um botão por **1 segundo**. O anel mostra o progresso; o botão dispara uma vez até o alvo mudar. O tempo é configurável nos Ajustes. As setas na lateral inferior dos Ajustes permitem rolar sem tocar no iPhone.
+3. Abra Cinema, Navegador, Arquivos, Fotos ou Ajustes. São recursos reais do próprio aplicativo. YouTube, Netflix, Twitch e Wikipedia abrem seus sites.
+4. Use o pequeno pin em cada cartão para fixar/desafixar um aplicativo no dock. Há quatro lugares; fixar um quinto substitui o último.
+5. Abra o relógio para os ajustes rápidos: brilho do iPhone, câmera, centralização, mira, visor e ambientes.
+6. Na barra abaixo de uma janela, escolha **Mover**, olhe para outro ponto e mantenha a mira parada para colocar a janela ali. O aviso superior cancela a operação. Com câmera e mão válidas, a alça branca antiga também mantém a movimentação por pinça.
+7. Use Biblioteca → Janelas para restaurar uma janela minimizada. O botão de expandir alterna o modo foco.
+8. O ícone de câmera liga/desliga a captura opcional. O modo 0,5x continua nos Ajustes e depende de uma lente ultrawide funcional.
 
-## Destaque V19 — ultrawide real com mãos e cabeça
+A mira acompanha o movimento do iPhone/cabeça; não é um sensor que detecta a direção dos olhos. A tela continua aceitando toque físico. Os seletores de importação e as autorizações do próprio iOS podem exigir toque; importe os arquivos antes de colocar o headset.
 
-- O botão **0,5x** abre a câmera ultrawide física do iPhone. A V19 mantém **Vision** lendo a mesma captura para reconhecer mão, cursor, esqueleto e pinça.
-- O **Core Motion** oferece orientação da cabeça em **3DoF**, para movimentar a perspectiva das janelas em direções angulares aproximadas; o modo 0,5x **não oferece posição espacial 6DoF/SLAM do ARKit**.
-- A mão pode clicar em menus, rolar textos/sites e arrastar janelas em 2D/ângulo usando a pinça. Precisa que a lente traseira realmente enxergue a mão.
-- O cabeçalho da câmera 0,5x inclui **Mira** (recentralizar janelas), **Tela toda / Preencher** (mostrar sensor inteiro com barras pretas ou ampliar/cortar), **Mov./Inv.** (inverter direção de rotação) e **ARKit** (voltar ao rastreamento espacial completo).
-- Ao abrir 0,5x, ARKit é pausado para liberar câmera traseira; ao voltar, a ultrawide é desligada antes da retomada do ARKit. Cinema usa o modo ARKit.
-- Detalhes, limitações e testes em [V19_RASTREAMENTO_05X.md](V19_RASTREAMENTO_05X.md).
+## Recursos preservados
 
-## Recursos anteriores (V17–V18)
+Cinema com reprodução local via AVPlayer, modos 2D/SBS/H-SBS/OU, seleção de assentos, controles por mira, ajustes de FOV e áudio; importação e organização de documentos/imagens/vídeos; navegador WKWebView com favoritos, histórico e abas gerenciadas pela Central VR; Ajustes nativos com persistência; perfis dos dois visores; ambientes procedurais; ARKit/Vision e câmera 0,5x opcionais; atualizações de conteúdo HTTPS.
 
-- **Cinema virtual** com 72 poltronas, telão para arquivos locais MP4/MOV, modos 2D, SBS, H-SBS e OU, um AVPlayer para manter o vídeo dos dois olhos sincronizado, seleção de cadeira por toque, pinça ou **olhar fixamente por 1,5 s** para a bolinha.
-- **Ajustes de Cinema**: Centralizar, Mirar tela, Tela ↑/↓/←/→, FOV horizontal 55°–115°, MAX, inverter direção do movimento e trocar lados 3D. FOV, cadeira e calibração são persistidos localmente.
-- **Home espacial**: janelas em âncoras ARKit com movimento por pinça na linha branca; quatro temas (Grafite, Cosmos, Aurora e Synthwave). Dock minimizável no canto para não obstruir as alças das janelas.
-- **Textos legíveis**: as janelas de notas agora rolam verticalmente por toque, botões ou pinça; A− / A+ ajustam o tamanho da fonte.
-- **Central de Apps**: YouTube, Netflix, Navegador, Wikipedia e Twitch como sites em **WKWebView**, uma página por olho. Suporta Modo Foco, página Zoom +/−, rolagem por setas e pinça, favoritos de até quatro URLs, navegação HTTPS, recarregar, voltar e abrir no Safari.
-- **HUD** com versão instalada, relógio, bateria (quando disponível) e estado da câmera. Conteúdo remoto de janelas é buscado por HTTPS e fica em cache.
-- **Melhorias de desempenho**: ARKit e Vision processam localmente; previews CGImage ficam suspensos em Cinema e temas procedurais; há limite de três apps web abertos ao mesmo tempo.
+## Limites da versão iPhone
 
-## Como controlar
+- **Não executa APK Android, jogos Quest/Gear VR ou binários OpenXR/Monado.** O runtime, o patcher Android e o AccessibilityService da auditoria não são componentes iOS.
+- Não há integração WebXR imersiva, backend de contas/amigos/chamadas, assistente remota, streaming de desktop ou protocolo PhoneXR PH5/PH6 nesta versão.
+- Vision continua detectando uma mão. A fusão MediaPipe/YOLO do Android não foi portada.
+- A câmera é monocular, copiada para os dois olhos; não há passthrough estéreo real. A orientação sem câmera é 3DoF. Posição 6DoF depende do caminho ARKit e de câmera funcional.
+- O navegador permite até três janelas web simultâneas e mantém duas WKWebViews por sessão; conteúdo dinâmico pode diferir entre os olhos. Vídeo com DRM ou interação que exige evento nativo pode precisar do Safari/toque físico.
+- Janelas não sobrevivem ao encerramento do app. Pins, recentes e preferências sobrevivem.
+- Uma falha física na câmera não é corrigida por software. O modo padrão evita depender dela.
 
-1. Coloque o iPhone na horizontal; execute o app e permita câmera/movimento.
-2. **Dock**: Janela, Apps, Cinema, Atualizar, Temas, Centro, 0,5x/ARKit e Visor. Em **Apps**, abra o aplicativo **Ajustes** (sexto item) para configurar essas funções com listas, controles nativos, busca e rolagem. Em Visor, selecione Referência, VR Box + ou Compacto e ajuste IPD visual e tamanho dos dois olhos. Depois de selecionar, o Dock pode virar um botão pequeno no canto inferior esquerdo; toque ou faça pinça nesse botão para reabri-lo.
-3. **Mover janela**: segure a pinça na **linha branca abaixo** do cartão e arraste a mão. A distância usa estimativa monocular e pode variar.
-4. **Nota longa**: role tocando, use ↑/↓ ou segure a pinça sobre o texto e mova a mão. A−/A+ mudam o tamanho da letra.
-5. **Site**: abra Apps, selecione a plataforma; expanda pelo ícone no cabeçalho para Modo Foco. Use setas de scroll, zoom de página, estrelinha para salvar favorito, ou pinça curta em links e pinça prolongada para rolar. Alguns sites exigem toque físico.
-6. **Cinema**: ajuste a mira com Centralizar/Mirar tela, escolha uma poltrona com a mira, toque ou pinça. Teste direção e FOV antes de colocar um vídeo grande; pare se sentir tontura.
+A matriz completa está em [V48_IMPLEMENTACAO.md](V48_IMPLEMENTACAO.md).
 
-## Limites reais
+## Compilação e testes
 
-- O iPhone padrão não tem LiDAR; o Z da mão é **estimado pela largura aparente da palma**, não medido com sensor 3D.
-- A câmera real é **monocular** e projetada para os dois olhos; não é passthrough estéreo verdadeiro.
-- O FOV configurável altera a câmera **virtual**, nunca o campo óptico do headset.
-- Netflix e outros provedores podem bloquear vídeo DRM em WKWebView. YouTube, Twitch e conteúdo dinâmico podem apresentar diferenças entre as duas páginas web independentes por olho; clicar por JavaScript não produz toque nativo confiável.
-- A captura da mão pela câmera traseira pode ser bloqueada pelo próprio VR Box. O Cinema oferece seleção de assento por **olhar**, mas Home/apps ainda usam toque ou mão.
-- As posições espaciais não são âncoras persistentes; reiniciar o aplicativo remove as janelas. O tracking do ARKit pode derivar em ambientes escuros.
-- **A compilação e os testes de geometria passam no macOS, mas não garantem calibração, latência, legibilidade, conforto ou compatibilidade de sites no iPhone real.**
-- Use sentado e sem obstáculos. Pare imediatamente em caso de náusea ou desconforto visual.
+`project.yml` usa XcodeGen, formato **xcode15_0**, iOS 16+, Swift 5 e build 48. O fluxo `.github/workflows/build-ipa.yml` executa os testes de geometria, compila o aplicativo Release sem assinatura, executa os testes de regressão no simulador e produz prévias PNG e IPA unsigned.
 
-## Compilar e instalar
-
-`project.yml` define o target iOS 16+; o CI executa:
 ```sh
 brew install xcodegen
 xcodegen generate
-swiftc VROS/VRGestureGeometry.swift VROS/VRCinemaGeometry.swift VROS/VRUltraWideWindowProjection.swift VROS/VRPinchDetector.swift VROS/VRLensGeometry.swift VROS/VRSettingsCatalog.swift VROS/VRSettingsInputGeometry.swift Tests/main.swift -o /tmp/vros-tests
-/tmp/vros-tests
-xcodebuild -project VROS.xcodeproj -scheme VROS -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
+xcodebuild -project VROS.xcodeproj -scheme VROS -configuration Release \
+  -sdk iphoneos -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
+xcodebuild -project VROS.xcodeproj -scheme VROSRegression \
+  -destination 'platform=iOS Simulator,name=iPhone 15' CODE_SIGNING_ALLOWED=NO test
 ```
 
-O workflow `.github/workflows/build-ipa.yml` faz build e publica um **IPA unsigned** em Artifacts. Para instalar, **assine** esse IPA com credenciais e um método compatível com o iPhone. Um IPA unsigned não instala diretamente nem se atualiza por download OTA.
+Os resultados de uma execução precisam ser consultados no Actions; a existência do workflow ou dos testes não comprova aprovação. Um IPA unsigned exige assinatura com método compatível com o iPhone, como o método de sideload já utilizado pelo usuário. Não instala diretamente por um download OTA.
 
-## Conteúdo remoto
+## Referência e procedência
 
-O manifesto público `https://vr-os-content-updates.vercel.app/manifest.json` fornece apenas **textos, templates de janelas, algumas cores e metadados de versão**. É validado, mantido em cache local e **não executa Swift nem atualiza recursos nativos**. Novos apps web/gestos/correções de código exigem outra IPA assinada. Os frames de câmera e pontos da mão são processados localmente.
+Referência arquitetural/visual: [samrat1games/phonexr](https://github.com/samrat1games/phonexr), snapshot auditado `27c5bc469fb736fb0c00b7254a6dfc532fea7003`, especialmente `Theme.kt`, `HomePanel.kt` e `WindowChrome.kt`.
 
-Para o aplicativo Ajustes e seus testes, veja [V21_AJUSTES.md](V21_AJUSTES.md). Para visor e perfis, veja [V20_VISOR_LENTES.md](V20_VISOR_LENTES.md). Para as melhorias anteriores, consulte [V19_RASTREAMENTO_05X.md](V19_RASTREAMENTO_05X.md) e `V17_AUDITORIA.md`.
+Os novos componentes Swift desta reconstrução e o ícone do VR-OS são implementações próprias. Não foram importados o código Kotlin, binários, chaves de assinatura, contas ou serviços Supabase do projeto de referência. A referência é creditada sem transformar o aplicativo em uma distribuição do PhoneXR.
+
+A documentação histórica permanece nos arquivos V16–V47; quando houver divergência, este README e a matriz V48 descrevem a versão atual.

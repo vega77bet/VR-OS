@@ -124,7 +124,7 @@ print("PASS: all 72 cinema chairs point at the screen centre to 0.01%")
 let ultraViewport = CGSize(width: 196, height: 390)
 let centre = CGPoint(x: ultraViewport.width / 2,
                      y: ultraViewport.height / 2)
-let identity = simd_quatf()
+let identity = VRRotation.identity
 let centreRay = VRUltraWideWindowProjection.screenRay(
     at: centre, viewport: ultraViewport)
 verify(simd_distance(centreRay, SIMD3<Float>(0, 0, -1)) < 0.00001,
