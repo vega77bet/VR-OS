@@ -53,8 +53,10 @@ private struct CinemaSeat {
     let column: Int
     let position: SCNVector3
 
+    // The recliner cushion reaches roughly 2.3 virtual metres. Keep the
+    // viewer's eyes above the cushion and headrest for a clearer screen view.
     var cameraPosition: SCNVector3 {
-        SCNVector3(position.x, position.y + 1.70, position.z - 0.13)
+        SCNVector3(position.x, position.y + 2.55, position.z - 0.13)
     }
 
     var label: String { "F\(row + 1) · P\(column + 1)" }
