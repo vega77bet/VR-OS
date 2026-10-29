@@ -359,9 +359,8 @@ struct VRHomeView: View {
                 pickedImage = nil
             }
         }
-        .onChange(of: selectedTheme) { theme in
-            runtime.setCameraPreviewEnabled(
-                theme == .graphite && !settingsOpen)
+        .onChange(of: selectedTheme) { _ in
+            runtime.setCameraPreviewEnabled(cameraEnabled && !settingsOpen)
         }
         .onChange(of: focusedWebPanelID) { id in
             workspace.synchronizeFocus(id)
