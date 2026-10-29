@@ -181,6 +181,8 @@ struct VRHomeView: View {
     @State private var eyeViewport = CGSize(width: 200, height: 390)
     @StateObject private var settings = VRSettingsSession()
     @StateObject private var dwell = VRDwellController()
+    // Force the camera-free angular layout to redraw on every sensor frame.
+    @State private var headMotionRevision = 0
     @StateObject private var homeLibrary = VRHomeLibrary()
     @StateObject private var keyboard = VRSpatialKeyboardSession()
     @AppStorage("vros.camera.enabled.v48") private var cameraEnabled = false
@@ -256,6 +258,10 @@ struct VRHomeView: View {
             }
             .onReceive(ultraWide.$hand) { hand in
                 if ultraWideMode { processGesture(hand, size: eyeSize) }
+            }
+            .onReceive(dwell.$headRotation) { _ in
+                headMotionRevision &+= 1
+                processDwell(size: eyeSize)
             }
             .onReceive(dwell.$normalizedPoint) { _ in
                 processDwell(size: eyeSize)
@@ -518,7 +524,7 @@ struct VRHomeView: View {
         case .move:
             focusedWebPanelID = nil
             movingWindowID = movingWindowID == id ? nil : id
-            moveStartedAt = dwell.point(in: size)
+            moveStartedAt = dwellCenter(in: size)
         }
     }
 
@@ -531,7 +537,7 @@ struct VRHomeView: View {
         } else if ultraWideMode {
             ultraPanelDirections[id] = VRUltraWideWindowProjection.anchoredDirection(at: point, viewport: size, headRotation: effectiveUltraRotation)
         } else {
-            angularDirections[id] = VRUltraWideWindowProjection.anchoredDirection(at: point, viewport: size, headRotation: dwell.headRotation)
+            angularDirections[id] = VRUltraWideWindowProjection.anchoredDirection(at: point, viewport: size, headRotation: effectiveDwellRotation)
             panels[index].x = (point.x - size.width / 2) / max(1, size.width / 2)
             panels[index].y = (point.y - size.height / 2) / max(1, size.height / 2)
         }
@@ -769,6 +775,13 @@ struct VRHomeView: View {
         }
     }
 
+    // In camera-free VR, an anchored window moves opposite the head's
+    // physical rotation. Invert the stored delta so the user's visible
+    // movement follows the expected direction.
+    private var effectiveDwellRotation: simd_quatf {
+        simd_inverse(dwell.headRotation)
+    }
+
     private var effectiveUltraRotation: simd_quatf {
         ultraInvertMotion ? simd_inverse(ultraWide.motionDelta)
                           : ultraWide.motionDelta
@@ -799,6 +812,9 @@ struct VRHomeView: View {
     }
 
     private func eyeView(right: Bool, size: CGSize) -> some View {
+        // Read the revision so SwiftUI invalidates both eye canvases when
+        // Core Motion publishes a new head rotation.
+        let _ = headMotionRevision
         let w = size.width
         let h = size.height
         let shownHand = ultraWideMode ? ultraWide.hand : runtime.hand
@@ -956,7 +972,7 @@ struct VRHomeView: View {
             if dwell.active {
                 VRDwellCursor(progress: dwell.progress,
                               reduceMotion: settings.reduceMotion)
-                    .position(dwell.point(in: size))
+                    .position(dwellCenter(in: size))
                     .zIndex(90)
             }
 
@@ -1295,7 +1311,7 @@ struct VRHomeView: View {
                                    y: size.height / 2 + panel.y * size.height / 2)
             let direction = angularDirections[panel.id] ?? VRUltraWideWindowProjection.screenRay(at: position, viewport: size)
             guard let point = VRUltraWideWindowProjection.project(direction,
-                headRotation: dwell.headRotation, viewport: size) else { return nil }
+                headRotation: effectiveDwellRotation, viewport: size) else { return nil }
             let offset = min(CGFloat(10), CGFloat(7 / max(panel.depth, 0.65)))
             return CGPoint(x: point.x + (right ? -offset : offset), y: point.y)
         }
@@ -1471,11 +1487,15 @@ struct VRHomeView: View {
         return mappedPoint(raw, size: size)
     }
 
-    /// The dwell pointer uses the same geometry as the existing pinch
-    /// input. This keeps both eyes synchronized and avoids camera dependency.
+    /// The reticle is a fixed center-screen target. Head motion moves the
+    /// windows behind it; it must never make the reticle itself drift.
+    private func dwellCenter(in size: CGSize) -> CGPoint {
+        CGPoint(x: size.width / 2, y: size.height / 2)
+    }
+
     private func processDwell(size: CGSize) {
         guard dwell.active, !cinemaOpen else { return }
-        let point = dwell.point(in: size)
+        let point = dwellCenter(in: size)
         let key = dwellTargetKey(at: point, size: size)
         if dwell.updateTarget(key) {
             triggerDwell(at: point, size: size)
@@ -2340,7 +2360,7 @@ struct VRHomeView: View {
             let point = CGPoint(x: eyeViewport.width / 2 + panel.x * eyeViewport.width / 2,
                                 y: eyeViewport.height / 2 + panel.y * eyeViewport.height / 2)
             angularDirections[panel.id] = VRUltraWideWindowProjection.anchoredDirection(
-                at: point, viewport: eyeViewport, headRotation: dwell.headRotation)
+                at: point, viewport: eyeViewport, headRotation: effectiveDwellRotation)
         }
         guard ultraWideMode else { return }
         let point = CGPoint(
