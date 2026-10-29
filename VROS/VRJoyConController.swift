@@ -33,7 +33,7 @@ final class VRJoyConController: ObservableObject {
         started = true
         observerTokens.append(
             NotificationCenter.default.addObserver(
-                forName: GCController.didConnectNotification,
+                forName: GCController.GCControllerDidConnect,
                 object: nil,
                 queue: .main
             ) { [weak self] note in
@@ -43,7 +43,7 @@ final class VRJoyConController: ObservableObject {
         )
         observerTokens.append(
             NotificationCenter.default.addObserver(
-                forName: GCController.didDisconnectNotification,
+                forName: GCController.GCControllerDidDisconnect,
                 object: nil,
                 queue: .main
             ) { [weak self] note in
