@@ -61,7 +61,7 @@ targets:
         CURRENT_PROJECT_VERSION: "49"
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_NSCameraUsageDescription: "O VR OS usa a câmera traseira para mostrar o ambiente e rastrear as mãos e mapear o ambiente com ARKit."
+        INFOPLIST_KEY_NSCameraUsageDescription: "O VR-OS usa a câmera traseira para mostrar o ambiente e acompanhar o movimento do iPhone com ARKit."
         INFOPLIST_KEY_NSMotionUsageDescription: "O VR OS usa os sensores para acompanhar os movimentos da cabeça."
         INFOPLIST_KEY_GCSupportsControllerUserInteraction: YES
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
