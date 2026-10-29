@@ -186,7 +186,7 @@ struct VRHomeView: View {
     @State private var headMotionRevision = 0
     @StateObject private var homeLibrary = VRHomeLibrary()
     @StateObject private var keyboard = VRSpatialKeyboardSession()
-    @AppStorage("vros.camera.enabled.v48") private var cameraEnabled = false
+    @AppStorage("vros.camera.enabled.v48") private var cameraEnabled = true
     @State private var movingWindowID: UUID?
     @State private var moveStartedAt: CGPoint?
     @State private var angularDirections: [UUID: SIMD3<Float>] = [:]
@@ -254,12 +254,6 @@ struct VRHomeView: View {
                 guard cameraEnabled, let pose = pose else { return }
                 anchorPendingPanels(pose: pose, size: eyeSize)
             }
-            .onReceive(runtime.$hand) { hand in
-                if !ultraWideMode { processGesture(hand, size: eyeSize) }
-            }
-            .onReceive(ultraWide.$hand) { hand in
-                if ultraWideMode { processGesture(hand, size: eyeSize) }
-            }
             .onReceive(dwell.$headRotation) { _ in
                 headMotionRevision &+= 1
                 processDwell(size: eyeSize)
@@ -294,8 +288,19 @@ struct VRHomeView: View {
         }
         .ignoresSafeArea()
         .onAppear {
-            selectedTheme = VRTheme(rawValue:
-                UserDefaults.standard.integer(forKey: "vros.selectedTheme.v1")) ?? .graphite
+            let cameraUpgradeKey = "vros.camera.default.v49.applied"
+            if !UserDefaults.standard.bool(forKey: cameraUpgradeKey) {
+                cameraEnabled = true
+                UserDefaults.standard.set(true, forKey: cameraUpgradeKey)
+            }
+            if let rawTheme = UserDefaults.standard.object(forKey: "vros.selectedTheme.v1") as? Int,
+               let savedTheme = VRTheme(rawValue: rawTheme) {
+                selectedTheme = savedTheme
+            } else {
+                selectedTheme = .cosmos
+                UserDefaults.standard.set(VRTheme.cosmos.rawValue,
+                                          forKey: "vros.selectedTheme.v1")
+            }
             let savedWebZoom = UserDefaults.standard.double(forKey: "vros.webZoom.v1")
             webWindowZoom = savedWebZoom > 0
                 ? min(1.55, max(0.65, CGFloat(savedWebZoom))) : 1.0
@@ -307,6 +312,7 @@ struct VRHomeView: View {
             }
             runtime.setPinchSensitivity(settings.pinchSensitivity)
             ultraWide.setPinchSensitivity(settings.pinchSensitivity)
+            runtime.setHandTrackingEnabled(false)
             dwell.setDelay(settings.dwellDelay)
             joyCon.start()
             if joyCon.isConnected {
@@ -316,7 +322,7 @@ struct VRHomeView: View {
             }
             UIDevice.current.isBatteryMonitoringEnabled = true
             UIApplication.shared.isIdleTimerDisabled = true
-            runtime.setCameraPreviewEnabled(selectedTheme == .graphite)
+            runtime.setCameraPreviewEnabled(cameraEnabled && !settingsOpen)
             runtime.setCinemaMode(cinemaOpen)
             if !cameraEnabled {
                 runtime.stop()
@@ -484,7 +490,7 @@ struct VRHomeView: View {
             case "updates": openUpdatesWindow()
             case "compatibility":
                 let panel = VRPanel(title: "VR-OS · Plataforma iPhone", icon: "info.circle",
-                    text: "RECURSOS NATIVOS\nBiblioteca, dock, teclado espacial, olhar de 1 segundo, janelas, ambientes, navegador HTTPS, fotos, arquivos e Cinema 2D/SBS/OU.\n\nRASTREAMENTO\nSem câmera: orientação Core Motion (3DoF). Câmera opcional: ARKit e mão Vision; 0,5x depende de lente disponível.\n\nCOMPATIBILIDADE\nAPKs Android, Monado, VrApi e jogos Quest não executam nesta versão iOS. WebXR imersivo não foi integrado.\n\nSERVIÇOS\nConta, amigos, chamadas e assistente não estão conectados. Nenhum backend ou chave de outro aplicativo é utilizado.")
+                    text: "RECURSOS NATIVOS\nBiblioteca, dock, teclado espacial, olhar de 1 segundo, janelas, ambientes, navegador HTTPS, fotos, arquivos e Cinema 2D/SBS/OU.\n\nRASTREAMENTO\nSem câmera: orientação Core Motion (3DoF). Câmera traseira: ARKit + Joy-Con; 0,5x depende de lente disponível.\n\nCOMPATIBILIDADE\nAPKs Android, Monado, VrApi e jogos Quest não executam nesta versão iOS. WebXR imersivo não foi integrado.\n\nSERVIÇOS\nConta, amigos, chamadas e assistente não estão conectados. Nenhum backend ou chave de outro aplicativo é utilizado.")
                 panels.append(panel)
                 registerUltraWindow(panel)
             default: break
@@ -614,7 +620,7 @@ struct VRHomeView: View {
         settings.searchText = ""
         settings.enter(.home)
         settingsOpen = true
-        // The opaque Settings surface needs camera pose + Vision but does
+        // The opaque Settings surface needs only the camera pose.
         // not need CGImage rendering behind the stereo UI.
         runtime.setCameraPreviewEnabled(false)
         ultraWide.setDisplayEnabled(false)
@@ -636,7 +642,7 @@ struct VRHomeView: View {
 
     private func closeSettings() {
         settingsOpen = false
-        runtime.setCameraPreviewEnabled(selectedTheme == .graphite)
+        runtime.setCameraPreviewEnabled(cameraEnabled && !settingsOpen)
         ultraWide.setDisplayEnabled(true)
         settingsGesture = nil
         lastPinch = false
@@ -743,8 +749,7 @@ struct VRHomeView: View {
                 ultraPanelDirections.removeAll()
                 ultraDrag = nil
                 ultraNotice = nil
-                runtime.setCameraPreviewEnabled(
-                    selectedTheme == .graphite && !settingsOpen)
+                runtime.setCameraPreviewEnabled(cameraEnabled && !settingsOpen)
                 if scenePhase == .active && cameraEnabled { runtime.resume() }
                 cameraTransitioning = false
                 if settings.cameraUltra && cameraEnabled { toggleUltraWide() }
@@ -786,8 +791,7 @@ struct VRHomeView: View {
                     ultraPanelDirections.removeAll()
                     settings.cameraUltra = false
                     settings.notice = "Câmera 0,5x indisponível; ARKit restaurado"
-                    runtime.setCameraPreviewEnabled(
-                        selectedTheme == .graphite && !settingsOpen)
+                    runtime.setCameraPreviewEnabled(cameraEnabled && !settingsOpen)
                     runtime.resume()
                 }
                 cameraTransitioning = false
@@ -842,11 +846,9 @@ struct VRHomeView: View {
         let _ = headMotionRevision
         let w = size.width
         let h = size.height
-        let shownHand = ultraWideMode ? ultraWide.hand : runtime.hand
+        let shownHand = TrackedHand()
         return ZStack {
-            if !cameraEnabled && sceneryIndex == 0 && selectedTheme == .graphite {
-                VRHomeBackdrop()
-            } else if ultraWideMode {
+            if ultraWideMode {
                 if let frame = ultraWide.image {
                     if ultraFullFrame {
                         Image(decorative: frame, scale: 1, orientation: .up)
@@ -873,6 +875,15 @@ struct VRHomeView: View {
                         .foregroundStyle(.white)
                     }
                 }
+            } else if cameraEnabled, let frame = runtime.cameraImage {
+                Image(decorative: frame, scale: 1, orientation: .up)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: w, height: h)
+                    .scaleEffect(settings.lens.cameraZoom)
+                    .clipped()
+                    .allowsHitTesting(false)
+                VRCameraThemeOverlay(accent: selectedTheme.accent, size: size)
             } else if sceneryIndex != 0 {
                 VRSceneryView(scenery: VRScenery(rawValue: sceneryIndex) ?? .original,
                               camera: runtime.camera, headRotation: cameraEnabled ? nil : dwell.headRotation)
@@ -883,14 +894,6 @@ struct VRHomeView: View {
                 ThemeAtmosphereView(isAurora: selectedTheme == .aurora,
                                     camera: runtime.camera, size: size,
                                     headRotation: cameraEnabled ? nil : dwell.headRotation)
-            } else if let frame = runtime.cameraImage {
-                Image(decorative: frame, scale: 1, orientation: .up)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: w, height: h)
-                    .scaleEffect(settings.lens.cameraZoom)
-                    .clipped()
-                    .allowsHitTesting(false)
             } else {
                 VRHomeBackdrop()
                     .overlay(alignment: .top) {
@@ -967,7 +970,7 @@ struct VRHomeView: View {
                                 in: RoundedRectangle(cornerRadius: 10))
                     Spacer(minLength: 0)
                     Text(ultraNotice ??
-                         "0,5x REAL · mão Vision + cabeça 3DoF · sem 6DoF")
+                         "0,5x REAL · câmera + cabeça 3DoF · sem mãos")
                         .font(.system(size: 9, weight: .semibold))
                         .lineLimit(1)
                         .minimumScaleFactor(0.65)
@@ -1132,7 +1135,7 @@ struct VRHomeView: View {
             }
             Text(ultraWideMode
                  ? (ultraWide.active
-                    ? "Vision: \(ultraWide.hand.visible ? "mão visível" : "sem mão") · cabeça \(ultraWide.motionAvailable ? "3DoF" : "indisponível")"
+                    ? "Câmera 0,5x · cabeça \(ultraWide.motionAvailable ? "3DoF" : "indisponível")"
                     : ultraWide.status)
                  : runtime.cameraStatus)
                 .font(.system(size: 10))
