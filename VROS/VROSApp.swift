@@ -1211,6 +1211,29 @@ struct VRHomeView: View {
                         .foregroundStyle(.white.opacity(0.8))
                         .lineLimit(2)
                         .minimumScaleFactor(0.8)
+                    Text("Versão instalada: \(updates.installedNativeVersion)")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.white.opacity(0.65))
+                    if updates.nativeUpdateAvailable {
+                        Text("Nova versão: \(updates.manifest.latestNativeVersion)")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(.yellow)
+                        Button {
+                            updates.openNativeUpdate()
+                        } label: {
+                            HStack(spacing: 5) {
+                                Image(systemName: "arrow.down.circle.fill")
+                                Text("Baixar IPA pela internet")
+                            }
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .padding(.vertical, 5)
+                            .padding(.horizontal, 10)
+                            .background(Color.blue.opacity(0.78),
+                                        in: RoundedRectangle(cornerRadius: 9))
+                        }
+                        .buttonStyle(.plain)
+                    }
                     Button {
                         Task { await updates.check() }
                     } label: {
