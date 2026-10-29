@@ -313,6 +313,7 @@ struct VRHomeView: View {
             runtime.setPinchSensitivity(settings.pinchSensitivity)
             ultraWide.setPinchSensitivity(settings.pinchSensitivity)
             runtime.setHandTrackingEnabled(false)
+            ultraWide.setHandTrackingEnabled(false)
             dwell.setDelay(settings.dwellDelay)
             joyCon.start()
             if joyCon.isConnected {
