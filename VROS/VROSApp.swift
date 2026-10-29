@@ -181,6 +181,7 @@ struct VRHomeView: View {
     @State private var eyeViewport = CGSize(width: 200, height: 390)
     @StateObject private var settings = VRSettingsSession()
     @StateObject private var dwell = VRDwellController()
+    @StateObject private var joyCon = VRJoyConController()
     // Force the camera-free angular layout to redraw on every sensor frame.
     @State private var headMotionRevision = 0
     @StateObject private var homeLibrary = VRHomeLibrary()
@@ -269,6 +270,16 @@ struct VRHomeView: View {
             .onReceive(dwell.$pulse) { _ in
                 processDwell(size: eyeSize)
             }
+            .onReceive(joyCon.$triggerPulse) { _ in
+                processJoyConClick(size: eyeSize)
+            }
+            .onReceive(joyCon.$isConnected) { connected in
+                if connected {
+                    dwell.stop()
+                } else {
+                    dwell.setEnabled(settings.dwellEnabled)
+                }
+            }
             .onAppear { eyeViewport = eyeSize }
             .onChange(of: geometry.size) { nextSize in
                 eyeViewport = settings.lens.placement(in: nextSize).aperture
@@ -297,7 +308,12 @@ struct VRHomeView: View {
             runtime.setPinchSensitivity(settings.pinchSensitivity)
             ultraWide.setPinchSensitivity(settings.pinchSensitivity)
             dwell.setDelay(settings.dwellDelay)
-            dwell.setEnabled(settings.dwellEnabled)
+            joyCon.start()
+            if joyCon.isConnected {
+                dwell.stop()
+            } else {
+                dwell.setEnabled(settings.dwellEnabled)
+            }
             UIDevice.current.isBatteryMonitoringEnabled = true
             UIApplication.shared.isIdleTimerDisabled = true
             runtime.setCameraPreviewEnabled(selectedTheme == .graphite)
@@ -348,7 +364,9 @@ struct VRHomeView: View {
             applySettingsChanges()
         }
         .onChange(of: settings.dwellEnabled) { enabled in
-            dwell.setEnabled(enabled)
+            if !joyCon.isConnected {
+                dwell.setEnabled(enabled)
+            }
         }
         .onChange(of: settings.dwellDelay) { seconds in
             dwell.setDelay(seconds)
@@ -372,10 +390,16 @@ struct VRHomeView: View {
                 if cinemaOpen { cinema.exit() }
                 if ultraWideMode { ultraWide.stop() }
                 dwell.stop()
+                joyCon.stop()
                 runtime.stop()
             } else if phase == .active && wasBackgrounded {
                 wasBackgrounded = false
-                dwell.setEnabled(settings.dwellEnabled)
+                joyCon.start()
+                if joyCon.isConnected {
+                    dwell.stop()
+                } else {
+                    dwell.setEnabled(settings.dwellEnabled)
+                }
                 if ultraWideMode {
                     recenterUltraWide()
                     ultraWide.start()
@@ -387,6 +411,7 @@ struct VRHomeView: View {
             }
         }
         .onDisappear {
+            joyCon.stop()
             UIApplication.shared.isIdleTimerDisabled = false
             if cinemaOpen { cinema.exit() }
             ultraWide.stop()
@@ -961,7 +986,7 @@ struct VRHomeView: View {
                 .allowsHitTesting(false)
             }
 
-            if shownHand.visible && settings.showCursor && !settingsOpen {
+            if shownHand.visible && settings.showCursor && !settingsOpen && !joyCon.isConnected {
                 let cursor = interactionPoint(shownHand.point, size: size)
                 VRPrecisionCursor(pinching: shownHand.pinching, size: settings.cursorSize,
                                   reduceMotion: settings.reduceMotion)
@@ -969,7 +994,24 @@ struct VRHomeView: View {
                 .allowsHitTesting(false)
             }
 
-            if dwell.active {
+            if joyCon.isConnected {
+                VRJoyConRay(
+                    start: CGPoint(x: w * 0.84, y: h * 0.90),
+                    end: joyCon.primaryPoint(in: size),
+                    color: .cyan
+                )
+                .zIndex(89)
+                if joyCon.connectedCount > 1 {
+                    VRJoyConRay(
+                        start: CGPoint(x: w * 0.16, y: h * 0.90),
+                        end: joyCon.secondaryPoint(in: size),
+                        color: .purple
+                    )
+                    .zIndex(88)
+                }
+            }
+
+            if dwell.active && !joyCon.isConnected {
                 VRDwellCursor(progress: dwell.progress,
                               reduceMotion: settings.reduceMotion)
                     .position(dwellCenter(in: size))
@@ -1516,8 +1558,15 @@ struct VRHomeView: View {
         CGPoint(x: size.width / 2, y: size.height / 2)
     }
 
+    private func processJoyConClick(size: CGSize) {
+        guard joyCon.isConnected, !cinemaOpen else { return }
+        let point = joyCon.triggerPoint(in: size)
+        guard dwellTargetKey(at: point, size: size) != nil else { return }
+        triggerDwell(at: point, size: size)
+    }
+
     private func processDwell(size: CGSize) {
-        guard dwell.active, !cinemaOpen else { return }
+        guard dwell.active, !joyCon.isConnected, !cinemaOpen else { return }
         let point = dwellCenter(in: size)
         let key = dwellTargetKey(at: point, size: size)
         if dwell.updateTarget(key) {
