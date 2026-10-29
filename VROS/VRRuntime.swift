@@ -59,6 +59,7 @@ final class VRRuntime: NSObject, ObservableObject, ARSessionDelegate {
     // Owned exclusively by frameQueue, which is also ARSession's delegate queue.
     private var cinemaMode = false
     private var cameraPreviewEnabled = true
+    private var handTrackingEnabled = false
 
     private var filteredJoints: [CGPoint?] = Array(repeating: nil, count: 21)
     private var filteredDepth: Float?
@@ -158,6 +159,19 @@ final class VRRuntime: NSObject, ObservableObject, ARSessionDelegate {
         if !enabled { cameraImage = nil }
     }
 
+    /// Keeps the real camera preview and head pose active without running
+    /// Vision hand-pose detection. Joy-Con and head-gaze remain available.
+    func setHandTrackingEnabled(_ enabled: Bool) {
+        frameQueue.async { [weak self] in
+            self?.handTrackingEnabled = enabled
+        }
+        if !enabled {
+            DispatchQueue.main.async { [weak self] in
+                self?.hand = TrackedHand()
+            }
+        }
+    }
+
     /// Recenter means put the panels in front of the current camera pose.
     /// It does not reset the ARKit world origin.
     func worldPoint(at screenPoint: CGPoint, viewport: CGSize, depth: Float,
@@ -231,7 +245,9 @@ final class VRRuntime: NSObject, ObservableObject, ARSessionDelegate {
             }
         }
 
-        // Hand detection ~15 fps in Home, ~10 in Cinema, without queue buildup.
+        guard handTrackingEnabled else { return }
+
+        // Optional hand detection ~15 fps in Home, ~10 in Cinema, without queue buildup.
         let handStride = cinemaMode ? 6 : 4
         if frameIndex % handStride == 0 && !visionBusy {
             visionBusy = true
