@@ -138,8 +138,8 @@ struct RemoteManifest: Codable {
                 depth: 1.6
             )
         ],
-        latestNativeVersion: "4.3",
-        nativeReleaseURL: "https://github.com/vega77bet/VR-OS/actions",
+        latestNativeVersion: "7.0.0",
+        nativeReleaseURL: "https://github.com/vega77bet/VR-OS/actions/workflows/build-ipa.yml",
         frontend: .fallback
     )
 
@@ -189,6 +189,34 @@ final class LiveUpdateManager: ObservableObject {
     @Published private(set) var statusMessage = "Toque em Buscar para conferir novidades."
     @Published private(set) var isChecking = false
     @Published private(set) var lastChecked: Date?
+
+    var installedNativeVersion: String {
+        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "7.0.0"
+    }
+
+    var nativeUpdateAvailable: Bool {
+        Self.compareVersions(manifest.latestNativeVersion, installedNativeVersion) == .orderedDescending
+    }
+
+    func openNativeUpdate() {
+        guard nativeUpdateAvailable,
+              let url = URL(string: manifest.nativeReleaseURL) else { return }
+        statusMessage = "Abrindo o download da nova IPA…"
+        UIApplication.shared.open(url)
+    }
+
+    private static func compareVersions(_ lhs: String, _ rhs: String) -> ComparisonResult {
+        let left = lhs.split(separator: ".").map { Int($0) ?? 0 }
+        let right = rhs.split(separator: ".").map { Int($0) ?? 0 }
+        let count = max(left.count, right.count)
+        for index in 0..<count {
+            let l = index < left.count ? left[index] : 0
+            let r = index < right.count ? right[index] : 0
+            if l < r { return .orderedAscending }
+            if l > r { return .orderedDescending }
+        }
+        return .orderedSame
+    }
 
     init() {
         let timestamp = UserDefaults.standard.double(forKey: Self.lastCheckedKey)
@@ -240,9 +268,13 @@ final class LiveUpdateManager: ObservableObject {
             UserDefaults.standard.set(data, forKey: Self.cacheKey)
             UserDefaults.standard.set(lastChecked?.timeIntervalSince1970 ?? 0,
                                       forKey: Self.lastCheckedKey)
-            statusMessage = previousVersion == remote.version
-                ? "Tudo atualizado · \(remote.version)"
-                : "Novidades aplicadas! · \(remote.version)"
+            if nativeUpdateAvailable {
+                statusMessage = "Nova versão do aplicativo disponível · \(remote.latestNativeVersion)"
+            } else {
+                statusMessage = previousVersion == remote.version
+                    ? "Tudo atualizado · \(remote.version)"
+                    : "Conteúdo atualizado · \(remote.version)"
+            }
         } catch {
             statusMessage = "Sem conexão ou atualização indisponível. Usando dados salvos."
         }
