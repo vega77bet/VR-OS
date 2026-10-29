@@ -103,7 +103,7 @@ struct VRCameraThemeOverlay: View {
                 HStack {
                     Text("REALIDADE MISTA")
                     Spacer()
-                    Text("AMBIENTE \\(String(format: "%02d", Int(size.width)))")
+                    Text("AMBIENTE \(String(format: "%02d", Int(size.width)))")
                         .foregroundStyle(.white.opacity(0.55))
                 }
                 .font(.system(size: 7, weight: .semibold, design: .rounded))
