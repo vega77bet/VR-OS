@@ -19,19 +19,19 @@ extension SwiftUI.Color {
 
 enum VRDS {
     enum Color {
-        static let background = SwiftUI.Color(vrHex: "14171C")
-        static let surface = SwiftUI.Color(vrHex: "20242B")
-        static let surfaceElevated = SwiftUI.Color(vrHex: "252A31")
-        static let surfacePressed = SwiftUI.Color(vrHex: "3A3F48")
-        static let border = SwiftUI.Color.white.opacity(0.12)
-        static let borderStrong = SwiftUI.Color.white.opacity(0.22)
-        static let primary = SwiftUI.Color(vrHex: "F2F2F2")
-        static let secondary = SwiftUI.Color(vrHex: "ADB3BE")
-        static let muted = SwiftUI.Color(red: 0.390, green: 0.445, blue: 0.525)
-        static let accent = SwiftUI.Color(vrHex: "FF9544")
-        static let selected = SwiftUI.Color(vrHex: "F2F2F2")
-        static let destructive = SwiftUI.Color(vrHex: "FF6B6B")
-        static let success = SwiftUI.Color(vrHex: "7BD88F")
+        static let background = SwiftUI.Color(vrHex: "070A16")
+        static let surface = SwiftUI.Color(vrHex: "11172B")
+        static let surfaceElevated = SwiftUI.Color(vrHex: "182445")
+        static let surfacePressed = SwiftUI.Color(vrHex: "263B68")
+        static let border = SwiftUI.Color.white.opacity(0.16)
+        static let borderStrong = SwiftUI.Color.white.opacity(0.30)
+        static let primary = SwiftUI.Color(vrHex: "F5F8FF")
+        static let secondary = SwiftUI.Color(vrHex: "B8C4E5")
+        static let muted = SwiftUI.Color(red: 0.35, green: 0.43, blue: 0.61)
+        static let accent = SwiftUI.Color(vrHex: "63E7FF")
+        static let selected = SwiftUI.Color(vrHex: "B9A7FF")
+        static let destructive = SwiftUI.Color(vrHex: "FF718C")
+        static let success = SwiftUI.Color(vrHex: "72F2B1")
     }
 
     enum Font {
