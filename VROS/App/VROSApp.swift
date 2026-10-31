@@ -99,7 +99,8 @@ private final class VRViewController: UIViewController {
             renderer.onMetrics = { [weak session] metrics in session?.receive(metrics) }
             renderer.spatialFrameProvider = { [weak session] pose, time in
                 guard let session else { return .empty }
-                return session.spatial.update(headPose: pose, at: time, calibration: session.calibration)
+                return session.spatial.update(headPose: pose, at: time, calibration: session.calibration,
+                                              headTrackingValid: session.tracking.isTracking)
             }
             self.renderer = renderer
             metalView.delegate = renderer

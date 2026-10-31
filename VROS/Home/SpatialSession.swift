@@ -56,7 +56,8 @@ final class SpatialSession: ObservableObject {
         interaction.recenterAim(headPose: lastHeadPose, motion: lastControllerFrame.motionOrientation)
     }
 
-    func update(headPose: simd_quatf, at time: Double, calibration: VRCalibrationManager) -> SpatialRenderFrame {
+    func update(headPose: simd_quatf, at time: Double, calibration: VRCalibrationManager,
+                headTrackingValid: Bool) -> SpatialRenderFrame {
         lastHeadPose = headPose
         workspace.update(at: time)
         if !hasPresented {
@@ -91,7 +92,7 @@ final class SpatialSession: ObservableObject {
                                         hasLeftStick: descriptor?.hasLeftStick ?? false,
                                         hasRightStick: descriptor?.hasRightStick ?? false,
                                         configuration: config, headPose: headPose,
-                                        windows: workspace.windows, at: time)
+                                        windows: workspace.windows, at: time, headTrackingValid: headTrackingValid)
         if let drag = update.drag { workspace.moveWindow(id: drag.id, to: drag.position, headPose: headPose) }
         if let id = update.selectedWindowID ?? update.grabbedWindowID { workspace.focusWindow(id: id) }
         if let hit = update.activation, let action = workspace.action(for: hit) {
@@ -118,7 +119,7 @@ final class SpatialSession: ObservableObject {
             if let level = descriptor?.batteryLevel { controllerStatus += " • \(Int(level * 100))%" }
             workspace.setSystemSummary(time: clockFormatter.string(from: now),
                                        date: dateFormatter.string(from: now),
-                                       status: String(format: "3DoF • %.0f FPS", metrics.fps),
+                                       status: headTrackingValid ? String(format: "3DoF • %.0f FPS", metrics.fps) : "Tracking indisponível",
                                        battery: battery)
             workspace.setControlSummary("\(controllerStatus)\n\(preferences.inputMode.title) • \(update.pointerDescription)\nPermanência \(String(format: "%.1f s", preferences.dwellDuration)) • Sensibilidade \(String(format: "%.1f", preferences.sensitivity))")
             workspace.setOpticalSummary(String(format: "IPD %.0f mm • Distorção %.0f%%\nResolução %.0f%% • Painel %.1f m", calibration.profile.ipdMeters * 1000,

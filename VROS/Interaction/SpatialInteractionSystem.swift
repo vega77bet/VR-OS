@@ -73,7 +73,8 @@ struct SpatialInteractionSystem {
     mutating func update(frame: ControllerInputFrame, available: Set<ControllerButton>,
                          hasLeftStick: Bool, hasRightStick: Bool,
                          configuration: InteractionConfiguration, headPose: simd_quatf,
-                         windows: [SpatialWindow], at time: Double) -> InteractionUpdate {
+                         windows: [SpatialWindow], at time: Double,
+                         headTrackingValid: Bool = true) -> InteractionUpdate {
         let dt = Float(min(max(time - (previousTime ?? time), 0), 0.05))
         previousTime = time
         let bindings = configuration.mapping.effectiveBindings(available: available)
@@ -107,7 +108,7 @@ struct SpatialInteractionSystem {
         let headOrigin = StereoCamera.headPosition
         let headForward = headPose.act(SIMD3<Float>(0, 0, -1))
         var ray = SpatialRay(origin: headOrigin, direction: headForward)
-        var pointerDescription = "Mira da cabeça"
+        var pointerDescription = headTrackingValid ? "Mira da cabeça" : "Rastreamento interrompido"
         if source == .controller {
             let stick = Self.deadzone(hasRightStick ? frame.rightStick : (hasLeftStick ? frame.leftStick : .zero))
             let usingMotion = configuration.pointerMode == .motion && Self.valid(frame.motionOrientation)
@@ -167,7 +168,7 @@ struct SpatialInteractionSystem {
             }
         } else {
             grabbedID = nil
-            if source == .head {
+            if source == .head && headTrackingValid {
                 if let target = actionable?.elementID {
                     if dwellTarget != target {
                         dwellTarget = target; dwellStarted = time; dwellLatched = false
@@ -178,7 +179,7 @@ struct SpatialInteractionSystem {
                 } else { clearDwell() }
             } else {
                 clearDwell()
-                if edges.contains(.select) && !navigating {
+                if source == .controller && edges.contains(.select) && !navigating {
                     activation = actionable
                     selectedWindowID = hit?.windowID
                 }

@@ -420,4 +420,22 @@ final class SpatialInteractionTests: XCTestCase {
         XCTAssertEqual(simd_distance(initial.ray.origin, final.ray.origin), 0, accuracy: 0.00001)
         XCTAssertEqual(simd_distance(initial.ray.direction, final.ray.direction), 0, accuracy: 0.00001)
     }
+
+    func testInterruptedHeadTrackingCancelsDwellAndRecoveryRequiresAFreshFullDuration() {
+        var system = SpatialInteractionSystem()
+        func update(_ time: Double, valid: Bool) -> InteractionUpdate {
+            system.update(frame: .disconnected, available: [], hasLeftStick: false, hasRightStick: false,
+                          configuration: InteractionConfiguration(), headPose: identity, windows: windows,
+                          at: time, headTrackingValid: valid)
+        }
+        _ = update(0, valid: true)
+        XCTAssertGreaterThan(update(0.9, valid: true).progress, 0.8)
+        let interrupted = update(1.1, valid: false)
+        XCTAssertNil(interrupted.activation)
+        XCTAssertEqual(interrupted.progress, 0)
+        XCTAssertNil(update(2, valid: false).activation)
+        XCTAssertNil(update(3, valid: true).activation)
+        XCTAssertNil(update(3.9, valid: true).activation)
+        XCTAssertNotNil(update(4, valid: true).activation)
+    }
 }
