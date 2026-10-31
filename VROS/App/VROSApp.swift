@@ -26,6 +26,10 @@ private struct VRRootView: View {
                 VStack {
                     DebugOverlay(metrics: session.metrics, trackingStatus: session.trackingStatus,
                                  error: session.renderError)
+                    HStack {
+                        Text("OLHO ESQUERDO").frame(maxWidth: .infinity)
+                        Text("OLHO DIREITO").frame(maxWidth: .infinity)
+                    }.font(.caption2).foregroundStyle(.white.opacity(0.8))
                     Spacer()
                     HStack(spacing: 18) {
                         Button("Recentralizar") { session.tracking.recenter() }

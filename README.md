@@ -55,7 +55,7 @@ project.yml            Projeto nativo reproduzível via XcodeGen
 
 ### Binocular
 
-Uma pose de cabeça é lida por frame. Cada olho recebe uma câmera independente, deslocada em ±IPD/2 no eixo X local da cabeça e rotacionada pela mesma pose. As câmeras são paralelas, sem convergência artificial: profundidade surge da disparidade das projeções da geometria. A projeção descentrada mantém o eixo óptico no centro ajustável de cada lente. A textura esquerda vai exclusivamente para a metade física esquerda; a direita para a direita.
+Uma pose de cabeça é lida por frame. Cada olho recebe uma câmera independente, deslocada em ±IPD/2 no eixo X local da cabeça e rotacionada pela mesma pose. As câmeras são paralelas, sem convergência artificial: profundidade surge da disparidade das projeções da geometria. A projeção descentrada mantém o eixo óptico no centro ajustável de cada lente. A textura esquerda vai exclusivamente para a metade física esquerda; a direita para a direita. A derivação está em [Rendering.md](Docs/Rendering.md).
 
 Dois alvos de cor/profundidade internos recebem a mesma malha estática com matrizes diferentes. Um segundo passe aplica distorção radial por fragment shader, escala óptica e recorte preto fora da imagem. A escala de resolução altera apenas dimensões das texturas, preservando geometria e IPD. Centros são normalizados **dentro de cada metade**, não na tela inteira. Consulte as fórmulas e testes no código de `StereoCamera` e `LensDistortionRenderer`.
 

@@ -13,6 +13,8 @@ struct DebugOverlay: View {
                         metrics.cpuMilliseconds,
                         metrics.gpuMilliseconds.map { String(format: "%.2f ms", $0) } ?? "—"))
                 .monospacedDigit()
+            Text(String(format: "Resolução %.0f%% • Frames descartados %d", metrics.renderScale * 100,
+                        metrics.droppedFrames)).monospacedDigit()
             if let error { Text(error).foregroundStyle(.red) }
         }
         .font(.caption).padding(10)

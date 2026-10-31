@@ -12,7 +12,9 @@ Data: 2026-10-31. Ambiente local: Linux x86_64; sem Xcode, SDK iOS, simulador Ap
 
 ## Compilação e XCTest
 
-O workflow `.github/workflows/ios.yml` compila para iPhone sem assinatura e executa XCTest no simulador em runner macOS. O resultado da execução remota será registrado aqui quando disponível. A suíte abrange sinais de yaw/pitch/roll, bases, previsão limitada, recenter, lifecycle via fonte injetada, IPD, disparidade, projeção, metades físicas, cena volumétrica e persistência de calibração.
+O workflow `.github/workflows/ios.yml` compila para iPhone sem assinatura e executa XCTest no simulador em runner macOS. Na [primeira execução remota](https://github.com/vega77bet/VR-OS/actions/runs/41218458302), commit `f99423497bc811d412b1491030f5ee85d56462b3`, a geração do projeto e a compilação Release para `iphoneos` **passaram** no Xcode 16.4. O resultado de XCTest e das revisões seguintes será registrado após conclusão.
+
+A suíte contém testes de sinais de yaw/pitch/roll, bases, previsão limitada, recenter, lifecycle via fonte injetada, IPD, disparidade, projeção, metades físicas, cena volumétrica e persistência de calibração. Os testes Metal criam pipelines e executam o shader real em alvos offscreen, incluindo isolamento E/D e distorção não nula com centros assimétricos; são explicitamente pulados se não houver dispositivo Metal, sem simular um resultado aprovado.
 
 ## Pendências de validação física
 
