@@ -57,6 +57,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.vega77bet.vros2.math
+        PRODUCT_NAME: VROS
         PRODUCT_MODULE_NAME: VROS
         DEFINES_MODULE: YES
         GENERATE_INFOPLIST_FILE: YES
