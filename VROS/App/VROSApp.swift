@@ -15,7 +15,8 @@ private struct VRRootView: View {
     @StateObject private var session = AppLifecycleManager()
     @Environment(\.scenePhase) private var scenePhase
     @State private var calibrating = false
-    @State private var controlsVisible = true
+    @State private var configuringControllers = false
+    @State private var controlsVisible = false
 
     var body: some View {
         ZStack {
@@ -32,8 +33,9 @@ private struct VRRootView: View {
                     }.font(.caption2).foregroundStyle(.white.opacity(0.8))
                     Spacer()
                     HStack(spacing: 18) {
-                        Button("Recentralizar") { session.tracking.recenter() }
+                        Button("Centralizar Home") { session.spatial.recenter() }
                         Button("Calibrar lentes") { calibrating = true }
+                        Button("Controles") { configuringControllers = true }
                         Button("Entrar no visor") { controlsVisible = false }
                     }
                     .buttonStyle(.borderedProminent)
@@ -47,10 +49,20 @@ private struct VRRootView: View {
             }
         }
         .statusBarHidden()
+        .persistentSystemOverlays(.hidden)
         .sheet(isPresented: $calibrating) { CalibrationView(manager: session.calibration) }
-        .onAppear { session.setActive(scenePhase == .active) }
+        .sheet(isPresented: $configuringControllers) {
+            ControllerSettingsView(manager: session.spatial.controllers, preferences: session.spatial.preferences)
+        }
+        .onReceive(session.spatial.$exitRequests) { count in if count > 0 { controlsVisible = true } }
+        .onAppear {
+            session.spatial.interactionEnabled = !controlsVisible
+            session.setActive(scenePhase == .active)
+        }
+        .onChange(of: controlsVisible) { _, visible in session.spatial.interactionEnabled = !visible }
         .onChange(of: scenePhase) { _, phase in session.setActive(phase == .active) }
-        .onChange(of: calibrating) { _, presented in session.setPresentationPaused(presented) }
+        .onChange(of: calibrating) { _, presented in session.setPresentationPaused(presented || configuringControllers) }
+        .onChange(of: configuringControllers) { _, presented in session.setPresentationPaused(presented || calibrating) }
         .onDisappear { session.setActive(false) }
     }
 }
@@ -85,6 +97,10 @@ private final class VRViewController: UIViewController {
             let renderer = try VRRenderer(view: metalView, tracking: session.tracking,
                                           calibration: session.calibration)
             renderer.onMetrics = { [weak session] metrics in session?.receive(metrics) }
+            renderer.spatialFrameProvider = { [weak session] pose, time in
+                guard let session else { return .empty }
+                return session.spatial.update(headPose: pose, at: time, calibration: session.calibration)
+            }
             self.renderer = renderer
             metalView.delegate = renderer
             session.attach(metalView)

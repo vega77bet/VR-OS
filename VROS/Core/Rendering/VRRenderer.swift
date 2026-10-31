@@ -17,6 +17,7 @@ final class VRRenderer: NSObject, MTKViewDelegate {
     private let scenePipeline: MTLRenderPipelineState
     private let depthState: MTLDepthStencilState
     private let distortion: LensDistortionRenderer
+    private let spatialUI: SpatialUIRenderer
     private let vertexBuffer: MTLBuffer
     private let vertexCount: Int
     private let tracking: HeadTrackingManager
@@ -36,6 +37,8 @@ final class VRRenderer: NSObject, MTKViewDelegate {
     private var lastThermalReduction: TimeInterval = 0
     private(set) var metrics = FrameMetrics()
     var onMetrics: ((FrameMetrics) -> Void)?
+    /// Interaction advances once from the shared late head sample, before either eye.
+    var spatialFrameProvider: ((simd_quatf, TimeInterval) -> SpatialRenderFrame)?
 
     init(view: MTKView, tracking: HeadTrackingManager,
          calibration: VRCalibrationManager) throws {
@@ -73,7 +76,8 @@ final class VRRenderer: NSObject, MTKViewDelegate {
         depthState = depth
         distortion = try LensDistortionRenderer(device: device, library: library,
                                                 pixelFormat: view.colorPixelFormat)
-        let vertices = VRTestScene.vertices()
+        spatialUI = try SpatialUIRenderer(device: device, library: library, pixelFormat: view.colorPixelFormat)
+        let vertices = HomeEnvironment.vertices()
         vertexCount = vertices.count
         guard let buffer = vertices.withUnsafeBufferPointer({ pointer in
             device.makeBuffer(bytes: pointer.baseAddress!,
@@ -81,7 +85,7 @@ final class VRRenderer: NSObject, MTKViewDelegate {
                               options: .storageModeShared)
         }) else { throw RenderError.unavailable("buffer da cena") }
         vertexBuffer = buffer
-        vertexBuffer.label = "Immutable VR test scene"
+        vertexBuffer.label = "Immutable 360-degree Home environment"
         super.init()
         view.delegate = self
     }
@@ -113,6 +117,8 @@ final class VRRenderer: NSObject, MTKViewDelegate {
         // Late sample exactly once; both eyes see the same instant and calibration snapshot.
         let pose = tracking.orientation(at: CACurrentMediaTime())
         let profile = calibration.profile
+        let spatialFrame = spatialFrameProvider?(pose, CACurrentMediaTime())
+        if let spatialFrame { spatialUI.prepare(spatialFrame) }
         for eye in StereoCamera.Eye.allCases {
             let pass = MTLRenderPassDescriptor()
             pass.colorAttachments[0].texture = eyeTextures[eye.rawValue]
@@ -138,6 +144,7 @@ final class VRRenderer: NSObject, MTKViewDelegate {
                 eye, orientation: pose, ipdMeters: profile.ipdMeters))
             encoder.setVertexBytes(&camera, length: MemoryLayout<SceneUniforms>.stride, index: 1)
             encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: vertexCount)
+            if spatialFrame != nil { spatialUI.encode(encoder: encoder, viewProjection: camera.viewProjection) }
             encoder.endEncoding()
         }
         guard let compositor = command.makeRenderCommandEncoder(descriptor: output) else { return }

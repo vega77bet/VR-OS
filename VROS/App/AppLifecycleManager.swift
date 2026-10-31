@@ -8,6 +8,7 @@ import Combine
 final class AppLifecycleManager: ObservableObject {
     let tracking = HeadTrackingManager()
     let calibration = VRCalibrationManager()
+    let spatial = SpatialSession()
     @Published private(set) var metrics = FrameMetrics()
     @Published private(set) var trackingStatus = "Aguardando sensores"
     @Published var renderError: String?
@@ -21,11 +22,14 @@ final class AppLifecycleManager: ObservableObject {
 
     func receive(_ metrics: FrameMetrics) {
         self.metrics = metrics
+        spatial.receive(metrics)
         trackingStatus = tracking.status
     }
 
     private func applyState() {
         let running = active && !presentationPaused && metalView != nil
+        spatial.setActive(active)
+        spatial.resetInput()
         metalView?.isPaused = !running
         UIApplication.shared.isIdleTimerDisabled = running
         if running { tracking.start() } else { tracking.stop() }

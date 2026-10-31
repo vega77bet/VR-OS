@@ -1,9 +1,9 @@
-name: VR-OS 2 native validation
+name: VR-OS 2 spatial Home validation
 on:
   push:
-    branches: [vr-os-2]
+    branches: [vr-os-2-stage-2]
   pull_request:
-    branches: [main, vr-os-2]
+    branches: [main, vr-os-2, vr-os-2-stage-2]
   workflow_dispatch:
 permissions:
   contents: read
@@ -34,7 +34,7 @@ jobs:
           xcodebuild -project VROS.xcodeproj -scheme VROSMath -configuration Debug
           -destination 'platform=macOS' -parallel-testing-enabled NO
           -derivedDataPath build/math -resultBundlePath build/MathTests.xcresult test
-      - name: Run orientation, stereo, calibration and lifecycle tests
+      - name: Run iOS engine, spatial interaction and Metal tests
         timeout-minutes: 12
         run: |
           DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(v["udid"] for a in d["devices"].values() for v in a if v["name"].startswith("iPhone")))')
@@ -44,6 +44,12 @@ jobs:
             -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 \
             -derivedDataPath build/simulator -resultBundlePath build/Tests.xcresult \
             CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- test
+      - name: Export actual GPU test captures
+        if: always()
+        run: |
+          if [ -d build/Tests.xcresult ]; then
+            xcrun xcresulttool export attachments --path build/Tests.xcresult --output-path build/attachments
+          fi
       - name: Simulator diagnostics on failure
         if: failure()
         timeout-minutes: 2
@@ -56,10 +62,11 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: VROS-native-build-evidence
+          name: VROS-stage2-native-build-evidence
           path: |
             build/Tests.xcresult
             build/MathTests.xcresult
+            build/attachments
             build/device/Build/Products/Release-iphoneos/VROS.app
             VROS.xcodeproj
           retention-days: 14
