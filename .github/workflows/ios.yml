@@ -30,13 +30,23 @@ jobs:
           -sdk iphoneos -destination 'generic/platform=iOS'
           -derivedDataPath build/device CODE_SIGNING_ALLOWED=NO build
       - name: Run orientation, stereo, calibration and lifecycle tests
+        timeout-minutes: 12
         run: |
           DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(v["udid"] for a in d["devices"].values() for v in a if v["name"].startswith("iPhone")))')
+          xcrun simctl bootstatus "$DEVICE_ID" -b
           xcodebuild -project VROS.xcodeproj -scheme VROS -configuration Debug \
             -destination "platform=iOS Simulator,id=$DEVICE_ID" \
             -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 \
             -derivedDataPath build/simulator -resultBundlePath build/Tests.xcresult \
-            CODE_SIGNING_ALLOWED=NO test
+            CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- test
+      - name: Simulator diagnostics on failure
+        if: failure()
+        timeout-minutes: 2
+        run: |
+          xcrun simctl list devices booted
+          if [ -d build/simulator/Build/Products/Debug-iphonesimulator/VROS.app ]; then
+            codesign -dv build/simulator/Build/Products/Debug-iphonesimulator/VROS.app
+          fi
       - name: Upload build and test evidence
         if: always()
         uses: actions/upload-artifact@v4

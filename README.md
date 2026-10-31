@@ -24,7 +24,7 @@ xcodebuild -project VROS.xcodeproj -scheme VROS -configuration Release \
 
 # Testes, escolhendo um simulador instalado:
 xcodebuild -project VROS.xcodeproj -scheme VROS \
-  -destination 'platform=iOS Simulator,name=iPhone 16' CODE_SIGNING_ALLOWED=NO test
+  -destination 'platform=iOS Simulator,name=iPhone 16' test
 ```
 
 O projeto Xcode é gerado a partir de `project.yml`; código Swift e shaders Metal são compilados no target nativo. O workflow [ios.yml](.github/workflows/ios.yml) gera o projeto, compila para `iphoneos` e executa XCTest no simulador em `macos-15`. Os artefatos incluem `.app` sem assinatura, projeto Xcode e `.xcresult`. Um `.app` sem assinatura não é um IPA instalável. Não há empacotamento de IPA fictício.
