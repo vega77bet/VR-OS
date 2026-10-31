@@ -9,6 +9,7 @@ struct SpatialWorkspace {
     private(set) var revision = 0
     private(set) var libraryPage = 0
     private(set) var panelDistance: Float = 2.4
+    var focusedWindowID: String? { windows.first(where: { $0.isFocused && $0.isOpen })?.id }
     private var timeText = "--:--"
     private var dateText = "VR-OS 2.0"
     private var statusText = "Home espacial · 3DoF"
@@ -49,6 +50,7 @@ struct SpatialWorkspace {
             SpatialWindow(id: "app", position: SIMD3(0, 1.83, -2.25), size: SIMD2(2.15, 1.25),
                           title: "", isOpen: false, opacity: 0)
         ]
+        focusWindow(id: "main")
         rebuildContent()
     }
 
@@ -70,6 +72,7 @@ struct SpatialWorkspace {
 
     mutating func perform(_ action: SpatialAction, headPose: simd_quatf, at time: TimeInterval) {
         update(at: time)
+        let previousFocus = focusedWindowID
         switch action {
         case .open(let destination):
             appPanelMode = .destination
@@ -156,7 +159,34 @@ struct SpatialWorkspace {
             // system settings or Bluetooth operation happened in this model.
             break
         }
+        switch action {
+        case .open(let destination):
+            focusWindow(id: destination == .home ? "main" :
+                (destination == .applications || destination == .library ? "library" : "app"))
+        case .controls, .calibration:
+            focusWindow(id: "app")
+        case .recover(let id):
+            focusWindow(id: id)
+        case .quickMenu, .back, .resetLayout:
+            focusFallback()
+        case .close(let id):
+            if previousFocus == id || focusedWindowID == nil { focusFallback() }
+        default: break
+        }
         rebuildContent()
+    }
+
+    /// Focus is exclusive and never changes transforms or depth ordering.
+    mutating func focusWindow(id: String) {
+        guard isVisible(id), focusedWindowID != id else { return }
+        for index in windows.indices { windows[index].isFocused = windows[index].id == id }
+        revision &+= 1
+    }
+
+    private mutating func focusFallback() {
+        if let id = ["quick", "library", "app", "main", "dock"].first(where: { isVisible($0) }) {
+            focusWindow(id: id)
+        }
     }
 
     mutating func update(at time: TimeInterval) {
@@ -197,7 +227,7 @@ struct SpatialWorkspace {
     }
 
     mutating func moveWindow(id: String, to proposed: SIMD3<Float>, headPose: simd_quatf) {
-        guard let index = index(id), windows[index].isOpen else { return }
+        guard let index = index(id), isVisible(id) else { return }
         let position = SpatialGeometry.comfortablePosition(proposed, headPose: headPose)
         windows[index].position = position
         let towardViewer = StereoCamera.headPosition - position
@@ -206,6 +236,7 @@ struct SpatialWorkspace {
         windows[index].orientation = simd_quatf(angle: yaw, axis: SIMD3(0, 1, 0))
         transitions.removeValue(forKey: id)
         headingTransition = nil
+        focusWindow(id: id)
         revision &+= 1
     }
 
@@ -231,6 +262,7 @@ struct SpatialWorkspace {
         guard let index = index(id), isVisible(id) != open else { return }
         let window = windows[index]
         windows[index].isOpen = true
+        if !open { windows[index].isFocused = false }
         transitions[id] = WindowTransition(startPosition: window.position,
                                            endPosition: window.position,
                                            startOrientation: window.orientation,

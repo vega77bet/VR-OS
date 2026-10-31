@@ -97,6 +97,7 @@ final class SpatialUIRenderer {
         let alpha = min(max(window.opacity, 0), 1)
         let grabbed = frame.grabbedWindowID == window.id
         let border = grabbed ? SIMD4<Float>(0.42, 0.72, 1, alpha * 0.95)
+            : window.isFocused ? SIMD4<Float>(0.40, 0.60, 0.82, alpha * 0.80)
             : SIMD4<Float>(0.30, 0.40, 0.54, alpha * 0.60)
         // A small layered offset gives a restrained soft shadow without a blur pass.
         rounded(center: SIMD2(0.015, -0.025), size: window.size + SIMD2(repeating: 0.025),
@@ -125,10 +126,10 @@ final class SpatialUIRenderer {
                 let outline = SIMD4<Float>(0.18, 0.23, 0.30, alpha * 0.65)
                 let activeOutline = SIMD4<Float>(0.49, 0.72, 0.95, alpha * 0.85)
                 rounded(center: element.center, size: element.size, radius: element.cornerRadius,
-                        z: 0.008, color: outline + (activeOutline - outline) * amount,
+                        z: SpatialGeometry.elementDepth, color: outline + (activeOutline - outline) * amount,
                         window: window)
                 rounded(center: element.center, size: element.size - SIMD2(repeating: 0.005),
-                        radius: max(0, element.cornerRadius - 0.0025), z: 0.0085,
+                        radius: max(0, element.cornerRadius - 0.0025), z: SpatialGeometry.elementDepth + 0.0005,
                         color: base, window: window)
             }
             let tint: SIMD4<Float> = element.style == .caption

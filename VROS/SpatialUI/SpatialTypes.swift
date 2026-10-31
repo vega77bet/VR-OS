@@ -64,6 +64,7 @@ struct SpatialWindow {
     var elements: [SpatialElement] = []
     var isOpen: Bool = true
     var opacity: Float = 1
+    var isFocused: Bool = false
 }
 
 struct SpatialRay {

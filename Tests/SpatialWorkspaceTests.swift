@@ -274,4 +274,50 @@ final class SpatialWorkspaceTests: XCTestCase {
             XCTAssertEqual(workspace.action(for: hit), element.action)
         }
     }
+
+    func testWindowFocusIsExclusiveAndLeavesTransformsUnchanged() {
+        var workspace = SpatialWorkspace()
+        let positions = workspace.windows.map(\.position)
+        let rotations = workspace.windows.map { $0.orientation.vector }
+        XCTAssertEqual(workspace.focusedWindowID, "main")
+        workspace.focusWindow(id: "dock")
+        XCTAssertEqual(workspace.focusedWindowID, "dock")
+        XCTAssertEqual(workspace.windows.filter(\.isFocused).count, 1)
+        XCTAssertEqual(workspace.windows.map(\.position), positions)
+        XCTAssertEqual(workspace.windows.map { $0.orientation.vector }, rotations)
+    }
+
+    func testClosedAndClosingWindowsCannotTakeFocus() {
+        var workspace = SpatialWorkspace()
+        workspace.focusWindow(id: "library")
+        XCTAssertEqual(workspace.focusedWindowID, "main")
+        workspace.perform(.close("main"), headPose: identity, at: 1)
+        workspace.focusWindow(id: "main")
+        XCTAssertEqual(workspace.focusedWindowID, "dock")
+        let closingPosition = workspace.windows.first(where: { $0.id == "main" })!.position
+        workspace.moveWindow(id: "main", to: SIMD3(1, 2, -2), headPose: identity)
+        XCTAssertEqual(workspace.windows.first(where: { $0.id == "main" })!.position, closingPosition)
+        workspace.update(at: 1.3)
+        XCTAssertFalse(workspace.windows.first(where: { $0.id == "main" })!.isFocused)
+        XCTAssertEqual(workspace.windows.filter(\.isFocused).count, 1)
+    }
+
+    func testNavigationFocusFollowsTheVisibleDestinationAndRecovery() {
+        var workspace = SpatialWorkspace()
+        workspace.perform(.open(.cinema), headPose: identity, at: 1)
+        XCTAssertEqual(workspace.focusedWindowID, "app")
+        workspace.perform(.open(.applications), headPose: identity, at: 2)
+        XCTAssertEqual(workspace.focusedWindowID, "library")
+        workspace.perform(.back, headPose: identity, at: 3)
+        XCTAssertEqual(workspace.focusedWindowID, "main")
+        workspace.perform(.controls, headPose: identity, at: 4)
+        XCTAssertEqual(workspace.focusedWindowID, "app")
+        workspace.perform(.quickMenu, headPose: identity, at: 5)
+        XCTAssertEqual(workspace.focusedWindowID, "quick")
+        workspace.perform(.back, headPose: identity, at: 6)
+        XCTAssertEqual(workspace.focusedWindowID, "app")
+        workspace.perform(.recover("main"), headPose: identity, at: 7)
+        XCTAssertEqual(workspace.focusedWindowID, "main")
+        XCTAssertEqual(workspace.windows.filter(\.isFocused).count, 1)
+    }
 }

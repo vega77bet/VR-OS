@@ -10,16 +10,26 @@ final class InteractionPreferences: ObservableObject {
     @Published var motionInvertY: Bool { didSet { persist() } }
     @Published var motionSwapAxes: Bool { didSet { persist() } }
     @Published var sensitivity: Float {
-        didSet { sensitivity = Self.safe(sensitivity, within: 0.2...2.5, fallback: 0.9); persist() }
+        didSet {
+            let safe = Self.safe(sensitivity, within: 0.2...2.5, fallback: 0.9)
+            // @Published re-enters its observer on assignment: write only on change.
+            if sensitivity != safe { sensitivity = safe; return }
+            persist()
+        }
     }
     @Published var dwellDuration: Double {
         didSet {
-            dwellDuration = dwellDuration.isFinite ? min(max(dwellDuration, 0.6), 2) : 1
+            let safe = dwellDuration.isFinite ? min(max(dwellDuration, 0.6), 2) : 1
+            if dwellDuration != safe { dwellDuration = safe; return }
             persist()
         }
     }
     @Published var panelDistance: Float {
-        didSet { panelDistance = Self.safe(panelDistance, within: 1.6...3.5, fallback: 2.3); persist() }
+        didSet {
+            let safe = Self.safe(panelDistance, within: 1.6...3.5, fallback: 2.3)
+            if panelDistance != safe { panelDistance = safe; return }
+            persist()
+        }
     }
     @Published var mapping: ControllerMapping { didSet { persist() } }
     private let defaults: UserDefaults

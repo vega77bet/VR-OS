@@ -64,6 +64,11 @@ struct ControllerSettingsView: View {
                                     Text(action.title).tag(Optional(action))
                                 }
                             }
+                            let effective = preferences.mapping.effectiveBindings(available: device.availableButtons)[button]
+                            if effective != preferences.mapping.bindings[button], let effective {
+                                Text("\(button.title): \(effective.title) como alternativa efetiva")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
                         }
                         Text("Uma entrada disponível será reservada como alternativa de seleção se nenhum botão estiver associado a Selecionar. A + ZR não geram cliques duplicados.")
                             .font(.footnote)

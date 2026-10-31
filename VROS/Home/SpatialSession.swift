@@ -83,6 +83,7 @@ final class SpatialSession: ObservableObject {
                                         configuration: config, headPose: headPose,
                                         windows: workspace.windows, at: time)
         if let drag = update.drag { workspace.moveWindow(id: drag.id, to: drag.position, headPose: headPose) }
+        if let id = update.selectedWindowID ?? update.grabbedWindowID { workspace.focusWindow(id: id) }
         if let hit = update.activation, let action = workspace.action(for: hit) {
             perform(action, at: time, calibration: calibration)
         }

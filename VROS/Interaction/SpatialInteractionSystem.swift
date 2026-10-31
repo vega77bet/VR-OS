@@ -18,6 +18,7 @@ struct InteractionUpdate {
     var ray: SpatialRay
     var hit: SpatialHit?
     var activation: SpatialHit?
+    var selectedWindowID: String?
     var commands: Set<ControllerAction>
     var drag: (id: String, position: SIMD3<Float>)?
     var grabbedWindowID: String?
@@ -144,6 +145,7 @@ struct SpatialInteractionSystem {
             return candidate
         }
         var activation: SpatialHit?
+        var selectedWindowID: String?
         var drag: (id: String, position: SIMD3<Float>)?
         if source == .controller && actions.contains(.grab) && !grabBlockedUntilRelease {
             clearDwell()
@@ -172,10 +174,14 @@ struct SpatialInteractionSystem {
                 } else { clearDwell() }
             } else {
                 clearDwell()
-                if edges.contains(.select) && !navigating { activation = actionable }
+                if edges.contains(.select) && !navigating {
+                    activation = actionable
+                    selectedWindowID = hit?.windowID
+                }
             }
         }
-        if activation != nil { lastSelectionTime = time }
+        if let activation { selectedWindowID = activation.windowID }
+        if selectedWindowID != nil { lastSelectionTime = time }
         var scroll = 0
         if source == .controller && grabbedID == nil {
             let vertical = hasLeftStick && hasRightStick ? frame.leftStick.y : 0
@@ -188,7 +194,7 @@ struct SpatialInteractionSystem {
         }
         let progress = source == .head && dwellTarget != nil && !dwellLatched
             ? Float(min(max((time - dwellStarted) / max(configuration.dwellDuration, 0.6), 0), 1)) : 0
-        return InteractionUpdate(ray: ray, hit: hit, activation: activation,
+        return InteractionUpdate(ray: ray, hit: hit, activation: activation, selectedWindowID: selectedWindowID,
                                  commands: edges.subtracting([.select, .grab]), drag: drag,
                                  grabbedWindowID: grabbedID, scroll: scroll, source: source,
                                  pointerDescription: pointerDescription, progress: progress,

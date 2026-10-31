@@ -386,4 +386,19 @@ final class SpatialInteractionTests: XCTestCase {
         step(&system, at: 0.3, frame: controller())
         XCTAssertNotNil(step(&system, at: 0.4, frame: controller([.a])).activation)
     }
+
+    func testSelectingBlankWindowFocusesSurfaceWithoutExecutingAnApplicationAction() {
+        var system = SpatialInteractionSystem()
+        let panels = [SpatialWindow(id: "blank", position: SIMD3(0, 1.65, -2), size: SIMD2(2, 1), title: "")]
+        func update(_ frame: ControllerInputFrame, at time: Double) -> InteractionUpdate {
+            system.update(frame: frame, available: available, hasLeftStick: false, hasRightStick: false,
+                          configuration: InteractionConfiguration(), headPose: identity, windows: panels, at: time)
+        }
+        _ = update(controller(), at: 0)
+        let selected = update(controller([.a]), at: 0.1)
+        XCTAssertEqual(selected.selectedWindowID, "blank")
+        XCTAssertNil(selected.activation)
+        XCTAssertEqual(selected.selectionPulse, 1, accuracy: 0.0001)
+        XCTAssertNil(update(controller([.a]), at: 2).selectedWindowID)
+    }
 }
