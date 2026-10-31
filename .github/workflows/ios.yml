@@ -54,6 +54,16 @@ jobs:
           if [ -d build/MathTests.xcresult ]; then
             xcrun xcresulttool get test-results summary --path build/MathTests.xcresult > build/math-summary.json
           fi
+      - name: Package unsigned IPA for sideload signing
+        if: success()
+        run: |
+          APP_PATH="build/device/Build/Products/Release-iphoneos/VROS.app"
+          test -d "$APP_PATH"
+          rm -rf build/ipa
+          mkdir -p build/ipa/Payload
+          cp -R "$APP_PATH" build/ipa/Payload/VROS.app
+          /usr/bin/ditto -c -k --sequesterRsrc --keepParent build/ipa/Payload build/VROS-unsigned.ipa
+          shasum -a 256 build/VROS-unsigned.ipa > build/VROS-unsigned.ipa.sha256
       - name: Simulator diagnostics on failure
         if: failure()
         timeout-minutes: 2
@@ -73,6 +83,8 @@ jobs:
             build/attachments
             build/*-summary.json
             build/device/Build/Products/Release-iphoneos/VROS.app
+            build/VROS-unsigned.ipa
+            build/VROS-unsigned.ipa.sha256
             VROS.xcodeproj
           retention-days: 14
       - name: Shut down test simulators
