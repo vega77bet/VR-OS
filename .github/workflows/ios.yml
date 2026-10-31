@@ -75,3 +75,8 @@ jobs:
             build/device/Build/Products/Release-iphoneos/VROS.app
             VROS.xcodeproj
           retention-days: 14
+      - name: Shut down test simulators
+        if: always()
+        timeout-minutes: 1
+        continue-on-error: true
+        run: xcrun simctl shutdown all
