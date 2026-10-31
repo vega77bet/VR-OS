@@ -1,71 +1,53 @@
 name: VROS
-settings:
-  base:
-    MARKETING_VERSION: "7.1.0"
-    CURRENT_PROJECT_VERSION: "49"
-schemes:
-  VROSRegression:
-    build:
-      targets:
-        VROSRegressionTests: all
-    test:
-      targets:
-        - VROSRegressionTests
 options:
-  projectFormat: xcode15_0
-  xcodeVersion: "15.0"
   bundleIdPrefix: com.vega77bet
   deploymentTarget:
-    iOS: "16.0"
+    iOS: "17.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "2.0.0"
+    CURRENT_PROJECT_VERSION: "50"
+    IPHONEOS_DEPLOYMENT_TARGET: "17.0"
 targets:
-  VROSRegressionHost:
-    type: application
-    platform: iOS
-    sources:
-      - RegressionHost
-    settings:
-      base:
-        SWIFT_VERSION: "5.0"
-        GENERATE_INFOPLIST_FILE: YES
-        CODE_SIGNING_ALLOWED: NO
-        TARGETED_DEVICE_FAMILY: "1"
-        INFOPLIST_KEY_UILaunchScreen_Generation: YES
-  VROSRegressionTests:
-    type: bundle.unit-test
-    platform: iOS
-    sources:
-      - path: VROS
-        excludes: [VROSApp.swift]
-      - RegressionTests
-    dependencies:
-      - target: VROSRegressionHost
-    settings:
-      base:
-        SWIFT_VERSION: "5.0"
-        GENERATE_INFOPLIST_FILE: YES
-        CODE_SIGNING_ALLOWED: NO
-        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/VROSRegressionHost.app/VROSRegressionHost"
-        BUNDLE_LOADER: "$(TEST_HOST)"
   VROS:
     type: application
     platform: iOS
-    deploymentTarget: "16.0"
     sources:
-      - VROS
+      - path: VROS
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.vega77bet.vros2
-        INFOPLIST_KEY_CFBundleDisplayName: "VR-OS"
-        SWIFT_VERSION: "5.0"
-        MARKETING_VERSION: "7.1.0"
-        CURRENT_PROJECT_VERSION: "49"
+        PRODUCT_NAME: VROS
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_NSCameraUsageDescription: "O VR-OS usa a câmera traseira para mostrar o ambiente e acompanhar o movimento do iPhone com ARKit."
-        INFOPLIST_KEY_NSMotionUsageDescription: "O VR OS usa os sensores para acompanhar os movimentos da cabeça."
-        INFOPLIST_KEY_GCSupportsControllerUserInteraction: YES
+        INFOPLIST_KEY_CFBundleDisplayName: "VR-OS"
+        INFOPLIST_KEY_NSMotionUsageDescription: "O VR-OS usa os sensores inerciais para acompanhar a rotação da cabeça."
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UIRequiresFullScreen: YES
-        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
-        CODE_SIGNING_ALLOWED: NO
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: UIInterfaceOrientationLandscapeRight
+        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
+        CODE_SIGN_STYLE: Automatic
+        MTL_ENABLE_DEBUG_INFO: INCLUDE_SOURCE
+  VROSTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: VROS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.vega77bet.vros2.tests
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  VROS:
+    build:
+      targets:
+        VROS: all
+        VROSTests: [test]
+    test:
+      gatherCoverageData: true
+      targets:
+        - VROSTests

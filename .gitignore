@@ -1,6 +1,10 @@
-__pycache__/
-*.pyc
+.DS_Store
 build/
-test-build/
-*.xcresult/
+DerivedData/
+*.xcresult
+*.xcuserstate
+xcuserdata/
 VROS.xcodeproj/
+*.ipa
+*.xcarchive
+__pycache__/
