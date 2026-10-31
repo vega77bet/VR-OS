@@ -12,11 +12,29 @@ Data: 2026-10-31. Ambiente local: Linux x86_64; sem Xcode, SDK iOS, simulador Ap
 
 ## Compilação e XCTest
 
-O workflow `.github/workflows/ios.yml` compila para iPhone sem assinatura e executa XCTest no simulador em runner macOS. Na [primeira execução remota](https://github.com/vega77bet/VR-OS/actions/runs/41218458302), commit `f99423497bc811d412b1491030f5ee85d56462b3`, a geração do projeto e a compilação Release para `iphoneos` **passaram** no Xcode 16.4. A suíte também compilou para simulador, mas não chegou a emitir resultados de teste antes de a execução ser substituída por outra revisão. Não se contabiliza isso como XCTest aprovado. O CI passou a iniciar explicitamente o simulador, executar sem paralelismo e permitir assinatura ad hoc local no simulador ARM64. Isso não fornece assinatura de distribuição para iPhone.
+**Execução final aprovada:** [GitHub Actions 41220190996](https://github.com/vega77bet/VR-OS/actions/runs/41220190996), código-fonte no commit `fcf4811f89596c6faff6bc242d320ef62789922e`. Runner `macos-15-intel`, Xcode 16.4, SDK iOS 18.5, simulador iPhone 16 Pro / iOS 18.5. A documentação posterior não altera o código validado.
+
+| Verificação | Resultado observado |
+| --- | --- |
+| XcodeGen / projeto nativo | Aprovado |
+| Release `iphoneos`, destino genérico iPhone, sem assinatura | `BUILD SUCCEEDED` |
+| XCTest nativo macOS — `VROSMath` | 19 executados, 0 falhas, 0 pulados |
+| XCTest iOS Simulator — `VROS` | 27 executados, 0 falhas, 0 pulados |
+| Pipelines e ABI Swift/Metal | Aprovado no simulador |
+| Composição SBS real, textura vermelha E / azul D, largura ímpar | Aprovado no simulador |
+| Distorção ativa, centros/escalas assimétricos, UVs e máscara preta | Aprovado no simulador |
+| Layout: declaração de orientação horizontal única | Aprovado no bundle do app hospedeiro |
+| Política de interrupção/retomada e amostras obsoletas | 4 testes aprovados com fonte injetada |
+
+Na suíte iOS: 6 testes de calibração, 6 de estéreo/cena, 7 de orientação/recenter, 4 de lifecycle e 4 de Metal/layout. Os 19 testes do macOS reutilizam parte desses mesmos testes; não são 46 casos distintos. Nenhum teste Metal foi pulado nesta execução: o dispositivo Metal do simulador estava disponível e os shaders foram executados em alvos offscreen.
+
+[Artefato de evidências](https://github.com/vega77bet/VR-OS/actions/runs/41220190996/artifacts/13050275478): aplicativo de dispositivo `.app` **sem assinatura**, projeto `VROS.xcodeproj`, `MathTests.xcresult` e `Tests.xcresult`. SHA-256 do ZIP informado pelo GitHub: `c2d1f4f6bb071bc43d5258a81baf6cd60f7cebea3dff4439703f1962dc649db2`. Retenção até 2026-11-14; os resultados resumidos aqui permanecem no repositório.
+
+O simulador usa assinatura ad hoc local, sem Team de distribuição. Isso não fornece assinatura nem valida instalação no iPhone físico. Houve tentativas anteriores substituídas durante a inicialização do simulador e uma falha de configuração do nome do framework de testes; a configuração foi corrigida antes da execução aprovada. O primeiro boot do simulador é demorado neste runner, por isso o workflow inicia o dispositivo explicitamente e limita o tempo de teste.
 
 A suíte contém testes de sinais de yaw/pitch/roll, bases, previsão limitada, recenter, lifecycle via fonte injetada, IPD, disparidade, projeção, metades físicas, cena volumétrica e persistência de calibração. Os testes Metal criam pipelines e executam o shader real em alvos offscreen, incluindo isolamento E/D e distorção não nula com centros assimétricos; são explicitamente pulados se não houver dispositivo Metal, sem simular um resultado aprovado.
 
-Para desacoplar a matemática da inicialização do simulador, o scheme macOS `VROSMath` compila os mesmos seis arquivos de produção e executa os mesmos 19 testes de conversão, recenter, estéreo e persistência. A suíte iOS completa contém 27 testes, incluindo lifecycle e Metal. O workflow utiliza `macos-15-intel` (mais memória que o runner ARM64 padrão), com evidências separadas para as duas suítes.
+Para desacoplar a matemática da inicialização do simulador, o scheme macOS `VROSMath` compila os mesmos seis arquivos de produção. O workflow guarda evidências separadas para as duas suítes. Os avisos de extração de metadados App Intents indicam ausência dessa dependência, que não é utilizada pelo app; não houve erro de compilação na execução final.
 
 ## Pendências de validação física
 
