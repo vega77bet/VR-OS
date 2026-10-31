@@ -16,6 +16,8 @@ O workflow `.github/workflows/ios.yml` compila para iPhone sem assinatura e exec
 
 A suíte contém testes de sinais de yaw/pitch/roll, bases, previsão limitada, recenter, lifecycle via fonte injetada, IPD, disparidade, projeção, metades físicas, cena volumétrica e persistência de calibração. Os testes Metal criam pipelines e executam o shader real em alvos offscreen, incluindo isolamento E/D e distorção não nula com centros assimétricos; são explicitamente pulados se não houver dispositivo Metal, sem simular um resultado aprovado.
 
+Para desacoplar a matemática da inicialização do simulador, o scheme macOS `VROSMath` compila os mesmos seis arquivos de produção e executa os mesmos 19 testes de conversão, recenter, estéreo e persistência. A suíte iOS completa contém 27 testes, incluindo lifecycle e Metal. O workflow utiliza `macos-15-intel` (mais memória que o runner ARM64 padrão), com evidências separadas para as duas suítes.
+
 ## Pendências de validação física
 
 - Instalação e execução assinadas no iPhone 15.

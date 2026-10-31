@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   build-and-test:
-    runs-on: macos-15
+    runs-on: macos-15-intel
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
@@ -29,6 +29,11 @@ jobs:
           xcodebuild -project VROS.xcodeproj -scheme VROS -configuration Release
           -sdk iphoneos -destination 'generic/platform=iOS'
           -derivedDataPath build/device CODE_SIGNING_ALLOWED=NO build
+      - name: Run core math and persistence directly on macOS
+        run: >-
+          xcodebuild -project VROS.xcodeproj -scheme VROSMath -configuration Debug
+          -destination 'platform=macOS' -parallel-testing-enabled NO
+          -derivedDataPath build/math -resultBundlePath build/MathTests.xcresult test
       - name: Run orientation, stereo, calibration and lifecycle tests
         timeout-minutes: 12
         run: |
@@ -54,6 +59,7 @@ jobs:
           name: VROS-native-build-evidence
           path: |
             build/Tests.xcresult
+            build/MathTests.xcresult
             build/device/Build/Products/Release-iphoneos/VROS.app
             VROS.xcodeproj
           retention-days: 14

@@ -27,7 +27,7 @@ xcodebuild -project VROS.xcodeproj -scheme VROS \
   -destination 'platform=iOS Simulator,name=iPhone 16' test
 ```
 
-O projeto Xcode é gerado a partir de `project.yml`; código Swift e shaders Metal são compilados no target nativo. O workflow [ios.yml](.github/workflows/ios.yml) gera o projeto, compila para `iphoneos` e executa XCTest no simulador em `macos-15`. Os artefatos incluem `.app` sem assinatura, projeto Xcode e `.xcresult`. Um `.app` sem assinatura não é um IPA instalável. Não há empacotamento de IPA fictício.
+O projeto Xcode é gerado a partir de `project.yml`; código Swift e shaders Metal são compilados no target nativo. O workflow [ios.yml](.github/workflows/ios.yml) gera o projeto, compila para `iphoneos`, executa 19 testes do núcleo diretamente no macOS e a suíte completa de 27 testes no simulador, em `macos-15-intel`. O scheme `VROSMath` reutiliza os arquivos de produção de matemática/calibração e os mesmos testes, sem abrir o app ou depender do simulador. Os artefatos incluem `.app` sem assinatura, projeto Xcode e `.xcresult`. Um `.app` sem assinatura não é um IPA instalável. Não há empacotamento de IPA fictício.
 
 ## Uso
 

@@ -42,6 +42,46 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.vega77bet.vros2.tests
         GENERATE_INFOPLIST_FILE: YES
+  VROSMathCore:
+    type: framework
+    platform: macOS
+    deploymentTarget: "14.0"
+    productName: VROS
+    sources:
+      - path: VROS/Core/Tracking/MotionCoordinateConverter.swift
+      - path: VROS/Core/Tracking/RecenterManager.swift
+      - path: VROS/Core/Rendering/StereoCamera.swift
+      - path: VROS/Core/Calibration/VRLensProfile.swift
+      - path: VROS/Core/Calibration/VRCalibrationManager.swift
+      - path: VROS/Scenes/VRTestScene.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.vega77bet.vros2.math
+        PRODUCT_MODULE_NAME: VROS
+        DEFINES_MODULE: YES
+        GENERATE_INFOPLIST_FILE: YES
+        ENABLE_TESTABILITY: YES
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+        SKIP_INSTALL: YES
+  VROSMathTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: Tests/TrackingTests.swift
+      - path: Tests/StereoTests.swift
+      - path: Tests/CalibrationTests.swift
+    dependencies:
+      - target: VROSMathCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.vega77bet.vros2.math.tests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: ""
+        BUNDLE_LOADER: ""
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
 schemes:
   VROS:
     build:
@@ -52,3 +92,12 @@ schemes:
       gatherCoverageData: true
       targets:
         - VROSTests
+  VROSMath:
+    build:
+      targets:
+        VROSMathCore: all
+        VROSMathTests: [test]
+    test:
+      gatherCoverageData: true
+      targets:
+        - VROSMathTests

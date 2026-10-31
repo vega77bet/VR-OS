@@ -97,6 +97,7 @@ final class TrackingTests: XCTestCase {
     }
 }
 
+#if os(iOS)
 @MainActor
 final class TrackingLifecycleTests: XCTestCase {
     private final class Source: HeadMotionSource {
@@ -180,3 +181,4 @@ final class TrackingLifecycleTests: XCTestCase {
         XCTAssertFalse(tracker.isTracking)
     }
 }
+#endif
