@@ -3,6 +3,18 @@ import simd
 @testable import VROS
 
 final class SpatialWorkspaceTests: XCTestCase {
+    func testDraggingTallPanelsKeepsTheirWholeInteractiveSurfaceAboveTheFloor() {
+        var workspace = SpatialWorkspace()
+        let head = simd_quatf(real: 1, imag: .zero)
+        workspace.perform(.calibration, headPose: head, at: 0)
+        workspace.update(at: 1)
+        workspace.moveWindow(id: "app", to: SIMD3(0, -100, -2), headPose: head)
+        var panel = workspace.windows.first { $0.id == "app" }!
+        XCTAssertGreaterThanOrEqual(panel.position.y - panel.size.y * 0.5, 0.1499)
+        workspace.moveWindow(id: "app", to: SIMD3(0, 100, -2), headPose: head)
+        panel = workspace.windows.first { $0.id == "app" }!
+        XCTAssertLessThanOrEqual(panel.position.y + panel.size.y * 0.5, 3.0001)
+    }
     func testDockEntryAndExitFadeWithoutChangingItsWorldTransform() {
         var workspace = SpatialWorkspace()
         let initial = workspace.windows.first { $0.id == "dock" }!

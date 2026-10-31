@@ -235,7 +235,12 @@ struct SpatialWorkspace {
 
     mutating func moveWindow(id: String, to proposed: SIMD3<Float>, headPose: simd_quatf) {
         guard let index = index(id), isVisible(id) else { return }
-        let position = SpatialGeometry.comfortablePosition(proposed, headPose: headPose)
+        var position = SpatialGeometry.comfortablePosition(proposed, headPose: headPose)
+        let halfHeight = windows[index].size.y * 0.5
+        // Keep every control above the floor and inside a comfortable vertical volume.
+        let minimumY = max(Float(0.65), halfHeight + 0.15)
+        let maximumY = max(minimumY, min(Float(2.7), 3 - halfHeight))
+        position.y = min(max(position.y, minimumY), maximumY)
         windows[index].position = position
         let towardViewer = StereoCamera.headPosition - position
         let yaw = atan2(towardViewer.x, towardViewer.z)

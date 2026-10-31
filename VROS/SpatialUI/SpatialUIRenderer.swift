@@ -16,6 +16,7 @@ final class SpatialUIRenderer {
     private let device: MTLDevice
     private let pipeline: MTLRenderPipelineState
     private let depthState: MTLDepthStencilState
+    private let pointerDepthState: MTLDepthStencilState
     private let atlas: SpatialGlyphAtlas
     private var buffers: [MTLBuffer?] = [nil, nil, nil]
     private var capacities = [0, 0, 0]
@@ -25,6 +26,7 @@ final class SpatialUIRenderer {
     private var previousTime: TimeInterval?
     private var feedbackStep: Float = 0.2
     private(set) var vertexCount = 0
+    private var windowVertexCount = 0
 
     init(device: MTLDevice, library: MTLLibrary, pixelFormat: MTLPixelFormat) throws {
         self.device = device
@@ -43,11 +45,16 @@ final class SpatialUIRenderer {
         pipeline = try device.makeRenderPipelineState(descriptor: descriptor)
         let depth = MTLDepthStencilDescriptor()
         depth.depthCompareFunction = .lessEqual
-        depth.isDepthWriteEnabled = false
+        depth.isDepthWriteEnabled = true
         guard let state = device.makeDepthStencilState(descriptor: depth) else {
             throw VRRenderer.RenderError.unavailable("profundidade da interface espacial")
         }
         depthState = state
+        depth.isDepthWriteEnabled = false
+        guard let pointerState = device.makeDepthStencilState(descriptor: depth) else {
+            throw VRRenderer.RenderError.unavailable("profundidade do ponteiro")
+        }
+        pointerDepthState = pointerState
         vertices.reserveCapacity(24000)
     }
 
@@ -65,6 +72,7 @@ final class SpatialUIRenderer {
             return a == b ? $0.id < $1.id : a > b
         }
         for window in windows { append(window: window, frame: frame) }
+        windowVertexCount = vertices.count
         appendPointer(frame.pointer)
         vertexCount = vertices.count
         bufferIndex = (bufferIndex + 1) % buffers.count
@@ -90,7 +98,14 @@ final class SpatialUIRenderer {
         encoder.setVertexBuffer(buffer, offset: 0, index: 0)
         encoder.setVertexBytes(&camera, length: MemoryLayout<Camera>.stride, index: 1)
         encoder.setFragmentTexture(atlas.texture, index: 0)
-        encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: vertexCount)
+        if windowVertexCount > 0 {
+            encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: windowVertexCount)
+        }
+        if vertexCount > windowVertexCount {
+            encoder.setDepthStencilState(pointerDepthState)
+            encoder.drawPrimitives(type: .triangle, vertexStart: windowVertexCount,
+                                   vertexCount: vertexCount - windowVertexCount)
+        }
     }
 
     private func append(window: SpatialWindow, frame: SpatialRenderFrame) {
@@ -99,10 +114,8 @@ final class SpatialUIRenderer {
         let border = grabbed ? SIMD4<Float>(0.42, 0.72, 1, alpha * 0.95)
             : window.isFocused ? SIMD4<Float>(0.40, 0.60, 0.82, alpha * 0.80)
             : SIMD4<Float>(0.30, 0.40, 0.54, alpha * 0.60)
-        // A small layered offset gives a restrained soft shadow without a blur pass.
-        rounded(center: SIMD2(0.015, -0.025), size: window.size + SIMD2(repeating: 0.025),
-                radius: window.cornerRadius + 0.012, z: -0.006,
-                color: SIMD4(0, 0, 0, alpha * 0.12), window: window)
+        // Write the visible panel depth, so intersecting/rotated windows agree with
+        // the geometric raycaster even when center-distance sorting is insufficient.
         rounded(center: .zero, size: window.size, radius: window.cornerRadius, z: 0,
                 color: border, window: window)
         rounded(center: .zero, size: window.size - SIMD2(repeating: 0.006),
@@ -248,8 +261,8 @@ final class SpatialUIRenderer {
         let candidate = abs(direction.y) > 0.95 ? SIMD3<Float>(1, 0, 0) : SIMD3<Float>(0, 1, 0)
         let right = simd_normalize(simd_cross(direction, candidate))
         let up = simd_normalize(simd_cross(right, direction))
-        // Pull back a few millimetres so the indicator never z-fights with its hit plane.
-        let end = pointer.end - direction * 0.012
+        // Keep the tip in front of the thin glyph layers, including oblique hits.
+        let end = pointer.end - direction * 0.020
         if pointer.isLaser {
             let glow = right * 0.004
             quad(ray.origin - glow, ray.origin + glow, end + glow, end - glow,

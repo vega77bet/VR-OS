@@ -64,6 +64,37 @@ final class SpatialMetalTests: XCTestCase {
         XCTAssertGreaterThan(bright, 8, "Text/SF Symbol atlas must render actual bright glyph pixels")
     }
 
+    func testOverlappingRotatedWindowsShowTheSameNearestSurfaceAsRaycasting() throws {
+        let (device, renderer) = try renderer()
+        let distant = SpatialWindow(id: "distant", position: SIMD3(-0.6, 1.65, -1.8),
+                                    orientation: simd_quatf(angle: 0.6, axis: SIMD3(0, 1, 0)),
+                                    size: SIMD2(2.4, 1), title: "", elements: [
+                                        SpatialElement(id: "distant.button", windowID: "distant", center: .zero,
+                                                       size: SIMD2(2.3, 0.9), title: "", action: .open(.cinema), selected: true)
+                                    ])
+        let near = SpatialWindow(id: "near", position: SIMD3(0.1, 1.65, -2),
+                                 orientation: simd_quatf(angle: -0.2, axis: SIMD3(0, 1, 0)),
+                                 size: SIMD2(2.4, 1), title: "", elements: [
+                                    SpatialElement(id: "near.button", windowID: "near", center: .zero,
+                                                   size: SIMD2(2.3, 0.9), title: "", action: .open(.files))
+                                 ])
+        let ray = SpatialRay(origin: StereoCamera.headPosition, direction: SIMD3(0, 0, -1))
+        XCTAssertEqual(SpatialGeometry.intersect(ray: ray, windows: [distant, near])?.windowID, "near")
+        // Center-distance sorting alone would paint the blue distant button on top.
+        XCTAssertLessThan(simd_distance(distant.position, StereoCamera.headPosition),
+                          simd_distance(near.position, StereoCamera.headPosition))
+        renderer.prepare(SpatialRenderFrame(windows: [near], focusedElementID: nil, grabbedWindowID: nil,
+                                            pointer: hiddenPointer(), time: 1))
+        let reference = try render(renderer, device: device, eye: .left)
+        renderer.prepare(SpatialRenderFrame(windows: [distant, near], focusedElementID: "distant.button",
+                                            grabbedWindowID: nil, pointer: hiddenPointer(), time: 1.1))
+        let overlapping = try render(renderer, device: device, eye: .left)
+        for channel in 0..<3 {
+            let index = (128 * 256 + 128) * 4 + channel
+            XCTAssertEqual(Float(reference[index]), Float(overlapping[index]), accuracy: 1)
+        }
+    }
+
     func testHomeEnvironmentIsBoundedAndCoversEveryHorizontalDirection() {
         let vertices = HomeEnvironment.vertices()
         XCTAssertGreaterThan(vertices.count, 1000)
