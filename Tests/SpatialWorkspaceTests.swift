@@ -3,6 +3,24 @@ import simd
 @testable import VROS
 
 final class SpatialWorkspaceTests: XCTestCase {
+    func testDockEntryAndExitFadeWithoutChangingItsWorldTransform() {
+        var workspace = SpatialWorkspace()
+        let initial = workspace.windows.first { $0.id == "dock" }!
+        workspace.setDockVisible(false, at: 10)
+        workspace.update(at: 10.12)
+        let fading = workspace.windows.first { $0.id == "dock" }!
+        XCTAssertGreaterThan(fading.opacity, 0)
+        XCTAssertLessThan(fading.opacity, 1)
+        XCTAssertEqual(fading.position, initial.position)
+        workspace.update(at: 10.3)
+        XCTAssertFalse(workspace.windows.first { $0.id == "dock" }!.isOpen)
+        workspace.setDockVisible(true, at: 11)
+        workspace.update(at: 11.12)
+        XCTAssertGreaterThan(workspace.windows.first { $0.id == "dock" }!.opacity, 0)
+        workspace.update(at: 11.3)
+        XCTAssertEqual(workspace.windows.first { $0.id == "dock" }!.opacity, 1)
+        XCTAssertTrue(workspace.windows.first { $0.id == "dock" }!.isOpen)
+    }
     private let identity = simd_quatf(real: 1, imag: SIMD3<Float>.zero)
 
     func testInitialHomeAndDockAreRealWorldPanelsAtComfortableDistances() throws {

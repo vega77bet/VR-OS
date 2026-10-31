@@ -1,6 +1,6 @@
 # Home espacial e renderização
 
-O renderizador da Etapa 1 mantém as duas câmeras, a leitura única de pose por frame e a correção óptica. A cena inicial passa a usar `HomeEnvironment`: praça circular, céu em degradê de vértices, horizonte e relevo em 360°, pavilhões e esculturas discretas em várias distâncias. São 13.830 vértices imutáveis; não há imagem panorâmica esticada. Iluminação ambiente, faces e sombras de contato são aproximações por cores/geometria, sem shadow maps ou iluminação global.
+O renderizador da Etapa 1 mantém as duas câmeras, a leitura única de pose por frame e a correção óptica. A cena inicial passa a usar `HomeEnvironment`: praça circular, céu em degradê de vértices, horizonte e relevo em 360°, pavilhões e esculturas discretas em várias distâncias. São 14.010 vértices imutáveis; não há imagem panorâmica esticada. Iluminação ambiente, faces e sombras de contato são aproximações por cores/geometria, sem shadow maps ou iluminação global.
 
 `SpatialUIRenderer` recebe um `SpatialRenderFrame` depois da atualização de entrada. Gera uma malha em coordenadas de mundo, reutilizada pelos dois olhos com suas respectivas matrizes de vista/projeção. Janelas usam posição, quaternion, dimensões e raio de canto do mesmo modelo usado pelo raycaster. O fundo está no plano local Z=0; as superfícies de botões estão em Z=0,008 m e o texto em Z=0,011 m. Os cantos são tesselações de círculos com 16 segmentos por quadrante.
 

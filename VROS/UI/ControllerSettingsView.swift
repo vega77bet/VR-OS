@@ -6,6 +6,7 @@ struct ControllerSettingsView: View {
     @ObservedObject var manager: GameControllerManager
     @ObservedObject var preferences: InteractionPreferences
     @Environment(\.dismiss) private var dismiss
+    @State private var pressedButtons: [ControllerButton] = []
 
     var body: some View {
         NavigationStack {
@@ -57,6 +58,9 @@ struct ControllerSettingsView: View {
                     Section("Botões realmente disponíveis") {
                         Text("Os nomes A/B/X/Y abaixo são posições lógicas da Apple e podem diferir das letras impressas no Joy-Con. Pressione e confira no aparelho; remapeie conforme necessário.")
                             .font(.footnote)
+                        Text(pressedButtons.isEmpty ? "Solte e segure um botão para identificar sua entrada lógica." :
+                                "Pressionado: " + pressedButtons.map(\.title).joined(separator: ", "))
+                            .font(.footnote).foregroundStyle(.blue)
                         ForEach(ControllerButton.allCases.filter { device.availableButtons.contains($0) }, id: \.self) { button in
                             Picker(button.title, selection: binding(button)) {
                                 Text("Sem ação").tag(ControllerAction?.none)
@@ -83,8 +87,10 @@ struct ControllerSettingsView: View {
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Concluir") { dismiss() } } }
         }
         .preferredColorScheme(.dark)
-        .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
-            _ = manager.sample()
+        .onReceive(Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()) { _ in
+            let frame = manager.sample()
+            let pressed = ControllerButton.allCases.filter { frame.buttons.contains($0) }
+            if pressed != pressedButtons { pressedButtons = pressed }
         }
     }
 

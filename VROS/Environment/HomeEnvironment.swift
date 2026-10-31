@@ -121,12 +121,23 @@ enum HomeEnvironment {
                           radius: 0.195, height: 0.045,
                           colour: SIMD3(0.35, 0.51, 0.66), segments: 24)
         }
+        // Side references frame the Home without filling the central reading area.
+        for side: Float in [-1, 1] {
+            let center = SIMD3<Float>(side * 5, 0, -9)
+            let right = SIMD3<Float>(1, 0, 0), forward = SIMD3<Float>(0, 0, 1)
+            mesh.orientedBox(center: center + SIMD3(0, 1.6, 0), size: SIMD3(0.16, 3.2, 0.28),
+                             right: right, forward: forward, colour: SIMD3(0.19, 0.23, 0.30))
+            mesh.orientedBox(center: center + SIMD3(0, 3.2, 0), size: SIMD3(1.2, 0.10, 0.30),
+                             right: right, forward: forward, colour: SIMD3(0.20, 0.25, 0.33))
+            mesh.orientedBox(center: center + SIMD3(0, 3.11, 0.16), size: SIMD3(0.85, 0.035, 0.03),
+                             right: right, forward: forward, colour: SIMD3(0.34, 0.50, 0.72))
+        }
         return mesh.vertices
     }
 
     private static func skyColour(elevation: Float) -> SIMD3<Float> {
-        let horizon = SIMD3<Float>(0.23, 0.31, 0.43)
-        let zenith = SIMD3<Float>(0.035, 0.047, 0.076)
+        let horizon = SIMD3<Float>(0.36, 0.43, 0.54)
+        let zenith = SIMD3<Float>(0.06, 0.08, 0.12)
         let t = min(1, elevation * 1.8)
         return horizon * (1 - t) + zenith * t
     }

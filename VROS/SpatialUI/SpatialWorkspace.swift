@@ -60,6 +60,13 @@ struct SpatialWorkspace {
         rebuildContent()
     }
 
+    /// The system dock fades when entering/leaving immersive interaction.
+    mutating func setDockVisible(_ visible: Bool, at time: TimeInterval) {
+        update(at: time)
+        setOpen("dock", visible, at: time)
+        revision &+= 1
+    }
+
     mutating func setControlSummary(_ text: String) {
         guard controlText != text else { return }
         controlText = text; rebuildContent()
@@ -359,7 +366,7 @@ struct SpatialWorkspace {
     private func mainElements() -> [SpatialElement] {
         controls("main", width: 2.2, height: 1.2) + [
             element("greeting", window: "main", x: -0.34, y: 0.27, w: 1.25, h: 0.14,
-                    title: "Seu espaço, suas possibilidades", style: .label),
+                    title: "Bem-vindo ao seu espaço", style: .label),
             element("quickMenu", window: "main", x: 0.71, y: 0.25, w: 0.52, h: 0.18,
                     title: "Menu", symbol: "ellipsis", action: .quickMenu),
             element("clock", window: "main", x: -0.67, y: 0.03, w: 0.65, h: 0.28, title: timeText, style: .label),
@@ -377,7 +384,7 @@ struct SpatialWorkspace {
     private func dockElements() -> [SpatialElement] {
         AppDestination.allCases.enumerated().map { index, app in
             element(app.rawValue, window: "dock", x: (Float(index) - 3.5) * 0.30, y: 0,
-                    w: 0.28, h: 0.28, title: app.title, symbol: app.symbol,
+                    w: 0.28, h: 0.28, title: app == .applications ? "Apps" : app.title, symbol: app.symbol,
                     action: .open(app), style: .appIcon, selected: activeApp == app)
         }
     }

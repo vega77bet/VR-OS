@@ -110,7 +110,7 @@ final class SpatialUIRenderer {
                 color: SIMD4(0.028, 0.038, 0.055, alpha * 0.94), window: window)
         if !window.title.isEmpty {
             text(window.title, center: SIMD2(0, window.size.y / 2 - 0.105),
-                 maxSize: SIMD2(max(0.1, window.size.x - 0.35), 0.09), height: 0.062,
+                 maxSize: SIMD2(max(0.1, window.size.x - 0.35), 0.11), height: 0.085,
                  color: SIMD4(0.93, 0.96, 1, alpha), z: 0.010, window: window)
         }
         for element in window.elements {
@@ -133,14 +133,22 @@ final class SpatialUIRenderer {
                         color: base, window: window)
             }
             let tint: SIMD4<Float> = element.style == .caption
-                ? SIMD4(0.63, 0.70, 0.81, alpha) : SIMD4(0.94, 0.97, 1, alpha)
+                ? SIMD4(0.72, 0.79, 0.88, alpha) : SIMD4(0.94, 0.97, 1, alpha)
             if element.style == .appIcon, let symbol = element.symbol {
                 let side = min(min(element.size.y * 0.45, element.size.x * 0.48), 0.13)
                 icon(symbol, center: element.center + SIMD2(0, element.size.y * 0.13),
                      side: side, color: tint, z: 0.011, window: window)
                 text(element.title, center: element.center - SIMD2(0, element.size.y * 0.29),
-                     maxSize: SIMD2(element.size.x - 0.018, element.size.y * 0.25), height: 0.044,
+                     maxSize: SIMD2(element.size.x - 0.018, element.size.y * 0.32), height: 0.072,
                      color: tint, z: 0.011, window: window)
+                if focused && window.id == "dock" {
+                    let label = element.id == "dock.applications" ? AppDestination.applications.title : element.title
+                    let center = SIMD2(element.center.x, Float(0.28))
+                    rounded(center: center, size: SIMD2(0.90, 0.15), radius: 0.035, z: 0.014,
+                            color: SIMD4(0.045, 0.065, 0.095, alpha * 0.97), window: window)
+                    text(label, center: center, maxSize: SIMD2(0.84, 0.13), height: 0.085,
+                         color: tint, z: 0.015, window: window)
+                }
             } else if let symbol = element.symbol, element.style == .button {
                 if element.size.x < 0.25 {
                     icon(symbol, center: element.center, side: min(element.size.x, element.size.y) * 0.48,
@@ -151,14 +159,15 @@ final class SpatialUIRenderer {
                          color: tint, z: 0.011, window: window)
                     text(element.title, center: element.center + SIMD2(side * 0.38, 0),
                          maxSize: SIMD2(element.size.x - side * 2.0 - 0.025, element.size.y * 0.75),
-                         height: 0.048, color: tint, z: 0.011, window: window)
+                         height: 0.072, color: tint, z: 0.011, window: window)
                 }
             } else if let symbol = element.symbol, element.title.isEmpty {
                 icon(symbol, center: element.center, side: min(element.size.x, element.size.y) * 0.78,
                      color: tint, z: 0.011, window: window)
             } else {
                 text(element.title, center: element.center, maxSize: element.size - SIMD2(repeating: 0.012),
-                     height: element.style == .label ? 0.070 : element.style == .caption ? 0.041 : 0.049,
+                     height: element.id == "main.clock" ? 0.16 : element.style == .label ? 0.095 :
+                        element.style == .caption ? 0.065 : 0.072,
                      color: tint, z: 0.011, window: window)
             }
         }
@@ -324,7 +333,7 @@ private final class SpatialGlyphAtlas {
     init(device: MTLDevice) throws {
         let side = 2048
         let cell = 128
-        let font = UIFont.systemFont(ofSize: 80, weight: .medium)
+        let font = UIFont.systemFont(ofSize: 80, weight: .semibold)
         var characters: [Character] = (32...126).compactMap { UnicodeScalar($0).map { Character(String($0)) } }
         characters += (160...255).compactMap { UnicodeScalar($0).map { Character(String($0)) } }
         characters += Array("—–•…→←↑↓✓−")

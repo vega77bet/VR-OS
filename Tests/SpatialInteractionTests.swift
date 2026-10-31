@@ -401,4 +401,23 @@ final class SpatialInteractionTests: XCTestCase {
         XCTAssertEqual(selected.selectionPulse, 1, accuracy: 0.0001)
         XCTAssertNil(update(controller([.a]), at: 2).selectedWindowID)
     }
+
+    func testIdleAnalogCursorStaysWorldAnchoredWhenTheHeadTurns() {
+        var system = SpatialInteractionSystem()
+        let initial = step(&system, at: 0, frame: controller(), right: true)
+        let turned = step(&system, at: 0.1, frame: controller(),
+                          head: simd_quatf(angle: 0.7, axis: SIMD3(0, 1, 0)), right: true)
+        XCTAssertEqual(simd_distance(initial.ray.origin, turned.ray.origin), 0, accuracy: 0.00001)
+        XCTAssertEqual(simd_distance(initial.ray.direction, turned.ray.direction), 0, accuracy: 0.00001)
+    }
+
+    func testRecenterLookingVerticallyRetainsThePreviousControllerHeading() {
+        var system = SpatialInteractionSystem()
+        let head = simd_quatf(angle: 0.6, axis: SIMD3<Float>(0, 1, 0))
+        let initial = step(&system, at: 0, frame: controller(), head: head, right: true)
+        system.recenterAim(headPose: simd_quatf(angle: .pi / 2, axis: SIMD3(1, 0, 0)), motion: nil)
+        let final = step(&system, at: 0.1, frame: controller(), right: true)
+        XCTAssertEqual(simd_distance(initial.ray.origin, final.ray.origin), 0, accuracy: 0.00001)
+        XCTAssertEqual(simd_distance(initial.ray.direction, final.ray.direction), 0, accuracy: 0.00001)
+    }
 }

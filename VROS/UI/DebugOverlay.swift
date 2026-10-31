@@ -7,7 +7,7 @@ struct DebugOverlay: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("VR-OS 2.0 • Laboratório 3DoF").font(.headline)
+            Text("VR-OS 2.1 • Home espacial 3DoF").font(.headline)
             Text(trackingStatus)
             Text(String(format: "%.1f FPS • CPU %.2f ms • GPU %@", metrics.fps,
                         metrics.cpuMilliseconds,

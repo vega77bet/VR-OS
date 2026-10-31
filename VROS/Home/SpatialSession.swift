@@ -20,9 +20,13 @@ final class SpatialSession: ObservableObject {
     private let clockFormatter: DateFormatter
     private let dateFormatter: DateFormatter
     private var active = false
+    private var hasPresented = false
     var interactionEnabled = true {
         didSet {
-            if interactionEnabled != oldValue { resetInput() }
+            if interactionEnabled != oldValue {
+                resetInput()
+                workspace.setDockVisible(interactionEnabled, at: CACurrentMediaTime())
+            }
             if !interactionEnabled { controllers.motionEnabled = false }
         }
     }
@@ -32,6 +36,8 @@ final class SpatialSession: ObservableObject {
         clockFormatter.dateFormat = "HH:mm"
         dateFormatter = DateFormatter(); dateFormatter.locale = Locale(identifier: "pt_BR")
         dateFormatter.dateFormat = "EEEE, d 'de' MMMM"
+        workspace.setDockVisible(false, at: 0)
+        workspace.update(at: 1)
     }
 
     func setActive(_ value: Bool) {
@@ -53,6 +59,10 @@ final class SpatialSession: ObservableObject {
     func update(headPose: simd_quatf, at time: Double, calibration: VRCalibrationManager) -> SpatialRenderFrame {
         lastHeadPose = headPose
         workspace.update(at: time)
+        if !hasPresented {
+            hasPresented = true
+            workspace.setDockVisible(interactionEnabled, at: time)
+        }
         if appliedDistance != preferences.panelDistance {
             appliedDistance = preferences.panelDistance
             workspace.perform(.setDistance(appliedDistance), headPose: headPose, at: time)
@@ -108,7 +118,7 @@ final class SpatialSession: ObservableObject {
             if let level = descriptor?.batteryLevel { controllerStatus += " • \(Int(level * 100))%" }
             workspace.setSystemSummary(time: clockFormatter.string(from: now),
                                        date: dateFormatter.string(from: now),
-                                       status: String(format: "3DoF • %.0f FPS • %@", metrics.fps, update.pointerDescription),
+                                       status: String(format: "3DoF • %.0f FPS", metrics.fps),
                                        battery: battery)
             workspace.setControlSummary("\(controllerStatus)\n\(preferences.inputMode.title) • \(update.pointerDescription)\nPermanência \(String(format: "%.1f s", preferences.dwellDuration)) • Sensibilidade \(String(format: "%.1f", preferences.sensitivity))")
             workspace.setOpticalSummary(String(format: "IPD %.0f mm • Distorção %.0f%%\nResolução %.0f%% • Painel %.1f m", calibration.profile.ipdMeters * 1000,

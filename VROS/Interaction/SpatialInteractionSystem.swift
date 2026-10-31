@@ -60,7 +60,10 @@ struct SpatialInteractionSystem {
     }
 
     mutating func recenterAim(headPose: simd_quatf, motion: simd_quatf?) {
-        anchorYaw = Self.horizontalHeading(headPose)
+        let forward = headPose.act(SIMD3<Float>(0, 0, -1))
+        if forward.x * forward.x + forward.z * forward.z > 0.0001 {
+            anchorYaw = Self.horizontalHeading(headPose)
+        }
         yaw = 0; pitch = 0.12
         motionNeutral = Self.valid(motion) ? simd_normalize(motion!) : nil
         filteredRelative = simd_quatf(real: 1, imag: .zero)
@@ -132,8 +135,9 @@ struct SpatialInteractionSystem {
                 let anchor = simd_quatf(angle: anchorYaw, axis: SIMD3(0, 1, 0))
                 let aim = anchor * simd_quatf(angle: -yaw, axis: SIMD3(0, 1, 0)) *
                     simd_quatf(angle: pitch, axis: SIMD3(1, 0, 0))
-                let body = simd_quatf(angle: Self.horizontalHeading(headPose), axis: SIMD3(0, 1, 0))
-                ray = SpatialRay(origin: headOrigin + body.act(SIMD3(0.22, -0.20, -0.12)),
+                // A virtual, calibrated origin stays fixed while the head looks around.
+                // Rotating it with head yaw would move an idle analog cursor across panels.
+                ray = SpatialRay(origin: headOrigin + anchor.act(SIMD3(0.22, -0.20, -0.12)),
                                  direction: aim.act(SIMD3(0, 0, -1)))
             }
         }
