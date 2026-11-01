@@ -135,6 +135,11 @@ struct VisionCalibrationView: View {
                 parameterRow(.horizontalScale, step: 0.002)
                 parameterRow(.verticalScale, step: 0.002)
                 parameterRow(.rotationDegrees, step: 0.05)
+                HStack {
+                    Button("Proporção −") { session.adjustProportionalScale(-0.002) }
+                    Button("Proporção +") { session.adjustProportionalScale(0.002) }
+                    Button("Restaurar proporções") { session.restoreProportions() }
+                }
                 Text("Escala uniforme é preferível. Diferenças grandes entre os olhos podem piorar o conforto.")
                     .font(.footnote).foregroundStyle(.secondary)
             }

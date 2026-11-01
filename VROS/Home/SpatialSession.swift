@@ -189,13 +189,19 @@ final class SpatialSession: ObservableObject {
             syncVisionWorkspace()
         case .visionStage(let raw):
             if let stage = VisionCalibrationStage(rawValue: raw) {
-                visionSession?.stage = stage
+                ensureVisionSession(calibration).setStage(stage)
                 if stage == .leftAlignment { visionSession?.selectEye(.left) }
                 if stage == .rightAlignment { visionSession?.selectEye(.right) }
                 syncVisionWorkspace()
             }
         case .visionAdjust(let eye, let parameter, let delta):
             ensureVisionSession(calibration).adjust(parameter, delta: delta, eye: eye)
+            syncVisionWorkspace()
+        case .visionProportionalScale(let eye, let delta):
+            ensureVisionSession(calibration).adjustProportionalScale(delta, eye: eye)
+            syncVisionWorkspace()
+        case .visionRestoreProportions(let eye):
+            ensureVisionSession(calibration).restoreProportions(eye: eye)
             syncVisionWorkspace()
         case .visionIPD(let delta):
             ensureVisionSession(calibration).adjustIPD(delta)

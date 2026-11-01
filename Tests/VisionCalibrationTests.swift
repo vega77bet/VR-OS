@@ -134,6 +134,37 @@ final class VisionCalibrationTests: XCTestCase {
         }
     }
 
+    func testProportionalScaleChangesBothAxesAndRestores() async {
+        await MainActor.run {
+            let suite = "VisionCalibrationTests.scale.\(UUID().uuidString)"
+            let defaults = UserDefaults(suiteName: suite)!
+            defer { defaults.removePersistentDomain(forName: suite) }
+            let manager = VRCalibrationManager(defaults: defaults)
+            let session = VisionCalibrationSession(manager: manager)
+            session.adjustProportionalScale(0.02)
+            XCTAssertEqual(manager.profile.leftEye.horizontalScale, 1.02, accuracy: 0.0001)
+            XCTAssertEqual(manager.profile.leftEye.verticalScale, 1.02, accuracy: 0.0001)
+            session.restoreProportions()
+            XCTAssertEqual(manager.profile.leftEye.horizontalScale, 1, accuracy: 0.0001)
+            XCTAssertEqual(manager.profile.leftEye.verticalScale, 1, accuracy: 0.0001)
+        }
+    }
+
+    func testSpatialStageEntryKeepsRestoreBaseline() async {
+        await MainActor.run {
+            let suite = "VisionCalibrationTests.stage.\(UUID().uuidString)"
+            let defaults = UserDefaults(suiteName: suite)!
+            defer { defaults.removePersistentDomain(forName: suite) }
+            let manager = VRCalibrationManager(defaults: defaults)
+            let session = VisionCalibrationSession(manager: manager)
+            session.setStage(.scale)
+            session.adjustProportionalScale(0.02)
+            session.restoreStage()
+            XCTAssertEqual(manager.profile.leftEye.horizontalScale, 1, accuracy: 0.0001)
+            XCTAssertEqual(manager.profile.leftEye.verticalScale, 1, accuracy: 0.0001)
+        }
+    }
+
     func testProfilesKeepRecoveryEntry() async {
         await MainActor.run {
             let suite = "VisionCalibrationTests.\(UUID().uuidString)"

@@ -177,7 +177,8 @@ struct SpatialWorkspace {
             break
         case .visionEye(let eye): visionEye = eye
         case .visionStage(let raw): visionStage = VisionCalibrationStage(rawValue: raw) ?? visionStage
-        case .visionAdjust, .visionIPD, .visionProjectionCenter, .visionUndo, .visionRestoreStage, .visionRestoreAll,
+        case .visionAdjust, .visionProportionalScale, .visionRestoreProportions, .visionIPD, .visionProjectionCenter,
+             .visionUndo, .visionRestoreStage, .visionRestoreAll,
              .visionCompare, .visionSave, .visionCancel:
             break
         }
@@ -548,10 +549,11 @@ struct SpatialWorkspace {
                     ("ipdDown", "IPD −", "minus", .visionIPD(-0.0005)),
                     ("ipdUp", "IPD +", "plus", .visionIPD(0.0005))]
         case .scale:
-            return [("smaller", "Menor", "minus.magnifyingglass", .visionAdjust(eye, .horizontalScale, -0.002)),
-                    ("larger", "Maior", "plus.magnifyingglass", .visionAdjust(eye, .horizontalScale, 0.002)),
+            return [("smaller", "Menor", "minus.magnifyingglass", .visionProportionalScale(eye, -0.002)),
+                    ("larger", "Maior", "plus.magnifyingglass", .visionProportionalScale(eye, 0.002)),
                     ("rotateL", "Girar −", "rotate.left", .visionAdjust(eye, .rotationDegrees, -0.05)),
-                    ("rotateR", "Girar +", "rotate.right", .visionAdjust(eye, .rotationDegrees, 0.05))]
+                    ("rotateR", "Girar +", "rotate.right", .visionAdjust(eye, .rotationDegrees, 0.05)),
+                    ("proportions", "Proporções", "arrow.counterclockwise", .visionRestoreProportions(eye))]
         case .opticalCenter:
             return [("centerL", "Centro ←", "arrow.left", .visionAdjust(eye, .opticalCenterX, -0.002)),
                     ("centerR", "Centro →", "arrow.right", .visionAdjust(eye, .opticalCenterX, 0.002)),

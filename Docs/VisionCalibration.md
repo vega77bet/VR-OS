@@ -67,8 +67,11 @@ As etapas são: preparação, alinhamento esquerdo, alinhamento direito, fusão,
 escala/rotação, centro óptico, distorção radial/tangencial, cromática,
 legibilidade e validação. A sessão oferece preview imediato, comparar
 antes/depois, desfazer, restaurar etapa, restaurar olho, restaurar tudo,
-cancelar e salvar. `Y`/recenter e o botão nativo de recuperação continuam
-disponíveis; o perfil genérico não pode ser excluído.
+cancelar e salvar. No painel sem touchscreen, “menor/maior” altera escala
+horizontal e vertical juntas; restaurar proporções retorna ambos os eixos a
+1.0. Os controles separados horizontal/vertical continuam disponíveis no modo
+avançado. `Y`/recenter e o botão nativo de recuperação continuam disponíveis;
+o perfil genérico não pode ser excluído.
 
 ## Perfis e migração
 

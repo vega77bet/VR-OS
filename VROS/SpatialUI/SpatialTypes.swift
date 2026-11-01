@@ -36,6 +36,8 @@ enum SpatialAction: Equatable {
     case adjustDwell(Double), adjustSensitivity(Float), adjustOptics(OpticalAdjustment, Float), resetOptics
     case visionEye(VisionCalibrationEye), visionStage(Int)
     case visionAdjust(VisionCalibrationEye, VisionCalibrationParameter, Float)
+    case visionProportionalScale(VisionCalibrationEye, Float)
+    case visionRestoreProportions(VisionCalibrationEye)
     case visionIPD(Float), visionProjectionCenter(VisionCalibrationEye, Float)
     case visionUndo, visionRestoreStage, visionRestoreAll
     case visionCompare, visionSave, visionCancel

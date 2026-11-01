@@ -57,13 +57,21 @@ final class VisionCalibrationSession: ObservableObject {
     func nextStage() {
         guard let next = VisionCalibrationStage(rawValue: min(stage.rawValue + 1,
                                                               VisionCalibrationStage.allCases.count - 1)) else { return }
-        if next != stage { stageBaselines[next] = snapshot; stage = next }
-        applyPreview()
+        setStage(next)
     }
 
     func previousStage() {
         guard let previous = VisionCalibrationStage(rawValue: max(stage.rawValue - 1, 0)) else { return }
-        stage = previous
+        setStage(previous)
+    }
+
+    /// Changes the wizard stage from the spatial panel while preserving the
+    /// first snapshot captured when that stage was entered. This keeps
+    /// “restore this stage” meaningful even when no SwiftUI sheet is open.
+    func setStage(_ value: VisionCalibrationStage) {
+        guard value != stage else { return }
+        if stageBaselines[value] == nil { stageBaselines[value] = snapshot }
+        stage = value
         applyPreview()
     }
 
@@ -109,6 +117,27 @@ final class VisionCalibrationSession: ObservableObject {
 
     func adjustIPD(_ delta: Float) {
         pushUndo(); draft.ipdMeters += delta; lastChange = "IPD ajustado"; applyPreview()
+    }
+
+    func adjustProportionalScale(_ delta: Float, eye targetEye: VisionCalibrationEye? = nil) {
+        pushUndo()
+        let target = targetEye ?? selectedEye
+        mutateEye(target) {
+            $0.horizontalScale += delta
+            $0.verticalScale += delta
+        }
+        lastChange = "Escala proporcional ajustada"
+        applyPreview()
+    }
+
+    func restoreProportions(eye targetEye: VisionCalibrationEye? = nil) {
+        pushUndo()
+        mutateEye(targetEye ?? selectedEye) {
+            $0.horizontalScale = 1
+            $0.verticalScale = 1
+        }
+        lastChange = "Proporções restauradas"
+        applyPreview()
     }
 
     func adjustProjectionCenter(eye targetEye: VisionCalibrationEye, delta: Float) {
