@@ -72,20 +72,13 @@ jobs:
           if [ -d build/simulator/Build/Products/Debug-iphonesimulator/VROS.app ]; then
             codesign -dv build/simulator/Build/Products/Debug-iphonesimulator/VROS.app
           fi
-      - name: Upload build and test evidence
-        if: always()
+      - name: Upload only the IPA
+        if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: VROS-stage2-native-build-evidence
-          path: |
-            build/Tests.xcresult
-            build/MathTests.xcresult
-            build/attachments
-            build/*-summary.json
-            build/device/Build/Products/Release-iphoneos/VROS.app
-            build/VROS-unsigned.ipa
-            build/VROS-unsigned.ipa.sha256
-            VROS.xcodeproj
+          name: VR-OS-IPA-${{ github.run_number }}
+          path: build/VROS-unsigned.ipa
+          if-no-files-found: error
           retention-days: 14
       - name: Shut down test simulators
         if: always()
