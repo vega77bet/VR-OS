@@ -4,7 +4,7 @@ import Foundation
 @MainActor
 final class VRCalibrationManager: ObservableObject {
     static let persistenceKey = "vr-os-2.optics.v1"
-    static let defaultRenderScale: Float = 0.85
+    static let defaultRenderScale: Float = 1.0
 
     @Published var profile: VRLensProfile {
         didSet {
@@ -45,7 +45,9 @@ final class VRCalibrationManager: ObservableObject {
                 stored.distortionStrength = VRLensProfile.genericVRBox.distortionStrength
             }
             profile = stored.validated()
-            renderScale = Self.validatedRenderScale(saved.renderScale)
+            // Older default 0.85 was downsampling text and panel edges. Upgrade
+            // untouched default only; preserve intentional user adjustments.
+            renderScale = abs(saved.renderScale - 0.85) < 0.0001 ? 1.0 : Self.validatedRenderScale(saved.renderScale)
         } else {
             profile = .genericVRBox
             renderScale = Self.defaultRenderScale
