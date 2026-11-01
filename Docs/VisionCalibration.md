@@ -33,14 +33,19 @@ de projeção X usa UV da câmera, separado do centro óptico do pós-processame
 Para cada pixel de destino o shader executa amostragem inversa, nesta ordem:
 
 1. subtrai centro óptico e deslocamento da imagem;
-2. aplica a rotação inversa e divide pela escala do olho;
+2. aplica a rotação inversa;
 3. normaliza pelo aspect ratio;
 4. aplica `r² = x²+y²`, `1 + K1*r² + K2*r⁴ + K3*r⁶` multiplicado por
    `distortionStrength`;
 5. aplica tangencial Brown–Conrady (`P1`, `P2`);
 6. aplica o pequeno fator radial do canal vermelho ou azul, mantendo verde como
    referência;
-7. amostra somente a textura do olho atual.
+7. reposiciona o resultado pela escala horizontal/vertical do olho;
+8. amostra somente a textura do olho atual.
+
+A escala é deliberadamente aplicada depois da pré-distorção. Essa ordem preserva
+as calibrações legadas e mantém escala e correção da lente como operações
+separadas; a referência CPU e o shader usam a mesma sequência.
 
 Com `distortionStrength = 0`, deslocamentos, escalas, rotação neutra, centros
 em 0,5 e cromática 1, o mapeamento é identidade. UVs fora de `[0,1]` tornam o

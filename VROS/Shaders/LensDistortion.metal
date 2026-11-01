@@ -41,6 +41,11 @@ inline float2 mapLensUV(float2 normalized, constant LensUniforms& lens, float ch
     return lens.center + float2(corrected.x / (2 * lens.aspect), corrected.y / 2);
 }
 
+inline float2 applyImageScale(float2 correctedUV, float2 center, float2 imageScale) {
+    float2 safeScale = max(imageScale, float2(0.001));
+    return center + (correctedUV - center) / safeScale;
+}
+
 fragment float4 lensFragment(LensVarying in [[stage_in]],
                              constant LensUniforms& lens [[buffer(0)]],
                              texture2d<float> source [[texture(0)]]) {
@@ -48,13 +53,15 @@ fragment float4 lensFragment(LensVarying in [[stage_in]],
     float c = cos(-lens.rotationRadians);
     float s = sin(-lens.rotationRadians);
     delta = float2(c * delta.x - s * delta.y, s * delta.x + c * delta.y);
-    delta /= max(lens.imageScale, float2(0.001));
     float2 normalized = 2 * delta * float2(lens.aspect, 1);
-    // Inverse sampling: each output pixel asks for its source coordinate. This
-    // avoids holes and keeps the two eye textures completely independent.
-    float2 uv = mapLensUV(normalized, lens, 1);
-    float2 redUV = mapLensUV(normalized, lens, lens.chromaticRedScale);
-    float2 blueUV = mapLensUV(normalized, lens, lens.chromaticBlueScale);
+    // Keep image scale as the final placement operation after lens warp. This
+    // preserves the legacy VR-OS profile semantics while remaining an inverse
+    // map: each output pixel still asks for one source coordinate.
+    float2 uv = applyImageScale(mapLensUV(normalized, lens, 1), lens.center, lens.imageScale);
+    float2 redUV = applyImageScale(mapLensUV(normalized, lens, lens.chromaticRedScale),
+                                   lens.center, lens.imageScale);
+    float2 blueUV = applyImageScale(mapLensUV(normalized, lens, lens.chromaticBlueScale),
+                                    lens.center, lens.imageScale);
     if (any(uv < 0) || any(uv > 1) || any(redUV < 0) || any(redUV > 1) ||
         any(blueUV < 0) || any(blueUV > 1)) return float4(0, 0, 0, 1);
     constexpr sampler linearSampler(coord::normalized, address::clamp_to_edge, filter::linear);

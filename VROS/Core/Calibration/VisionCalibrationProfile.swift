@@ -190,8 +190,6 @@ enum VisionCalibrationMath {
         let c = cos(-safeEye.rotationDegrees * .pi / 180)
         let s = sin(-safeEye.rotationDegrees * .pi / 180)
         p = SIMD2(c * p.x - s * p.y, s * p.x + c * p.y)
-        p = SIMD2(p.x / safeEye.horizontalScale, p.y / safeEye.verticalScale)
-
         var n = SIMD2(2 * p.x * safeAspect, 2 * p.y)
         let r2 = simd_dot(n, n)
         let radial = 1 + safeEye.distortionStrength *
@@ -202,7 +200,12 @@ enum VisionCalibrationMath {
         let tangentialY = safeEye.tangentialP1 * (r2 + 2 * y * y) + 2 * safeEye.tangentialP2 * x * y
         n = SIMD2((x * radial + tangentialX) * safeChannelScale,
                   (y * radial + tangentialY) * safeChannelScale)
-        let uv = center + SIMD2(n.x / (2 * safeAspect), n.y / 2)
+        // Image scale is applied after the optical warp. This is the ordering
+        // used by the original compositor and keeps saved profiles backward
+        // compatible while preserving inverse sampling.
+        let corrected = center + SIMD2(n.x / (2 * safeAspect), n.y / 2)
+        let uv = center + (corrected - center) /
+            SIMD2(max(safeEye.horizontalScale, 0.001), max(safeEye.verticalScale, 0.001))
         return Sample(uv: uv, valid: uv.x >= 0 && uv.x <= 1 && uv.y >= 0 && uv.y <= 1)
     }
 
