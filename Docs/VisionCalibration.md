@@ -107,7 +107,7 @@ dos uniforms e os passes SBS reais quando Metal está disponível. O workflow
 não assinado e precisa ser assinado pelo Sideloadly/AltStore com uma conta
 válida antes da instalação.
 
-Validação CI registrada em 1 de novembro de 2026: [run 41273237529](https://github.com/vega77bet/VR-OS/actions/runs/41273237529).
+Validação CI registrada em 1 de novembro de 2026: [run 41273936988](https://github.com/vega77bet/VR-OS/actions/runs/41273936988).
 O run compilou o target iOS para dispositivo sem assinatura. O resumo oficial do
 Xcode registrou **92 testes macOS passados, 0 falhas, 0 ignorados** e **105 testes
 iOS no simulador passados, 0 falhas, 0 ignorados**. O run exportou a captura GPU
