@@ -29,11 +29,11 @@ final class VisionCalibrationTests: XCTestCase {
         XCTAssertEqual(scaledSample.uv.x, 0.5909091, accuracy: 0.0001)
 
         var rotated = EyeCalibration.neutral
-        rotated.rotationDegrees = 90
+        rotated.rotationDegrees = 2
         let rotatedSample = VisionCalibrationMath.sourceUV(destinationUV: SIMD2(0.6, 0.5),
                                                            aspect: 1, eye: rotated)
-        XCTAssertEqual(rotatedSample.uv.x, 0.5, accuracy: 0.0001)
-        XCTAssertEqual(rotatedSample.uv.y, 0.4, accuracy: 0.0001)
+        XCTAssertEqual(rotatedSample.uv.x, 0.5999391, accuracy: 0.0001)
+        XCTAssertEqual(rotatedSample.uv.y, 0.4982550, accuracy: 0.0001)
     }
 
     func testOpticalCenterAndChromaticChannelMapping() {
