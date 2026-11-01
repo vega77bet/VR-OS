@@ -120,7 +120,7 @@ final class SpatialSession: ObservableObject {
             // This method is called from the Metal render loop. Defer the
             // published status so SwiftUI never receives a change during a
             // view update or while the drawable is being encoded.
-            Task { @MainActor [weak self] in self?.inputStatus = pointerDescription }
+            DispatchQueue.main.async { [weak self] in self?.inputStatus = pointerDescription }
             let now = Date()
             let level = UIDevice.current.batteryLevel
             let battery = level >= 0 ? "iPhone \(Int(level * 100))%" : "Bateria iPhone indisponível"

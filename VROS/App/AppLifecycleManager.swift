@@ -26,7 +26,7 @@ final class AppLifecycleManager: ObservableObject {
         // SwiftUI-observable mutations to the next main-loop turn so a frame
         // never publishes while SwiftUI is evaluating the root view.
         let status = tracking.status
-        Task { @MainActor [weak self] in
+        DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.metrics = metrics
             self.spatial.receive(metrics)
