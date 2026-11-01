@@ -50,9 +50,13 @@ jobs:
           if [ -d build/Tests.xcresult ]; then
             xcrun xcresulttool export attachments --path build/Tests.xcresult --output-path build/attachments
             xcrun xcresulttool get test-results summary --path build/Tests.xcresult > build/ios-summary.json
+            echo '--- iOS XCTest summary ---'
+            cat build/ios-summary.json
           fi
           if [ -d build/MathTests.xcresult ]; then
             xcrun xcresulttool get test-results summary --path build/MathTests.xcresult > build/math-summary.json
+            echo '--- macOS XCTest summary ---'
+            cat build/math-summary.json
           fi
       - name: Package unsigned IPA for sideload signing
         if: success()
