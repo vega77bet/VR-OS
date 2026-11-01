@@ -41,6 +41,10 @@ final class AppLifecycleManager: ObservableObject {
         metalView?.isPaused = !running
         UIApplication.shared.isIdleTimerDisabled = running
         if running { tracking.start() } else { tracking.stop() }
-        trackingStatus = tracking.status
+        let status = tracking.status
+        // attach()/setActive() can run while SwiftUI is creating the
+        // representable view. Publish the lifecycle status on the next run
+        // loop instead of during that view transaction.
+        DispatchQueue.main.async { [weak self] in self?.trackingStatus = status }
     }
 }
