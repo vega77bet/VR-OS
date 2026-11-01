@@ -411,15 +411,39 @@ private final class SpatialGlyphAtlas {
             return true
         }
         let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm, width: side,
-                                                                   height: side, mipmapped: false)
-        descriptor.storageMode = .shared
-        descriptor.usage = .shaderRead
+                                                                   height: side, mipmapped: true)
+        descriptor.storageMode = .private
+        descriptor.usage = [.shaderRead, .shaderWrite]
         guard didDraw, let texture = device.makeTexture(descriptor: descriptor) else {
             throw VRRenderer.RenderError.unavailable("textura do atlas")
         }
+        // Upload the base atlas to a staging texture, then generate filtered levels.
+        // A private mipmapped atlas avoids unstable minification of tiny VR text.
+        let stagingDescriptor = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .rgba8Unorm, width: side, height: side, mipmapped: false)
+        stagingDescriptor.storageMode = .shared
+        stagingDescriptor.usage = .blitSource
+        guard let staging = device.makeTexture(descriptor: stagingDescriptor),
+              let queue = device.makeCommandQueue(),
+              let command = queue.makeCommandBuffer(),
+              let blit = command.makeBlitCommandEncoder() else {
+            throw VRRenderer.RenderError.unavailable("upload do atlas")
+        }
         bytes.withUnsafeBytes { pointer in
-            texture.replace(region: MTLRegionMake2D(0, 0, side, side), mipmapLevel: 0,
+            staging.replace(region: MTLRegionMake2D(0, 0, side, side), mipmapLevel: 0,
                             withBytes: pointer.baseAddress!, bytesPerRow: side * 4)
+        }
+        blit.copy(from: staging, sourceSlice: 0, sourceLevel: 0,
+                  sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
+                  sourceSize: MTLSize(width: side, height: side, depth: 1),
+                  to: texture, destinationSlice: 0, destinationLevel: 0,
+                  destinationOrigin: MTLOrigin(x: 0, y: 0, z: 0))
+        blit.generateMipmaps(for: texture)
+        blit.endEncoding()
+        command.commit()
+        command.waitUntilCompleted()
+        guard command.status == .completed else {
+            throw VRRenderer.RenderError.unavailable("geração dos mipmaps do atlas")
         }
         texture.label = "Immutable Latin glyphs and SF Symbols"
         self.texture = texture
