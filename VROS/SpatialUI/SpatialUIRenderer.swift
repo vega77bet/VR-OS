@@ -36,6 +36,7 @@ final class SpatialUIRenderer {
         descriptor.vertexFunction = library.makeFunction(name: "spatialVertex")
         descriptor.fragmentFunction = library.makeFunction(name: "spatialFragment")
         descriptor.depthAttachmentPixelFormat = .depth32Float
+        descriptor.rasterSampleCount = 4
         descriptor.colorAttachments[0].pixelFormat = pixelFormat
         descriptor.colorAttachments[0].isBlendingEnabled = true
         descriptor.colorAttachments[0].sourceRGBBlendFactor = .one
