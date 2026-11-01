@@ -33,7 +33,9 @@ final class VisionCalibrationTests: XCTestCase {
         let rotatedSample = VisionCalibrationMath.sourceUV(destinationUV: SIMD2(0.6, 0.5),
                                                            aspect: 1, eye: rotated)
         XCTAssertEqual(rotatedSample.uv.x, 0.5999391, accuracy: 0.0001)
-        XCTAssertEqual(rotatedSample.uv.y, 0.4982550, accuracy: 0.0001)
+        // The inverse mapping rotates the destination vector by -2 degrees;
+        // its Y component is therefore sin(-2°) * 0.1 = -0.00349.
+        XCTAssertEqual(rotatedSample.uv.y, 0.4965101, accuracy: 0.0001)
     }
 
     func testOpticalCenterAndChromaticChannelMapping() {
