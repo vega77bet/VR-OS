@@ -112,9 +112,9 @@ dos uniforms e os passes SBS reais quando Metal está disponível. O workflow
 não assinado e precisa ser assinado pelo Sideloadly/AltStore com uma conta
 válida antes da instalação.
 
-Validação CI registrada em 1 de novembro de 2026: [run 41279131703](https://github.com/vega77bet/VR-OS/actions/runs/41279131703). O run executou 92 testes macOS e 105 testes iOS no simulador, todos aprovados, além de gerar o IPA não assinado com o sampler mip linear ativo.
+Validação CI registrada em 1 de novembro de 2026: [run 41280649952](https://github.com/vega77bet/VR-OS/actions/runs/41280649952). O run executou 94 testes macOS e 107 testes iOS no simulador, todos aprovados, além de gerar o IPA não assinado com o sampler mip linear ativo e escala proporcional operável no painel espacial.
 O run compilou o target iOS para dispositivo sem assinatura. O resumo oficial do
-Xcode registrou **92 testes macOS passados, 0 falhas, 0 ignorados** e **105 testes
+Xcode registrou **94 testes macOS passados, 0 falhas, 0 ignorados** e **107 testes
 iOS no simulador passados, 0 falhas, 0 ignorados**. O run exportou a captura GPU
 e publicou `VROS-unsigned.ipa` como o único arquivo do artefato. Não houve teste
 físico no iPhone 15 ou no VR Box neste ambiente.
