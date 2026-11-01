@@ -83,11 +83,13 @@ limitados antes de chegar à GPU. Falha de decodificação volta ao padrão segu
 ## Texto e cintilação
 
 A correção binocular não é tratada como correção de texto. O atlas de glifos e
-SF Symbols é imutável, usa células com margem UV de dois pixels e filtragem
-linear, sem rasterização de strings por frame. O ajuste de resolução é separado
-dos parâmetros ópticos. O comportamento final de shimmer, foco físico e
-legibilidade deve ser avaliado no iPhone dentro do VR Box; o CI não consegue
-medir essas propriedades.
+SF Symbols é imutável, usa células com margem UV de dois pixels, textura
+mipmapped e filtragem mip linear, sem rasterização de strings por frame. O
+sampler seleciona os níveis mip durante a minificação; criar os níveis sem
+selecioná-los deixaria o texto preso ao nível base e sujeito a shimmer. O ajuste
+de resolução é separado dos parâmetros ópticos. O comportamento final de
+shimmer, foco físico e legibilidade deve ser avaliado no iPhone dentro do VR
+Box; o CI não consegue medir essas propriedades.
 
 ## Limites físicos
 
