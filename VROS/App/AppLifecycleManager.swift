@@ -22,9 +22,16 @@ final class AppLifecycleManager: ObservableObject {
     func setPresentationPaused(_ value: Bool) { presentationPaused = value; applyState() }
 
     func receive(_ metrics: FrameMetrics) {
-        self.metrics = metrics
-        spatial.receive(metrics)
-        trackingStatus = tracking.status
+        // MTKViewDelegate invokes this callback from the render loop. Defer
+        // SwiftUI-observable mutations to the next main-loop turn so a frame
+        // never publishes while SwiftUI is evaluating the root view.
+        let status = tracking.status
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.metrics = metrics
+            self.spatial.receive(metrics)
+            self.trackingStatus = status
+        }
     }
 
     private func applyState() {
