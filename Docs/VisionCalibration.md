@@ -109,6 +109,6 @@ válida antes da instalação.
 
 Validação CI registrada em 1 de novembro de 2026: [run 41269088259](https://github.com/vega77bet/VR-OS/actions/runs/41269088259).
 O run compilou o target iOS para dispositivo sem assinatura, executou 92 testes
-macOS e 105 testes no simulador iOS/Metal, exportou as capturas GPU e publicou
+macOS e 51 casos iOS/Metal descobertos no simulador, todos sem falhas, exportou as capturas GPU e publicou
 `VROS-unsigned.ipa` como o único arquivo do artefato. Não houve teste físico no
 iPhone 15 ou no VR Box neste ambiente.
