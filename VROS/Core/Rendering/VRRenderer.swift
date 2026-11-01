@@ -149,7 +149,7 @@ final class VRRenderer: NSObject, MTKViewDelegate {
                 eye, orientation: pose, ipdMeters: profile.ipdMeters))
             encoder.setVertexBytes(&camera, length: MemoryLayout<SceneUniforms>.stride, index: 1)
             encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: vertexCount)
-            if spatialFrame != nil { spatialUI.encode(encoder: encoder, viewProjection: camera.viewProjection) }
+            if spatialFrame != nil { spatialUI.encode(encoder: encoder, viewProjection: camera.viewProjection, sampleCount: sceneSampleCount) }
             encoder.endEncoding()
         }
         guard let compositor = command.makeRenderCommandEncoder(descriptor: output) else { return }
