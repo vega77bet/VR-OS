@@ -422,7 +422,7 @@ private final class SpatialGlyphAtlas {
         let stagingDescriptor = MTLTextureDescriptor.texture2DDescriptor(
             pixelFormat: .rgba8Unorm, width: side, height: side, mipmapped: false)
         stagingDescriptor.storageMode = .shared
-        stagingDescriptor.usage = .blitSource
+        stagingDescriptor.usage = .shaderRead
         guard let staging = device.makeTexture(descriptor: stagingDescriptor),
               let queue = device.makeCommandQueue(),
               let command = queue.makeCommandBuffer(),
