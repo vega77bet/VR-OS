@@ -4,7 +4,7 @@ import QuartzCore
 import simd
 
 struct HeadMotionSample {
-    /// Core Motion attitude rotates reference vectors into the device frame.
+    /// Sample contract: rotation from the Core Motion reference frame into device coordinates.
     var referenceToDevice: simd_quatf
     var angularVelocity: SIMD3<Float>
     var timestamp: TimeInterval
@@ -29,7 +29,9 @@ final class CoreMotionSource: HeadMotionSource {
         guard let data = motion.deviceMotion else { return nil }
         let q = data.attitude.quaternion
         return HeadMotionSample(
-            referenceToDevice: simd_quatf(ix: Float(q.x), iy: Float(q.y), iz: Float(q.z), r: Float(q.w)),
+            // CMAttitude quaternion is device-to-reference; invert once to honor the
+            // reference-to-device contract used by MotionCoordinateConverter.
+            referenceToDevice: simd_quatf(ix: -Float(q.x), iy: -Float(q.y), iz: -Float(q.z), r: Float(q.w)),
             angularVelocity: SIMD3(Float(data.rotationRate.x), Float(data.rotationRate.y), Float(data.rotationRate.z)),
             timestamp: data.timestamp)
     }

@@ -25,6 +25,14 @@ final class MetalRenderingTests: XCTestCase {
         scene.colorAttachments[0].pixelFormat = .bgra8Unorm
         scene.depthAttachmentPixelFormat = .depth32Float
         _ = try device.makeRenderPipelineState(descriptor: scene)
+        // float2 fields are 8-byte aligned in Metal. Four float2 values plus
+        // eight scalar floats must occupy the same 64-byte ABI on Swift.
+        XCTAssertEqual(MemoryLayout<LensDistortionRenderer.Uniforms>.stride, 64)
+        XCTAssertEqual(MemoryLayout<LensDistortionRenderer.Uniforms>.offset(of: \.center), 0)
+        XCTAssertEqual(MemoryLayout<LensDistortionRenderer.Uniforms>.offset(of: \.imageOffset), 8)
+        XCTAssertEqual(MemoryLayout<LensDistortionRenderer.Uniforms>.offset(of: \.imageScale), 16)
+        XCTAssertEqual(MemoryLayout<LensDistortionRenderer.Uniforms>.offset(of: \.tangential), 24)
+        XCTAssertEqual(MemoryLayout<LensDistortionRenderer.Uniforms>.offset(of: \.rotationRadians), 32)
         _ = try LensDistortionRenderer(device: device, library: library, pixelFormat: .bgra8Unorm)
     }
 
