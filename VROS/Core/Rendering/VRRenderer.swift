@@ -25,6 +25,9 @@ final class VRRenderer: NSObject, MTKViewDelegate {
     private let inFlight = DispatchSemaphore(value: 2)
     private var eyeTextures: [MTLTexture] = []
     private var eyeDepthTextures: [MTLTexture] = []
+    private var eyeMSAAColors: [MTLTexture] = []
+    private var eyeMSAADepths: [MTLTexture] = []
+    private let sceneSampleCount = 4
     private var targetWidth = 0
     private var targetHeight = 0
     private var targetScale: Float = 0
@@ -66,6 +69,7 @@ final class VRRenderer: NSObject, MTKViewDelegate {
         descriptor.fragmentFunction = library.makeFunction(name: "sceneFragment")
         descriptor.colorAttachments[0].pixelFormat = .bgra8Unorm
         descriptor.depthAttachmentPixelFormat = .depth32Float
+        descriptor.rasterSampleCount = 4
         scenePipeline = try device.makeRenderPipelineState(descriptor: descriptor)
         let depthDescriptor = MTLDepthStencilDescriptor()
         depthDescriptor.depthCompareFunction = .less
@@ -121,11 +125,12 @@ final class VRRenderer: NSObject, MTKViewDelegate {
         if let spatialFrame { spatialUI.prepare(spatialFrame) }
         for eye in StereoCamera.Eye.allCases {
             let pass = MTLRenderPassDescriptor()
-            pass.colorAttachments[0].texture = eyeTextures[eye.rawValue]
+            pass.colorAttachments[0].texture = eyeMSAAColors[eye.rawValue]
+            pass.colorAttachments[0].resolveTexture = eyeTextures[eye.rawValue]
             pass.colorAttachments[0].loadAction = .clear
-            pass.colorAttachments[0].storeAction = .store
+            pass.colorAttachments[0].storeAction = .multisampleResolve
             pass.colorAttachments[0].clearColor = MTLClearColorMake(0.025, 0.035, 0.055, 1)
-            pass.depthAttachment.texture = eyeDepthTextures[eye.rawValue]
+            pass.depthAttachment.texture = eyeMSAADepths[eye.rawValue]
             pass.depthAttachment.loadAction = .clear
             pass.depthAttachment.storeAction = .dontCare
             pass.depthAttachment.clearDepth = 1
@@ -193,6 +198,8 @@ final class VRRenderer: NSObject, MTKViewDelegate {
         if width == targetWidth && height == targetHeight && boundedScale == targetScale { return true }
         var colors: [MTLTexture] = []
         var depths: [MTLTexture] = []
+        var msaaColors: [MTLTexture] = []
+        var msaaDepths: [MTLTexture] = []
         for eye in StereoCamera.Eye.allCases {
             let eyeWidth = StereoCamera.horizontalRange(eye, drawableWidth: width).count
             let renderWidth = max(1, Int(Float(eyeWidth) * boundedScale))
@@ -205,13 +212,31 @@ final class VRRenderer: NSObject, MTKViewDelegate {
                 pixelFormat: .depth32Float, width: renderWidth, height: renderHeight, mipmapped: false)
             depthDescriptor.storageMode = .private
             depthDescriptor.usage = .renderTarget
+            let msaaColorDescriptor = MTLTextureDescriptor.texture2DDescriptor(
+                pixelFormat: .bgra8Unorm, width: renderWidth, height: renderHeight, mipmapped: false)
+            msaaColorDescriptor.textureType = .type2DMultisample
+            msaaColorDescriptor.sampleCount = sceneSampleCount
+            msaaColorDescriptor.storageMode = .private
+            msaaColorDescriptor.usage = .renderTarget
+            let msaaDepthDescriptor = MTLTextureDescriptor.texture2DDescriptor(
+                pixelFormat: .depth32Float, width: renderWidth, height: renderHeight, mipmapped: false)
+            msaaDepthDescriptor.textureType = .type2DMultisample
+            msaaDepthDescriptor.sampleCount = sceneSampleCount
+            msaaDepthDescriptor.storageMode = .private
+            msaaDepthDescriptor.usage = .renderTarget
             guard let color = device.makeTexture(descriptor: colorDescriptor),
-                  let depth = device.makeTexture(descriptor: depthDescriptor) else { return false }
+                  let depth = device.makeTexture(descriptor: depthDescriptor),
+                  let msaaColor = device.makeTexture(descriptor: msaaColorDescriptor),
+                  let msaaDepth = device.makeTexture(descriptor: msaaDepthDescriptor) else { return false }
             colors.append(color)
             depths.append(depth)
+            msaaColors.append(msaaColor)
+            msaaDepths.append(msaaDepth)
         }
         eyeTextures = colors
         eyeDepthTextures = depths
+        eyeMSAAColors = msaaColors
+        eyeMSAADepths = msaaDepths
         targetWidth = width
         targetHeight = height
         targetScale = boundedScale
