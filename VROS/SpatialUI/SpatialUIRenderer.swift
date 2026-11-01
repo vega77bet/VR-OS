@@ -15,6 +15,7 @@ final class SpatialUIRenderer {
     private struct Camera { var viewProjection: simd_float4x4 }
     private let device: MTLDevice
     private let pipeline: MTLRenderPipelineState
+    private let msaaPipeline: MTLRenderPipelineState
     private let depthState: MTLDepthStencilState
     private let pointerDepthState: MTLDepthStencilState
     private let atlas: SpatialGlyphAtlas
@@ -43,6 +44,8 @@ final class SpatialUIRenderer {
         descriptor.colorAttachments[0].sourceAlphaBlendFactor = .one
         descriptor.colorAttachments[0].destinationAlphaBlendFactor = .oneMinusSourceAlpha
         pipeline = try device.makeRenderPipelineState(descriptor: descriptor)
+        descriptor.rasterSampleCount = 4
+        msaaPipeline = try device.makeRenderPipelineState(descriptor: descriptor)
         let depth = MTLDepthStencilDescriptor()
         depth.depthCompareFunction = .lessEqual
         depth.isDepthWriteEnabled = true
@@ -89,10 +92,11 @@ final class SpatialUIRenderer {
         }
     }
 
-    func encode(encoder: MTLRenderCommandEncoder, viewProjection: simd_float4x4) {
+    func encode(encoder: MTLRenderCommandEncoder, viewProjection: simd_float4x4,
+                sampleCount: Int = 1) {
         guard vertexCount > 0, let buffer = buffers[bufferIndex] else { return }
         var camera = Camera(viewProjection: viewProjection)
-        encoder.setRenderPipelineState(pipeline)
+        encoder.setRenderPipelineState(sampleCount == 4 ? msaaPipeline : pipeline)
         encoder.setDepthStencilState(depthState)
         encoder.setCullMode(.none)
         encoder.setVertexBuffer(buffer, offset: 0, index: 0)
