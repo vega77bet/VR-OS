@@ -35,8 +35,16 @@ final class VRCalibrationManager: ObservableObject {
         self.defaults = defaults
         if let data = defaults.data(forKey: Self.persistenceKey),
            let saved = try? JSONDecoder().decode(Preferences.self, from: data),
-           saved.version == 1 {
-            profile = saved.profile.validated()
+           saved.version == 1 || saved.version == 2 {
+            var stored = saved.profile
+            // Version 1 shipped with a provisional 50% warp. Migrate only an
+            // untouched generic profile; preserve profiles users calibrated.
+            if saved.version == 1,
+               stored.id == VRLensProfile.genericVRBox.id,
+               abs(stored.distortionStrength - 0.5) < 0.0001 {
+                stored.distortionStrength = VRLensProfile.genericVRBox.distortionStrength
+            }
+            profile = stored.validated()
             renderScale = Self.validatedRenderScale(saved.renderScale)
         } else {
             profile = .genericVRBox
@@ -56,7 +64,7 @@ final class VRCalibrationManager: ObservableObject {
     }
 
     private func persist() {
-        let preferences = Preferences(version: 1, profile: profile, renderScale: renderScale)
+        let preferences = Preferences(version: 2, profile: profile, renderScale: renderScale)
         if let data = try? JSONEncoder().encode(preferences) {
             defaults.set(data, forKey: Self.persistenceKey)
         }

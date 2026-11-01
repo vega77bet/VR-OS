@@ -20,7 +20,9 @@ struct VRLensProfile: Codable, Equatable, Identifiable {
         ipdMeters: 0.064, verticalFOVDegrees: 90,
         leftCenterX: 0.5, rightCenterX: 0.5,
         leftScale: 1, rightScale: 1,
-        distortionK1: 0.18, distortionK2: 0.04, distortionStrength: 0.5
+        // No VR Box optical measurements are available yet. Keep the default
+        // neutral so an uncalibrated headset never bends the scene.
+        distortionK1: 0.18, distortionK2: 0.04, distortionStrength: 0
     )
 
     /// New measured presets can be added here without changing the renderer.

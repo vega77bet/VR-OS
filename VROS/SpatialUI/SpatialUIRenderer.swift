@@ -376,8 +376,7 @@ private final class SpatialGlyphAtlas {
                 // Fixed cell, natural glyph advance. Baselines are shared across the atlas.
                 string.draw(at: CGPoint(x: x, y: y + 15), withAttributes: attributes)
                 let advance = Float(string.size(withAttributes: attributes).width) / 80
-                glyphMap[character] = Glyph(uv: SIMD4(Float(x) / 2048, Float(y) / 2048,
-                                                    Float(x + cell) / 2048, Float(y + cell) / 2048), advance: advance)
+                glyphMap[character] = Glyph(uv: Self.insetUV(x: x, y: y, cell: cell, side: side), advance: advance)
                 index += 1
             }
             for name in names {
@@ -392,8 +391,7 @@ private final class SpatialGlyphAtlas {
                                            y: CGFloat(y) + (128 - size.height) / 2,
                                            width: size.width, height: size.height))
                 }
-                symbolMap[name] = SIMD4(Float(x) / 2048, Float(y) / 2048,
-                                       Float(x + cell) / 2048, Float(y + cell) / 2048)
+                symbolMap[name] = Self.insetUV(x: x, y: y, cell: cell, side: side)
                 index += 1
             }
             assert(index <= 256, "Fixed atlas must remain bounded")
@@ -423,6 +421,15 @@ private final class SpatialGlyphAtlas {
         self.texture = texture
         glyphs = glyphMap
         symbols = symbolMap
+    }
+    private static func insetUV(x: Int, y: Int, cell: Int, side: Int) -> SIMD4<Float> {
+        // Sampling a full cell lets linear filtering read the neighbouring
+        // glyph. A small gutter removes shimmering/ghost strokes in motion.
+        let inset: Float = 2
+        return SIMD4((Float(x) + inset) / Float(side),
+                     (Float(y) + inset) / Float(side),
+                     (Float(x + cell) - inset) / Float(side),
+                     (Float(y + cell) - inset) / Float(side))
     }
     func glyph(_ character: Character) -> Glyph { glyphs[character] ?? glyphs["?"]! }
     func symbol(_ name: String) -> SIMD4<Float> { symbols[name] ?? symbols["square"]! }
