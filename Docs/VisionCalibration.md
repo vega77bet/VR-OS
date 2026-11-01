@@ -107,8 +107,13 @@ dos uniforms e os passes SBS reais quando Metal está disponível. O workflow
 não assinado e precisa ser assinado pelo Sideloadly/AltStore com uma conta
 válida antes da instalação.
 
-Validação CI registrada em 1 de novembro de 2026: [run 41269088259](https://github.com/vega77bet/VR-OS/actions/runs/41269088259).
-O run compilou o target iOS para dispositivo sem assinatura, executou 92 testes
-macOS e 51 casos iOS/Metal descobertos no simulador, todos sem falhas, exportou as capturas GPU e publicou
-`VROS-unsigned.ipa` como o único arquivo do artefato. Não houve teste físico no
-iPhone 15 ou no VR Box neste ambiente.
+Validação CI registrada em 1 de novembro de 2026: [run 41271163321](https://github.com/vega77bet/VR-OS/actions/runs/41271163321).
+O run compilou o target iOS para dispositivo sem assinatura e executou 92 testes
+macOS sem falhas. No simulador iOS, os logs registraram 55 casos explicitamente
+concluídos sem falhas (6 de calibração, 12 de controles, 4 de Metal, 1 de captura
+do Home, 31 de interação e 1 caso de renderização do atlas). A suíte
+`SpatialMetalTests` não imprimiu uma linha agregada final antes da etapa seguinte,
+portanto esse detalhe permanece registrado em vez de ser contado como uma suíte
+completa. O run exportou a captura GPU e publicou `VROS-unsigned.ipa` como o
+único arquivo do artefato. Não houve teste físico no iPhone 15 ou no VR Box neste
+ambiente.
