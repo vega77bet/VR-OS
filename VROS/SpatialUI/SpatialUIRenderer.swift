@@ -242,7 +242,7 @@ final class SpatialUIRenderer {
                 ring(center: centerWorld, right: right, up: up, radius: radius, width: 0.0035,
                      fraction: 1, color: guideColor)
             }
-            for position in [-0.25, -0.125, 0, 0.125, 0.25] {
+            for position in [Float(-0.25), -0.125, 0, 0.125, 0.25] {
                 guideLine(center: SIMD3(position, center.y, center.z), horizontal: false,
                           halfLength: 0.28, width: 0.0025, color: guideColor, window: window)
                 guideLine(center: SIMD3(center.x, center.y + position, center.z), horizontal: true,

@@ -214,9 +214,9 @@ final class VRCalibrationManager: ObservableObject {
 
     private static func migrate(_ value: VRLensProfile, sourceVersion: Int) -> VRLensProfile {
         var result = value
-        if sourceVersion <= 2, result.id == genericVRBox.id,
+        if sourceVersion <= 2, result.id == VRLensProfile.genericVRBox.id,
            abs(result.distortionStrength - 0.5) < 0.0001 {
-            result.distortionStrength = genericVRBox.distortionStrength
+            result.distortionStrength = VRLensProfile.genericVRBox.distortionStrength
         }
         return result
     }
