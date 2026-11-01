@@ -144,7 +144,7 @@ final class VRRenderer: NSObject, MTKViewDelegate {
             let projection = StereoCamera.projection(
                 verticalFOVDegrees: profile.verticalFOVDegrees,
                 aspect: Float(range.count) / Float(view.drawableSize.height),
-                centerX: eye == .left ? profile.leftCenterX : profile.rightCenterX)
+                centerX: eye == .left ? profile.leftProjectionCenterX : profile.rightProjectionCenterX)
             var camera = SceneUniforms(viewProjection: projection * StereoCamera.viewMatrix(
                 eye, orientation: pose, ipdMeters: profile.ipdMeters))
             encoder.setVertexBytes(&camera, length: MemoryLayout<SceneUniforms>.stride, index: 1)

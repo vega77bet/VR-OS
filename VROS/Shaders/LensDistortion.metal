@@ -4,12 +4,17 @@ using namespace metal;
 struct LensVarying { float4 position [[position]]; float2 uv; };
 struct LensUniforms {
     float2 center;
-    float scale;
+    float2 imageOffset;
+    float2 imageScale;
+    float2 tangential;
+    float rotationRadians;
     float aspect;
-    float k1;
-    float k2;
-    float strength;
-    float padding;
+    float radialK1;
+    float radialK2;
+    float radialK3;
+    float distortionStrength;
+    float chromaticRedScale;
+    float chromaticBlueScale;
 };
 
 vertex LensVarying lensVertex(uint id [[vertex_id]]) {
@@ -21,17 +26,43 @@ vertex LensVarying lensVertex(uint id [[vertex_id]]) {
     return out;
 }
 
+inline float2 mapLensUV(float2 normalized, constant LensUniforms& lens, float chromaticScale) {
+    float x = normalized.x;
+    float y = normalized.y;
+    float r2 = dot(normalized, normalized);
+    float radial = 1 + lens.distortionStrength *
+        (lens.radialK1 * r2 + lens.radialK2 * r2 * r2 + lens.radialK3 * r2 * r2 * r2);
+    float p1 = lens.tangential.x;
+    float p2 = lens.tangential.y;
+    float tx = 2 * p1 * x * y + p2 * (r2 + 2 * x * x);
+    float ty = p1 * (r2 + 2 * y * y) + 2 * p2 * x * y;
+    float2 corrected = float2((x * radial + tx) * chromaticScale,
+                              (y * radial + ty) * chromaticScale);
+    return lens.center + float2(corrected.x / (2 * lens.aspect), corrected.y / 2);
+}
+
 fragment float4 lensFragment(LensVarying in [[stage_in]],
                              constant LensUniforms& lens [[buffer(0)]],
                              texture2d<float> source [[texture(0)]]) {
-    float2 delta = in.uv - lens.center;
-    float2 radial = 2 * delta * float2(lens.aspect, 1);
-    float radius2 = dot(radial, radial);
-    // Inverse sampling produces a barrel prewarp for typical pincushion VR lenses.
-    // These coefficients are provisional and deliberately user-adjustable.
-    float factor = 1 + lens.strength * (lens.k1 * radius2 + lens.k2 * radius2 * radius2);
-    float2 uv = lens.center + delta * factor / lens.scale;
-    if (any(uv < 0) || any(uv > 1)) return float4(0, 0, 0, 1);
+    float2 delta = in.uv - lens.center - lens.imageOffset;
+    float c = cos(-lens.rotationRadians);
+    float s = sin(-lens.rotationRadians);
+    delta = float2(c * delta.x - s * delta.y, s * delta.x + c * delta.y);
+    delta /= max(lens.imageScale, float2(0.001));
+    float2 normalized = 2 * delta * float2(lens.aspect, 1);
+    // Inverse sampling: each output pixel asks for its source coordinate. This
+    // avoids holes and keeps the two eye textures completely independent.
+    float2 uv = mapLensUV(normalized, lens, 1);
+    float2 redUV = mapLensUV(normalized, lens, lens.chromaticRedScale);
+    float2 blueUV = mapLensUV(normalized, lens, lens.chromaticBlueScale);
+    if (any(uv < 0) || any(uv > 1) || any(redUV < 0) || any(redUV > 1) ||
+        any(blueUV < 0) || any(blueUV > 1)) return float4(0, 0, 0, 1);
     constexpr sampler linearSampler(coord::normalized, address::clamp_to_edge, filter::linear);
-    return float4(source.sample(linearSampler, uv).rgb, 1);
+    float4 greenSample = source.sample(linearSampler, uv);
+    if (lens.chromaticRedScale == 1 && lens.chromaticBlueScale == 1) {
+        return float4(greenSample.rgb, 1);
+    }
+    float4 redSample = source.sample(linearSampler, redUV);
+    float4 blueSample = source.sample(linearSampler, blueUV);
+    return float4(redSample.r, greenSample.g, blueSample.b, 1);
 }

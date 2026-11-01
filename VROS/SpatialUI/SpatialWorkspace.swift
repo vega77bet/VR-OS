@@ -16,6 +16,9 @@ struct SpatialWorkspace {
     private var batteryText = "Bateria indisponível"
     private var controlText = "Automático · mira da cabeça"
     private var opticalText = "Perfil de lentes provisório"
+    private var visionStage: VisionCalibrationStage = .preparation
+    private var visionEye: VisionCalibrationEye = .left
+    private var visionChangeText = "Use a mira para ajustar"
     private enum AppPanelMode { case destination, controls, calibration }
     private var appPanelMode = AppPanelMode.destination
     private var transitions: [String: WindowTransition] = [:]
@@ -75,6 +78,13 @@ struct SpatialWorkspace {
     mutating func setOpticalSummary(_ text: String) {
         guard opticalText != text else { return }
         opticalText = text; rebuildContent()
+    }
+
+    mutating func setVisionState(stage: VisionCalibrationStage, eye: VisionCalibrationEye,
+                                 change: String) {
+        guard visionStage != stage || visionEye != eye || visionChangeText != change else { return }
+        visionStage = stage; visionEye = eye; visionChangeText = change
+        rebuildContent()
     }
 
     mutating func perform(_ action: SpatialAction, headPose: simd_quatf, at time: TimeInterval) {
@@ -164,6 +174,11 @@ struct SpatialWorkspace {
              .adjustDwell, .adjustSensitivity, .adjustOptics, .resetOptics:
             // Routed by the native app coordinator; do not pretend an external
             // system settings or Bluetooth operation happened in this model.
+            break
+        case .visionEye(let eye): visionEye = eye
+        case .visionStage(let raw): visionStage = VisionCalibrationStage(rawValue: raw) ?? visionStage
+        case .visionAdjust, .visionIPD, .visionProjectionCenter, .visionUndo, .visionRestoreStage, .visionRestoreAll,
+             .visionCompare, .visionSave, .visionCancel:
             break
         }
         switch action {
@@ -344,9 +359,14 @@ struct SpatialWorkspace {
             case "app":
                 switch appPanelMode {
                 case .destination: windows[index].title = activeApp.title; windows[index].size = SIMD2(2.15, 1.25)
-                case .controls: windows[index].title = "Controles"; windows[index].size = SIMD2(2.15, 1.8)
-                case .calibration: windows[index].title = "Calibração"; windows[index].size = SIMD2(2.15, 1.75)
+                case .controls:
+                    windows[index].title = "Controles"; windows[index].size = SIMD2(2.15, 1.8)
+                    windows[index].calibrationStage = nil
+                case .calibration:
+                    windows[index].title = "Calibração"; windows[index].size = SIMD2(2.15, 1.75)
+                    windows[index].calibrationStage = visionStage
                 }
+                if appPanelMode == .destination { windows[index].calibrationStage = nil }
                 windows[index].elements = appElements()
             default: break
             }
@@ -487,22 +507,76 @@ struct SpatialWorkspace {
 
     private func calibrationElements() -> [SpatialElement] {
         var elements = controls("app", width: 2.15, height: 1.75)
-        elements.append(element("opticalSummary", window: "app", x: 0, y: 0.54, w: 1.85, h: 0.13,
-                                title: opticalText, style: .caption))
-        let adjustments: [(String, String, OpticalAdjustment, Float)] = [
-            ("ipdDown", "IPD −", .ipd, -0.001), ("ipdUp", "IPD +", .ipd, 0.001),
-            ("distortionDown", "Distorção −", .distortion, -0.1), ("distortionUp", "Distorção +", .distortion, 0.1),
-            ("resolutionDown", "Resolução −", .renderScale, -0.1), ("resolutionUp", "Resolução +", .renderScale, 0.1),
-            ("distanceDown", "Distância −", .distance, -0.2), ("distanceUp", "Distância +", .distance, 0.2)
-        ]
+        elements.append(element("visionStage", window: "app", x: 0, y: 0.57, w: 1.75, h: 0.14,
+                                title: "\(visionStage.rawValue + 1)/\(VisionCalibrationStage.allCases.count) · \(visionStage.title)", style: .caption))
+        elements.append(element("visionChange", window: "app", x: 0, y: 0.43, w: 1.75, h: 0.10,
+                                title: visionChangeText, style: .caption))
+        elements.append(element("leftEye", window: "app", x: -0.46, y: 0.27, w: 0.82, h: 0.18,
+                                title: "Olho E", symbol: "eye.fill", action: .visionEye(.left), selected: visionEye == .left))
+        elements.append(element("rightEye", window: "app", x: 0.46, y: 0.27, w: 0.82, h: 0.18,
+                                title: "Olho D", symbol: "eye.fill", action: .visionEye(.right), selected: visionEye == .right))
+        let adjustments = visionAdjustments()
         for (index, entry) in adjustments.enumerated() {
-            elements.append(element(entry.0, window: "app", x: index % 2 == 0 ? -0.49 : 0.49,
-                                    y: 0.33 - Float(index / 2) * 0.27, w: 0.88, h: 0.22,
-                                    title: entry.1, symbol: index % 2 == 0 ? "minus" : "plus",
-                                    action: .adjustOptics(entry.2, entry.3)))
+            elements.append(element(entry.id, window: "app", x: index % 2 == 0 ? -0.49 : 0.49,
+                                    y: 0.04 - Float(index / 2) * 0.23, w: 0.88, h: 0.19,
+                                    title: entry.title, symbol: entry.symbol, action: entry.action))
         }
-        elements.append(element("restoreOptics", window: "app", x: 0, y: -0.73, w: 1.1, h: 0.18,
-                                title: "Restaurar lentes", symbol: "arrow.counterclockwise", action: .resetOptics))
+        elements.append(element("visionPrevious", window: "app", x: -0.66, y: -0.72, w: 0.42, h: 0.17,
+                                title: "Voltar", symbol: "chevron.left",
+                                action: .visionStage(max(0, visionStage.rawValue - 1))))
+        elements.append(element("visionNext", window: "app", x: -0.22, y: -0.72, w: 0.42, h: 0.17,
+                                title: "Avançar", symbol: "chevron.right",
+                                action: .visionStage(min(VisionCalibrationStage.allCases.count - 1, visionStage.rawValue + 1))))
+        elements.append(element("visionUndo", window: "app", x: 0.22, y: -0.72, w: 0.42, h: 0.17,
+                                title: "Desfazer", symbol: "arrow.uturn.backward", action: .visionUndo))
+        elements.append(element("visionReset", window: "app", x: 0.66, y: -0.72, w: 0.42, h: 0.17,
+                                title: "Padrão", symbol: "arrow.counterclockwise", action: .visionRestoreAll))
         return elements
+    }
+
+    private func visionAdjustments() -> [(id: String, title: String, symbol: String, action: SpatialAction)] {
+        let eye = visionEye
+        switch visionStage {
+        case .preparation:
+            return [("start", "Começar", "play.fill", .visionStage(VisionCalibrationStage.leftAlignment.rawValue)),
+                    ("continue", "Continuar", "arrow.right", .visionStage(VisionCalibrationStage.leftAlignment.rawValue))]
+        case .leftAlignment, .rightAlignment, .fusion:
+            return [("left", "Imagem ←", "arrow.left", .visionAdjust(eye, .horizontalOffset, -0.001)),
+                    ("right", "Imagem →", "arrow.right", .visionAdjust(eye, .horizontalOffset, 0.001)),
+                    ("up", "Imagem ↑", "arrow.up", .visionAdjust(eye, .verticalOffset, -0.001)),
+                    ("down", "Imagem ↓", "arrow.down", .visionAdjust(eye, .verticalOffset, 0.001)),
+                    ("ipdDown", "IPD −", "minus", .visionIPD(-0.0005)),
+                    ("ipdUp", "IPD +", "plus", .visionIPD(0.0005))]
+        case .scale:
+            return [("smaller", "Menor", "minus.magnifyingglass", .visionAdjust(eye, .horizontalScale, -0.002)),
+                    ("larger", "Maior", "plus.magnifyingglass", .visionAdjust(eye, .horizontalScale, 0.002)),
+                    ("rotateL", "Girar −", "rotate.left", .visionAdjust(eye, .rotationDegrees, -0.05)),
+                    ("rotateR", "Girar +", "rotate.right", .visionAdjust(eye, .rotationDegrees, 0.05))]
+        case .opticalCenter:
+            return [("centerL", "Centro ←", "arrow.left", .visionAdjust(eye, .opticalCenterX, -0.002)),
+                    ("centerR", "Centro →", "arrow.right", .visionAdjust(eye, .opticalCenterX, 0.002)),
+                    ("centerU", "Centro ↑", "arrow.up", .visionAdjust(eye, .opticalCenterY, -0.002)),
+                    ("centerD", "Centro ↓", "arrow.down", .visionAdjust(eye, .opticalCenterY, 0.002)),
+                    ("projectionL", "Projeção ←", "arrow.left", .visionProjectionCenter(eye, -0.002)),
+                    ("projectionR", "Projeção →", "arrow.right", .visionProjectionCenter(eye, 0.002))]
+        case .distortion:
+            return [("warpDown", "Menos lente", "minus", .visionAdjust(eye, .distortionStrength, -0.02)),
+                    ("warpUp", "Mais lente", "plus", .visionAdjust(eye, .distortionStrength, 0.02)),
+                    ("k1Down", "K1 −", "minus", .visionAdjust(eye, .radialK1, -0.005)),
+                    ("k1Up", "K1 +", "plus", .visionAdjust(eye, .radialK1, 0.005))]
+        case .chromatic:
+            return [("redDown", "Vermelho −", "minus", .visionAdjust(eye, .chromaticRedScale, -0.001)),
+                    ("redUp", "Vermelho +", "plus", .visionAdjust(eye, .chromaticRedScale, 0.001)),
+                    ("blueDown", "Azul −", "minus", .visionAdjust(eye, .chromaticBlueScale, -0.001)),
+                    ("blueUp", "Azul +", "plus", .visionAdjust(eye, .chromaticBlueScale, 0.001))]
+        case .readability:
+            return [("next", "Testar texto", "textformat", .visionStage(VisionCalibrationStage.validation.rawValue)),
+                    ("neutral", "Restaurar olho", "arrow.counterclockwise", .visionRestoreStage)]
+        case .validation:
+            return [("compare", "Antes / depois", "rectangle.split.2x1", .visionCompare),
+                    ("save", "Salvar", "checkmark", .visionSave),
+                    ("cancel", "Descartar", "xmark", .visionCancel),
+                    ("restore", "Padrão", "arrow.counterclockwise", .visionRestoreAll)]
+        }
     }
 }

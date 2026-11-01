@@ -125,6 +125,9 @@ final class SpatialUIRenderer {
         rounded(center: .zero, size: window.size - SIMD2(repeating: 0.006),
                 radius: max(0, window.cornerRadius - 0.003), z: 0.0005,
                 color: SIMD4(0.028, 0.038, 0.055, alpha * 0.94), window: window)
+        if let stage = window.calibrationStage {
+            appendCalibrationGuide(stage: stage, window: window, alpha: alpha)
+        }
         if !window.title.isEmpty {
             text(window.title, center: SIMD2(0, window.size.y / 2 - 0.105),
                  maxSize: SIMD2(max(0.1, window.size.x - 0.35), 0.11), height: 0.085,
@@ -188,6 +191,96 @@ final class SpatialUIRenderer {
                      color: tint, z: 0.011, window: window)
             }
         }
+    }
+
+    /// Geometric calibration targets are part of the same world-space mesh as
+    /// the controls. They therefore receive both eye projections and the same
+    /// final optical compositor as every other VR-OS surface.
+    private func appendCalibrationGuide(stage: VisionCalibrationStage,
+                                        window: SpatialWindow, alpha: Float) {
+        let center = SIMD3<Float>(0, -0.13, SpatialGeometry.elementDepth - 0.001)
+        let guideColor = SIMD4<Float>(0.42, 0.78, 1.0, alpha * 0.52)
+        let bright = SIMD4<Float>(0.82, 0.94, 1.0, alpha * 0.88)
+        let centerWorld = world(center, window)
+        let right = simd_normalize(window.orientation.act(SIMD3<Float>(1, 0, 0)))
+        let up = simd_normalize(window.orientation.act(SIMD3<Float>(0, 1, 0)))
+        switch stage {
+        case .preparation, .readability:
+            return
+        case .leftAlignment, .rightAlignment:
+            ring(center: centerWorld, right: right, up: up, radius: 0.20, width: 0.006,
+                 fraction: 1, color: guideColor)
+            ring(center: centerWorld, right: right, up: up, radius: 0.075, width: 0.004,
+                 fraction: 1, color: bright)
+            guideLine(center: center, horizontal: true, halfLength: 0.29, width: 0.004,
+                      color: bright, window: window)
+            guideLine(center: center, horizontal: false, halfLength: 0.29, width: 0.004,
+                      color: bright, window: window)
+        case .fusion:
+            // The square and circle give the visual system two independent
+            // contours without forcing the scene's legitimate stereo depth to
+            // zero. The target remains a real panel surface.
+            outlineSquare(center: center, halfSide: 0.18, width: 0.006,
+                          color: guideColor, window: window)
+            ring(center: centerWorld, right: right, up: up, radius: 0.12, width: 0.006,
+                 fraction: 1, color: bright)
+            guideLine(center: center, horizontal: true, halfLength: 0.29, width: 0.003,
+                      color: guideColor, window: window)
+            guideLine(center: center, horizontal: false, halfLength: 0.29, width: 0.003,
+                      color: guideColor, window: window)
+        case .scale, .opticalCenter:
+            ring(center: centerWorld, right: right, up: up, radius: 0.20, width: 0.004,
+                 fraction: 1, color: guideColor)
+            ring(center: centerWorld, right: right, up: up, radius: 0.10, width: 0.004,
+                 fraction: 1, color: bright)
+            guideLine(center: center, horizontal: true, halfLength: 0.28, width: 0.003,
+                      color: guideColor, window: window)
+            guideLine(center: center, horizontal: false, halfLength: 0.28, width: 0.003,
+                      color: guideColor, window: window)
+        case .distortion:
+            for radius in [Float(0.08), 0.16, 0.24] {
+                ring(center: centerWorld, right: right, up: up, radius: radius, width: 0.0035,
+                     fraction: 1, color: guideColor)
+            }
+            for position in [-0.25, -0.125, 0, 0.125, 0.25] {
+                guideLine(center: SIMD3(position, center.y, center.z), horizontal: false,
+                          halfLength: 0.28, width: 0.0025, color: guideColor, window: window)
+                guideLine(center: SIMD3(center.x, center.y + position, center.z), horizontal: true,
+                          halfLength: 0.28, width: 0.0025, color: guideColor, window: window)
+            }
+        case .chromatic:
+            ring(center: centerWorld, right: right, up: up, radius: 0.21, width: 0.005,
+                 fraction: 1, color: SIMD4(1, 0.35, 0.35, alpha * 0.65))
+            ring(center: centerWorld, right: right, up: up, radius: 0.18, width: 0.005,
+                 fraction: 1, color: SIMD4(0.35, 0.55, 1, alpha * 0.65))
+        case .validation:
+            outlineSquare(center: center, halfSide: 0.24, width: 0.004,
+                          color: guideColor, window: window)
+            ring(center: centerWorld, right: right, up: up, radius: 0.11, width: 0.004,
+                 fraction: 1, color: bright)
+        }
+    }
+
+    private func guideLine(center: SIMD3<Float>, horizontal: Bool, halfLength: Float,
+                           width: Float, color: SIMD4<Float>, window: SpatialWindow) {
+        let along = horizontal ? SIMD3(halfLength, 0, 0) : SIMD3(0, halfLength, 0)
+        let perpendicular = horizontal ? SIMD3(0, width * 0.5, 0) : SIMD3(width * 0.5, 0, 0)
+        quad(world(center - along - perpendicular, window),
+             world(center + along - perpendicular, window),
+             world(center + along + perpendicular, window),
+             world(center - along + perpendicular, window), color: color)
+    }
+
+    private func outlineSquare(center: SIMD3<Float>, halfSide: Float, width: Float,
+                               color: SIMD4<Float>, window: SpatialWindow) {
+        guideLine(center: SIMD3(center.x, center.y + halfSide, center.z), horizontal: true,
+                  halfLength: halfSide, width: width, color: color, window: window)
+        guideLine(center: SIMD3(center.x, center.y - halfSide, center.z), horizontal: true,
+                  halfLength: halfSide, width: width, color: color, window: window)
+        guideLine(center: SIMD3(center.x - halfSide, center.y, center.z), horizontal: false,
+                  halfLength: halfSide, width: width, color: color, window: window)
+        guideLine(center: SIMD3(center.x + halfSide, center.y, center.z), horizontal: false,
+                  halfLength: halfSide, width: width, color: color, window: window)
     }
 
     private func rounded(center: SIMD2<Float>, size: SIMD2<Float>, radius: Float,
@@ -360,7 +453,8 @@ private final class SpatialGlyphAtlas {
             "power", "battery.100", "clock", "chevron.left", "chevron.right", "arrow.left", "arrow.right",
             "arrow.up.left.and.arrow.down.right", "rectangle.3.group", "checkmark", "arrow.clockwise",
             "scope", "eye.fill", "chevron.up", "chevron.down", "minus.magnifyingglass", "plus.magnifyingglass",
-            "rectangle.portrait.and.arrow.right", "cursorarrow.rays"
+            "rectangle.portrait.and.arrow.right", "cursorarrow.rays", "rotate.left", "rotate.right",
+            "textformat", "rectangle.split.2x1"
         ])).sorted()
         var glyphMap: [Character: Glyph] = [:]
         var symbolMap: [String: SIMD4<Float>] = [:]

@@ -34,6 +34,11 @@ enum SpatialAction: Equatable {
     case close(String), recover(String), resetLayout, scroll(Int), setDistance(Float)
     case cycleInputMode, cyclePointerMode, nextController, recenterPointer
     case adjustDwell(Double), adjustSensitivity(Float), adjustOptics(OpticalAdjustment, Float), resetOptics
+    case visionEye(VisionCalibrationEye), visionStage(Int)
+    case visionAdjust(VisionCalibrationEye, VisionCalibrationParameter, Float)
+    case visionIPD(Float), visionProjectionCenter(VisionCalibrationEye, Float)
+    case visionUndo, visionRestoreStage, visionRestoreAll
+    case visionCompare, visionSave, visionCancel
 }
 
 enum OpticalAdjustment: String { case ipd, distortion, renderScale, distance }
@@ -65,6 +70,9 @@ struct SpatialWindow {
     var isOpen: Bool = true
     var opacity: Float = 1
     var isFocused: Bool = false
+    /// Optional guide drawn by the Vision Calibration window. It remains in
+    /// world space and is still passed through each eye's real compositor.
+    var calibrationStage: VisionCalibrationStage? = nil
 }
 
 struct SpatialRay {

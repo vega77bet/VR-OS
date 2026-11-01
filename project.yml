@@ -53,7 +53,9 @@ targets:
       - path: VROS/Core/Tracking/RecenterManager.swift
       - path: VROS/Core/Rendering/StereoCamera.swift
       - path: VROS/Core/Calibration/VRLensProfile.swift
+      - path: VROS/Core/Calibration/VisionCalibrationProfile.swift
       - path: VROS/Core/Calibration/VRCalibrationManager.swift
+      - path: VROS/Core/Calibration/VisionCalibrationSession.swift
       - path: VROS/Scenes/VRTestScene.swift
       - path: VROS/SpatialUI/SpatialTypes.swift
       - path: VROS/SpatialUI/SpatialWorkspace.swift
@@ -83,6 +85,7 @@ targets:
       - path: Tests/SpatialWorkspaceTests.swift
       - path: Tests/ControllerInputTests.swift
       - path: Tests/SpatialInteractionTests.swift
+      - path: Tests/VisionCalibrationTests.swift
     dependencies:
       - target: VROSMathCore
     settings:

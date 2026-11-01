@@ -2,7 +2,8 @@ import UIKit
 import MetalKit
 import Combine
 
-/// Owns sensor/display lifetime. Inactive scenes and calibration pause both.
+/// Owns sensor/display lifetime. Controller setup pauses presentation; the
+/// vision wizard keeps the real compositor alive for live optical preview.
 /// Future Bluetooth commands can call `tracking.recenter()` on the main actor.
 @MainActor
 final class AppLifecycleManager: ObservableObject {

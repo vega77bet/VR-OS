@@ -72,11 +72,11 @@ jobs:
           if [ -d build/simulator/Build/Products/Debug-iphonesimulator/VROS.app ]; then
             codesign -dv build/simulator/Build/Products/Debug-iphonesimulator/VROS.app
           fi
-      - name: Upload only the IPA
+      - name: Upload unsigned IPA only
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: VR-OS-IPA-${{ github.run_number }}
+          name: VROS-vision-calibration-unsigned-ipa
           path: build/VROS-unsigned.ipa
           if-no-files-found: error
           retention-days: 14

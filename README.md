@@ -29,7 +29,7 @@ xcodebuild -project VROS.xcodeproj -scheme VROS \
   -destination 'platform=iOS Simulator,name=iPhone 16 Pro' test
 ```
 
-O [workflow](.github/workflows/ios.yml) usa `macos-15-intel`, compila para iPhone e executa ambas as suítes. Preserva `.xcresult`, projeto Xcode, `.app` sem assinatura e anexos dos testes. Capturas GPU são renderizações reais anteriores à correção das lentes; não avaliam conforto óptico. [Resultados efetivamente executados](Docs/Stage2Validation.md).
+O [workflow](.github/workflows/ios.yml) usa `macos-15-intel`, compila para iPhone e executa ambas as suítes. O artefato público contém somente `VROS-unsigned.ipa`; relatórios e projetos ficam no workspace efêmero do runner. Sem assinatura Apple, o IPA precisa ser assinado no Sideloadly/AltStore. [Resultados efetivamente executados](Docs/Stage2Validation.md).
 
 ## Usar
 
@@ -40,6 +40,17 @@ O [workflow](.github/workflows/ios.yml) usa `macos-15-intel`, compila para iPhon
 5. **Menu** no Home ou Menu/+ equivalente abre o menu rápido: Home, aplicativos, recenter, controles, calibração, informações e saída do visor.
 6. Ajustes → Controles e Calibração são painéis espaciais operáveis no visor. Remapeamento completo e lentes avançadas ficam na preparação nativa.
 7. O alvo de cada janela recupera a posição; X fecha. **Restaurar layout** recupera o conjunto. Recenter traz a interface para a direção atual sem girar o cenário ou modificar o tracking.
+
+### Vision Calibration
+
+Em **Ajustes → Calibração** está disponível o assistente `VR-OS Vision Calibration`.
+Ele atua no compositor Metal real, por olho, com deslocamento X/Y, escala,
+rotação, centro óptico, centro de projeção, IPD virtual, distorção radial e
+tangencial, compensação cromática e teste de legibilidade. A mira de cabeça é
+suficiente para navegar; Joy-Cons são opcionais. As alterações têm preview
+imediato, desfazer, comparação antes/depois, cancelamento, perfis persistentes e
+restauração segura. A arquitetura e a matemática estão em
+[Docs/VisionCalibration.md](Docs/VisionCalibration.md).
 
 ## Joy-Cons
 
@@ -55,6 +66,7 @@ Pareie em **Ajustes → Bluetooth do iPhone**, usando SYNC. O VR-OS enumera some
 | Pasta | Responsabilidade |
 | --- | --- |
 | `App/`, `Core/` | Ciclo de vida, tracking, estéreo, lentes e métricas |
+| `Core/Calibration/` | Perfis, matemática, sessão transacional e preview óptico por olho |
 | `Environment/` | Observatório procedural 360°, horizonte, piso e decoração |
 | `SpatialUI/` | Geometria compartilhada, janelas, workspace e UI Metal |
 | `Home/` | Ações, relógio, bateria, status e frame único para os olhos |

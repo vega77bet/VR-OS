@@ -34,7 +34,7 @@ private struct VRRootView: View {
                     Spacer()
                     HStack(spacing: 18) {
                         Button("Centralizar Home") { session.spatial.recenter() }
-                        Button("Calibrar lentes") { calibrating = true }
+                        Button("Calibrar visão") { calibrating = true }
                         Button("Controles") { configuringControllers = true }
                         Button("Entrar no visor") { controlsVisible = false }
                     }
@@ -50,7 +50,7 @@ private struct VRRootView: View {
         }
         .statusBarHidden()
         .persistentSystemOverlays(.hidden)
-        .sheet(isPresented: $calibrating) { CalibrationView(manager: session.calibration) }
+        .sheet(isPresented: $calibrating) { VisionCalibrationView(manager: session.calibration) }
         .sheet(isPresented: $configuringControllers) {
             ControllerSettingsView(manager: session.spatial.controllers, preferences: session.spatial.preferences)
         }
@@ -61,8 +61,10 @@ private struct VRRootView: View {
         }
         .onChange(of: controlsVisible) { _, visible in session.spatial.interactionEnabled = !visible }
         .onChange(of: scenePhase) { _, phase in session.setActive(phase == .active) }
-        .onChange(of: calibrating) { _, presented in session.setPresentationPaused(presented || configuringControllers) }
-        .onChange(of: configuringControllers) { _, presented in session.setPresentationPaused(presented || calibrating) }
+        // Keep Metal running while the vision wizard is open so every edit is
+        // visible in the actual binocular compositor behind the preparation UI.
+        .onChange(of: calibrating) { _, _ in session.setPresentationPaused(configuringControllers) }
+        .onChange(of: configuringControllers) { _, presented in session.setPresentationPaused(presented) }
         .onDisappear { session.setActive(false) }
     }
 }

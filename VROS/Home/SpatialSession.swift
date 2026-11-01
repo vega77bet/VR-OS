@@ -17,6 +17,11 @@ final class SpatialSession: ObservableObject {
     private var lastSummary = -Double.infinity
     private var metrics = FrameMetrics()
     private var appliedDistance: Float = 0
+    /// The spatial calibration panel and the native SwiftUI wizard share the
+    /// same transactional model. Keeping the session here means that pointer
+    /// and Joy-Con edits are applied to the live compositor and can still be
+    /// cancelled or undone as one transaction.
+    private var visionSession: VisionCalibrationSession?
     private let clockFormatter: DateFormatter
     private let dateFormatter: DateFormatter
     private var active = false
@@ -140,6 +145,10 @@ final class SpatialSession: ObservableObject {
     }
 
     private func perform(_ action: SpatialAction, at time: Double, calibration: VRCalibrationManager) {
+        if case .calibration = action, visionSession == nil {
+            visionSession = VisionCalibrationSession(manager: calibration)
+            syncVisionWorkspace()
+        }
         switch action {
         case .recenter: recenter(at: time); return
         case .recenterPointer:
@@ -171,9 +180,62 @@ final class SpatialSession: ObservableObject {
             }
         case .resetOptics: calibration.resetDefaults()
         case .exitImmersive: exitRequests += 1
+        case .visionEye(let eye):
+            visionSession?.selectEye(eye)
+            syncVisionWorkspace()
+        case .visionStage(let raw):
+            if let stage = VisionCalibrationStage(rawValue: raw) {
+                visionSession?.stage = stage
+                if stage == .leftAlignment { visionSession?.selectEye(.left) }
+                if stage == .rightAlignment { visionSession?.selectEye(.right) }
+                syncVisionWorkspace()
+            }
+        case .visionAdjust(let eye, let parameter, let delta):
+            ensureVisionSession(calibration).adjust(parameter, delta: delta, eye: eye)
+            syncVisionWorkspace()
+        case .visionIPD(let delta):
+            ensureVisionSession(calibration).adjustIPD(delta)
+            syncVisionWorkspace()
+        case .visionProjectionCenter(let eye, let delta):
+            ensureVisionSession(calibration).adjustProjectionCenter(eye: eye, delta: delta)
+            syncVisionWorkspace()
+        case .visionUndo:
+            ensureVisionSession(calibration).undo()
+            syncVisionWorkspace()
+        case .visionRestoreStage:
+            ensureVisionSession(calibration).restoreStage()
+            syncVisionWorkspace()
+        case .visionRestoreAll:
+            ensureVisionSession(calibration).restoreAll()
+            syncVisionWorkspace()
+        case .visionCompare:
+            ensureVisionSession(calibration).toggleCompare()
+            syncVisionWorkspace()
+        case .visionSave:
+            ensureVisionSession(calibration).save()
+            workspace.perform(.back, headPose: lastHeadPose, at: time)
+            visionSession = nil
+        case .visionCancel:
+            ensureVisionSession(calibration).cancel()
+            workspace.perform(.back, headPose: lastHeadPose, at: time)
+            visionSession = nil
         default: break
         }
         workspace.perform(action, headPose: lastHeadPose, at: time)
+        if case .calibration = action { syncVisionWorkspace() }
         lastSummary = -.infinity
+    }
+
+    private func ensureVisionSession(_ calibration: VRCalibrationManager) -> VisionCalibrationSession {
+        if let visionSession { return visionSession }
+        let session = VisionCalibrationSession(manager: calibration)
+        visionSession = session
+        return session
+    }
+
+    private func syncVisionWorkspace() {
+        guard let session = visionSession else { return }
+        workspace.setVisionState(stage: session.stage, eye: session.selectedEye,
+                                 change: session.lastChange)
     }
 }
